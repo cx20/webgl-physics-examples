@@ -47,7 +47,7 @@ function initThree() {
     scene = new THREE.Scene();
 
     let loader = new THREE.TextureLoader();
-    let texture = loader.load('../../../../../assets/textures/frog.jpg');  // frog.jpg
+    let texture = loader.load('../../../../assets/textures/frog.jpg');  // frog.jpg
 
     let material = new THREE.MeshBasicMaterial({map: texture});
     let geometryGround = new THREE.BoxGeometry(200, 2, 200);
