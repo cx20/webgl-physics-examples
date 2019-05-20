@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>three.js + Oimo.js Simple Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/104/three.js"></script>
+  <script src="https://rawcdn.githack.com/mrdoob/three.js/r104/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/oimo/1.0.9/oimo.js"></script>
+</head>
+<body>
+<script id="vs" type="x-shader/x-vertex">
+attribute vec3 position;
+
+void main() {
+    gl_Position = vec4(position, 1.0);
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+precision mediump float;
+
+void main() {
+    gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0);
+}
+</script>
+
+<div id="container"></div>
+
+<script src="index.js"></script>
+</body>
+</html>
