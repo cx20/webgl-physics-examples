@@ -28,7 +28,7 @@ var createScene = function(engine) {
 
     engine.runRenderLoop(function () {
         scene.render();
-        scene.activeCamera.alpha += 0.005;
+        scene.activeCamera.alpha -= 0.01;
     });
     return scene;
 }
