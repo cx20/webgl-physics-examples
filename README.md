@@ -15,7 +15,7 @@ Examples of WebGL Physics Library
 
 ## Domino examples
 
-![](assets/screenshot/minimum.png)
+![](assets/screenshot/domino.jpg)
 
 |Library                                                      |[ammo.js](https://github.com/kripken/ammo.js/)                                        |[Cannon.js](https://github.com/schteppe/cannon.js)                                      |[Oimo.js](https://github.com/lo-th/Oimo.js/)                                          |[OimoPhysics](https://github.com/saharan/OimoPhysics)                                      |
 |:------------------------------------------------------------|:-------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------|
