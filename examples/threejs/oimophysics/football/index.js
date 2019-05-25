@@ -68,6 +68,8 @@ function initOimo() {
     
     let groundShapec = new OIMO.ShapeConfig();
     groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(25, 0, 25));
+    groundShapec.friction  = 0.6;
+    groundShapec.restitution  = 0.5;
     let groundBodyc = new OIMO.RigidBodyConfig();
     groundBodyc.type = OIMO.RigidBodyType.STATIC;
     groundBodyc.position = new OIMO.Vec3(0, -5, 0);
@@ -118,6 +120,8 @@ function createBall(x, y, z, w, h, d, mass, color) {
     let geometry, material, mesh, shape;
     let shapec = new OIMO.ShapeConfig();
     shapec.geometry = new OIMO.SphereGeometry(w/2);
+    shapec.friction  = 0.4;
+    shapec.restitution  = 0.6;
     let bodyc = new OIMO.RigidBodyConfig();
     bodyc.type = OIMO.RigidBodyType.DYNAMIC;
     bodyc.position.x = x;
