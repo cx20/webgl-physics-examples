@@ -79,8 +79,8 @@ function initOimo() {
         rot: [0, 0, 0],
         move: false,
         density: 1,
-        friction: 0.5,
-        restitution: 0.1,
+        friction: 0.6,
+        restitution: 0.5,
     });
 }
 
@@ -128,8 +128,8 @@ function createBall(x, y, z, w, h, d, mass, color) {
         rot: [0, 0, 0],
         move: true,
         density: 1,
-        friction: 0.5,
-        restitution: 0.1,
+        friction: 0.4,
+        restitution: 0.6,
     });
 
     geometry = new THREE.SphereGeometry(w/2, 36, 36);
