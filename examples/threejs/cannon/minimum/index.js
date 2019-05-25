@@ -27,8 +27,8 @@ function initCannon() {
     // Create a plane
     let groundBody = new CANNON.Body({
         mass: 0, // mass == 0 makes the body static
-        position: new CANNON.Vec3(0, -40-5, 0),
-        material: groundMaterial
+        //position: new CANNON.Vec3(0, -40-5, 0),
+        //material: groundMaterial
     });
     let groundShape = new CANNON.Box(new CANNON.Vec3(100, 1, 100));
     groundBody.addShape(groundShape);
