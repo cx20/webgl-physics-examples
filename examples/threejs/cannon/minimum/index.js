@@ -27,7 +27,7 @@ function initCannon() {
     // Create a plane
     let groundBody = new CANNON.Body({
         mass: 0, // mass == 0 makes the body static
-        //position: new CANNON.Vec3(0, -40-5, 0),
+        position: new CANNON.Vec3(0, -45, 0),
         //material: groundMaterial
     });
     let groundShape = new CANNON.Box(new CANNON.Vec3(100, 1, 100));
@@ -42,7 +42,6 @@ function initCannon() {
         shape: shape,
         material: groundMaterial
     });
-    //body.angularVelocity.set(0, 0.1, 0.2); 
     body.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 1), Math.PI * 10/180);
     world.addBody(body);
 }
