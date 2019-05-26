@@ -62,8 +62,6 @@ let controls;
 function init() {
     loader = new THREE.TextureLoader();
     texture_grass = loader.load('../../../../assets/textures/grass.jpg');
-    texture_grass.wrapS   = texture_grass.wrapT = THREE.RepeatWrapping;
-    texture_grass.repeat.set( 5, 5 );  
     texture_football = loader.load('../../../../assets/textures/football.png');
 
     let parentElement = document.body;
@@ -113,7 +111,7 @@ function initGround() {
 }
 
 function createGround(w, h, d) {
-    let material = new THREE.MeshLambertMaterial( { color: 0x777777, map: texture_grass } );
+    let material = new THREE.MeshBasicMaterial( { map: texture_grass } );
     let geometry = new THREE.CubeGeometry( w, h, d );
     let mesh = new THREE.Mesh(geometry, material);
     return mesh;
