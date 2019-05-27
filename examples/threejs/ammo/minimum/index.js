@@ -62,6 +62,7 @@ Box.prototype.initBulletObj = function (m) {
 
     let motionState = new Ammo.btDefaultMotionState(startTransform);
     let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
+    rbInfo.set_m_friction(1.0);
     rbInfo.set_m_restitution(0.2);
     let body = new Ammo.btRigidBody(rbInfo);
 
@@ -138,6 +139,7 @@ Plane.prototype.initBulletObj = function (m) {
     let localInertia = new Ammo.btVector3(0, 0, 0);
     let motionState = new Ammo.btDefaultMotionState(startTransform);
     let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
+    rbInfo.set_m_friction(1.0);
     rbInfo.set_m_restitution(0.1);
     let body = new Ammo.btRigidBody(rbInfo);
 
@@ -204,7 +206,7 @@ window.addEventListener("load", function () {
         }
 
         renderer.render(scene, camera);
-        setTimeout(rendering, deltaT);
+        requestAnimationFrame(rendering);
     }
 
     rendering();
