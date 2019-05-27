@@ -133,7 +133,7 @@ let createScene = function() {
         
         objects.push(s);
 
-       y+=10;
+        y+=10;
     }
 
     scene.registerBeforeRender(function() {
@@ -141,6 +141,7 @@ let createScene = function() {
             if (obj.position.y < -100) {
                 obj.position = getPosition(100);
                 obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
+                obj.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
         scene.activeCamera.alpha += 0.005;
