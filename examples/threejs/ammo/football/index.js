@@ -1,4 +1,7 @@
 ﻿let controls;
+let loader;
+let texture_grass;
+let texture_football;
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -77,11 +80,10 @@ Ball.prototype.destructor = function () {
 };
 
 Ball.prototype.initThreeObj = function () {
-    let texture = THREE.ImageUtils.loadTexture('../../../../assets/textures/football.png');
     let geometry = new THREE.SphereGeometry(this.r, 10, 10);
-    let material = new THREE.MeshLambertMaterial({
+    let material = new THREE.MeshBasicMaterial({
         color: Math.round(this.color),
-        map: texture
+        map: texture_football
     });
     let ball = new THREE.Mesh(geometry, material);
     ball.position.x = this.x;
@@ -155,13 +157,10 @@ Plane.prototype.destructor = function () {
 
 Plane.prototype.initThreeObj = function () {
     let s = this.s;
-    let texture = THREE.ImageUtils.loadTexture("../../../../assets/textures/grass.jpg");
-    texture.wrapS   = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set( 20, 20 );  
     let geometry = new THREE.CubeGeometry(s, 1, s);
-    let material = new THREE.MeshLambertMaterial({
+    let material = new THREE.MeshBasicMaterial({
         color: this.color,
-        map: texture
+        map: texture_grass
     });
     ground = new THREE.Mesh(geometry, material);
     ground.position.x = this.x;
@@ -214,6 +213,10 @@ function initPhysicsWorld() {
 }
 
 window.addEventListener("load", function () {
+    loader = new THREE.TextureLoader();
+    texture_grass = loader.load('../../../../assets/textures/grass.jpg');
+    texture_football = loader.load('../../../../assets/textures/football.png');
+
     let width = window.innerWidth;
     let height = window.innerHeight;
     let deltaT = 30;
@@ -221,7 +224,7 @@ window.addEventListener("load", function () {
     let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
     camera.position.x = 0;
     camera.position.y = 20;
-    camera.position.z = 30;
+    camera.position.z = 50;
     camera.lookAt(new THREE.Vector3(0, 0, 0));
 
     scene = new THREE.Scene();
@@ -231,7 +234,7 @@ window.addEventListener("load", function () {
     scene.add(directionalLight);
 
     dynamicsWorld = initPhysicsWorld();
-    let ground = new Plane(0, 0, 0, 500, 0, 0xdddddd);
+    let ground = new Plane(0, 0, 0, 100, 0, 0xdddddd);
     scene.add(ground.threeObj);
     dynamicsWorld.addRigidBody(ground.bulletObj);
 
@@ -255,7 +258,7 @@ window.addEventListener("load", function () {
         }
 
         renderer.render(scene, camera);
-        setTimeout(rendering, deltaT);
+        requestAnimationFrame(rendering);
     }
 
     rendering();

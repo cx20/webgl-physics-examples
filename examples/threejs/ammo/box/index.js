@@ -262,7 +262,7 @@ window.addEventListener("load", function () {
         }
 
         renderer.render(scene, camera);
-        setTimeout(rendering, deltaT);
+        requestAnimationFrame(rendering);
     }
 
     rendering();
