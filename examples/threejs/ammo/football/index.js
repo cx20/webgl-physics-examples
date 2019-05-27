@@ -200,7 +200,7 @@ Plane.prototype.move = function () {
 };
 
 function initPhysicsWorld() {
-    let gravity = new Ammo.btVector3(0, -200, 0);
+    let gravity = new Ammo.btVector3(0, -9.8, 0);
 
     let collisionConfiguration = new Ammo.btDefaultCollisionConfiguration();
     let dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);

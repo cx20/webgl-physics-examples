@@ -164,7 +164,7 @@ Plane.prototype.initThreeObj = function () {
     let s = this.s;
     let texture = THREE.ImageUtils.loadTexture("../../../../assets/textures/grass.jpg");
     texture.wrapS   = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set( 20, 20 );  
+    texture.repeat.set( 5, 5 );  
     let geometry = new THREE.CubeGeometry(s, 1, s);
     let material = new THREE.MeshLambertMaterial({
         color: this.color,
@@ -192,7 +192,7 @@ Plane.prototype.initBulletObj = function (m) {
     let localInertia = new Ammo.btVector3(0, 0, 0);
     let motionState = new Ammo.btDefaultMotionState(startTransform);
     let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
-    rbInfo.set_m_restitution(1);
+    rbInfo.set_m_restitution(0.2);
     let body = new Ammo.btRigidBody(rbInfo);
 
     Ammo.destroy(startTransform);
@@ -207,7 +207,7 @@ Plane.prototype.move = function () {
 };
 
 function initPhysicsWorld() {
-    let gravity = new Ammo.btVector3(0, -200, 0);
+    let gravity = new Ammo.btVector3(0, -9.8, 0);
 
     let collisionConfiguration = new Ammo.btDefaultCollisionConfiguration();
     let dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
@@ -238,7 +238,7 @@ window.addEventListener("load", function () {
     scene.add(directionalLight);
 
     dynamicsWorld = initPhysicsWorld();
-    let ground = new Plane(0, 0, 0, 500, 0, 0xdddddd);
+    let ground = new Plane(0, -10, 0, 100, 0, 0xdddddd);
     scene.add(ground.threeObj);
     dynamicsWorld.addRigidBody(ground.bulletObj);
 
@@ -276,7 +276,7 @@ function createBoxes() {
             i = x + (15 - y) * 16;
             var z = 0;
             let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
-            let y1 = -5  + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
+            let y1 = 0  + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
             let z1 = z * BOX_SIZE * 1 + Math.random() * 0.1;
             let color = getRgbColor( dataSet[y * 16 + x] );
             let w = BOX_SIZE * 1;
