@@ -204,7 +204,6 @@ var camera = new Camera();
 var light = new Light();
 var ground = new Ground();
 var wall = new Wall();
-var ball = new Ball();
 
 // Reset the wall and fire the ball every 4 seconds
 var n = 0;
@@ -212,8 +211,6 @@ setInterval(function () {
   n++;
   if (n % 4 === 0)
     wall.reset();
-  if (n % 4 === 1)
-    ball.fire();
 }, 1000);
 
 // Register an update event to rotate the camera
