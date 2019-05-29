@@ -43,7 +43,7 @@ var dataSet = [
 ];
 
 var texture_grass = getTexture("../../../../assets/textures/grass.jpg");
-var texture_ball = getTexture("../../../../assets/textures/football.jpg");
+var texture_ball = getTexture("../../../../assets/textures/football.png");
 // create a few materials for our objects
 var black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ), texture_ball);
 var white  = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0xff/0xff ), texture_ball);
