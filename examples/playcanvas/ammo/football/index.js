@@ -116,10 +116,10 @@ function Light() {
   light.setPosition(10, 10, 10);
   light.setEulerAngles(45, 45, 0);
   app.context.systems.light.addComponent(light, {
-    type: "spot",
-    intensity: 0.5,
+    type: "directional",
+    color: new pc.Color(1, 1, 1),
     castShadows: true,
-    range: 60
+    shadowResolution: 2048
   });
   app.context.root.addChild(light);
   this.entity = light;
