@@ -1,7 +1,7 @@
-﻿var DOT_SIZE = 0.3;
-var X_START_POS = -7;
-var Y_START_POS =  0;
-var Z_START_POS =  0;
+﻿let DOT_SIZE = 0.3;
+let X_START_POS = -7;
+let Y_START_POS =  0;
+let Z_START_POS =  0;
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
@@ -18,7 +18,7 @@ var Z_START_POS =  0;
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "無","無","無","無","無","無","無","無","無","無","無","無","無","肌","肌","肌",
     "無","無","無","無","無","無","赤","赤","赤","赤","赤","無","無","肌","肌","肌",
     "無","無","無","無","無","赤","赤","赤","赤","赤","赤","赤","赤","赤","肌","肌",
@@ -38,20 +38,20 @@ var dataSet = [
 ];
 
 // create a few materials for our objects
-var black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ));
-var white  = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0xff/0xff ));
-var beige  = createMaterial(new pc.Color( 0xff/0xff, 0xcc/0xff, 0xcc/0xff ));
-var brown  = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x00/0xff ));
-var red    = createMaterial(new pc.Color( 0xff/0xff, 0x00/0xff, 0x00/0xff ));
-var yellow = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0x00/0xff ));
-var green  = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0x00/0xff ));
-var ltblue = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0xff/0xff ));
-var blue   = createMaterial(new pc.Color( 0x00/0xff, 0x00/0xff, 0xff/0xff ));
-var purple = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x80/0xff ));
+let black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ));
+let white  = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0xff/0xff ));
+let beige  = createMaterial(new pc.Color( 0xff/0xff, 0xcc/0xff, 0xcc/0xff ));
+let brown  = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x00/0xff ));
+let red    = createMaterial(new pc.Color( 0xff/0xff, 0x00/0xff, 0x00/0xff ));
+let yellow = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0x00/0xff ));
+let green  = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0x00/0xff ));
+let ltblue = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0xff/0xff ));
+let blue   = createMaterial(new pc.Color( 0x00/0xff, 0x00/0xff, 0xff/0xff ));
+let purple = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x80/0xff ));
 
 function getRgbColor( c )
 {
-    var colorHash = {
+    let colorHash = {
         "無":black,   // 0x000000,
         "白":white,   // 0xffffff,
         "肌":beige,   // 0xffcccc,
@@ -68,8 +68,8 @@ function getRgbColor( c )
 
 
 // Create a PlayCanvas application
-var canvas = document.getElementById("c");
-var app = new pc.fw.Application(canvas, {});
+let canvas = document.getElementById("c");
+let app = new pc.Application(canvas, {});
 app.start();
 
 // Fill the available space at full resolution
@@ -79,7 +79,7 @@ app.setCanvasResolution(pc.fw.ResolutionMode.AUTO);
 app.context.scene.ambientLight = new pc.Color(1, 1, 1);
 
 function createMaterial (color) {
-  var material = new pc.scene.PhongMaterial();
+  let material = new pc.scene.PhongMaterial();
   material.diffuse = color;
   // we need to call material.update when we change its properties
   material.update()
@@ -88,7 +88,7 @@ function createMaterial (color) {
 
 // Create camera entity
 function Camera() {
-  var cam = new pc.fw.Entity();
+  let cam = new pc.Entity();
   app.context.systems.camera.addComponent(cam, {
     clearColor: new pc.Color(0.1, 0.1, 0.1),
     farClip: 20
@@ -101,16 +101,16 @@ function Camera() {
 Camera.prototype.update = function (dt) {
   this.timer += dt;
   // Spin the camera around a center point
-  var x = Math.sin(this.timer * 0.25) * 6;
-  var z = Math.cos(this.timer * 0.25) * 4;
-  var e = this.entity;
+  let x = Math.sin(this.timer * 0.25) * 6;
+  let z = Math.cos(this.timer * 0.25) * 4;
+  let e = this.entity;
   e.setPosition(x, 5, z);
   e.lookAt(0, 3, 0);
 }
 
 // Create spot light entity
 function Light() {
-  var light = new pc.fw.Entity();
+  let light = new pc.Entity();
   light.setPosition(10, 10, 10);
   light.setEulerAngles(45, 45, 0);
   app.context.systems.light.addComponent(light, {
@@ -126,7 +126,7 @@ function Light() {
 
 // Create ground
 function Ground() {
-  var ground = new pc.fw.Entity();
+  let ground = new pc.Entity();
   ground.setPosition(0, -0.5, 0);
   ground.setLocalScale(10, 1, 10);
   app.context.systems.model.addComponent(ground, {
@@ -139,7 +139,7 @@ function Ground() {
     type: "box",
     halfExtents: [5, 0.5, 5]
   });
-  var blue = createMaterial(new pc.Color(0.28, 0.46, 1));
+  let blue = createMaterial(new pc.Color(0.28, 0.46, 1));
   ground.model.model.meshInstances[0].material = blue;
   app.context.root.addChild(ground);
   this.entity = ground;
@@ -149,9 +149,9 @@ function Ground() {
 function Wall() {
   this.bricks = [];
 
-  //for (var i = 0; i < 25; i++) {
-  for (var i = 0; i < dataSet.length; i++) {
-    var body = new pc.fw.Entity();
+  //for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < dataSet.length; i++) {
+    let body = new pc.Entity();
     app.context.systems.model.addComponent(body, {
       type: "box",
       castShadows: true
@@ -173,11 +173,11 @@ function Wall() {
 }
 
 Wall.prototype.reset = function () {
-  for (var i = 0; i < this.bricks.length; i++) {
-    var e = this.bricks[i];
-    var x = (X_START_POS+(i % 16)) * DOT_SIZE;
-    var y = (15-Math.floor( i / 16 )) * DOT_SIZE;
-    var z = 0;
+  for (let i = 0; i < this.bricks.length; i++) {
+    let e = this.bricks[i];
+    let x = (X_START_POS+(i % 16)) * DOT_SIZE;
+    let y = (15-Math.floor( i / 16 )) * DOT_SIZE;
+    let z = 0;
     //e.setPosition(i % 5 - 2, i / 5, 0);
     e.setPosition(x, y, z);
     e.setEulerAngles(0, 0, 0);
@@ -188,7 +188,7 @@ Wall.prototype.reset = function () {
 };
 
 function Ball() {
-  var e = new pc.fw.Entity();
+  let e = new pc.Entity();
   e.setPosition(0, -10, 0);
   app.context.systems.model.addComponent(e, {
     type: "sphere",
@@ -201,14 +201,14 @@ function Ball() {
     type: "sphere",
     radius: 0.5
   });
-  var red = createMaterial(new pc.Color(1, 0.28, 0.28));
+  let red = createMaterial(new pc.Color(1, 0.28, 0.28));
   e.model.model.meshInstances[0].material = red;
   app.context.root.addChild(e);
   this.entity = e;
 }
 
 Ball.prototype.fire = function () {
-  var e = this.entity;
+  let e = this.entity;
   //e.setPosition(0, 2, 5);
   e.setPosition(0, 1, 5);
   e.rigidbody.syncEntityToBody();
@@ -217,14 +217,14 @@ Ball.prototype.fire = function () {
 };
 
 // Create the scene
-var camera = new Camera();
-var light = new Light();
-var ground = new Ground();
-var wall = new Wall();
-var ball = new Ball();
+let camera = new Camera();
+let light = new Light();
+let ground = new Ground();
+let wall = new Wall();
+let ball = new Ball();
 
 // Reset the wall and fire the ball every 4 seconds
-var n = 0;
+let n = 0;
 setInterval(function () {
   n++;
   if (n % 4 === 0)

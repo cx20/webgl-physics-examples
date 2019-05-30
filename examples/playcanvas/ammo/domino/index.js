@@ -1,7 +1,7 @@
-﻿var DOT_SIZE = 16;
-var X_START_POS = -7;
-var Y_START_POS =  0;
-var Z_START_POS = -7;
+﻿let DOT_SIZE = 16;
+let X_START_POS = -7;
+let Y_START_POS =  0;
+let Z_START_POS = -7;
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
@@ -18,7 +18,7 @@ var Z_START_POS = -7;
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "無","無","無","無","無","無","無","無","無","無","無","無","無","肌","肌","肌",
     "無","無","無","無","無","無","赤","赤","赤","赤","赤","無","無","肌","肌","肌",
     "無","無","無","無","無","赤","赤","赤","赤","赤","赤","赤","赤","赤","肌","肌",
@@ -38,20 +38,20 @@ var dataSet = [
 ];
 
 // create a few materials for our objects
-var black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ));
-var white  = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0xff/0xff ));
-var beige  = createMaterial(new pc.Color( 0xff/0xff, 0xcc/0xff, 0xcc/0xff ));
-var brown  = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x00/0xff ));
-var red    = createMaterial(new pc.Color( 0xff/0xff, 0x00/0xff, 0x00/0xff ));
-var yellow = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0x00/0xff ));
-var green  = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0x00/0xff ));
-var ltblue = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0xff/0xff ));
-var blue   = createMaterial(new pc.Color( 0x00/0xff, 0x00/0xff, 0xff/0xff ));
-var purple = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x80/0xff ));
+let black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ));
+let white  = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0xff/0xff ));
+let beige  = createMaterial(new pc.Color( 0xff/0xff, 0xcc/0xff, 0xcc/0xff ));
+let brown  = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x00/0xff ));
+let red    = createMaterial(new pc.Color( 0xff/0xff, 0x00/0xff, 0x00/0xff ));
+let yellow = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0x00/0xff ));
+let green  = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0x00/0xff ));
+let ltblue = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0xff/0xff ));
+let blue   = createMaterial(new pc.Color( 0x00/0xff, 0x00/0xff, 0xff/0xff ));
+let purple = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x80/0xff ));
 
 function getRgbColor( c )
 {
-    var colorHash = {
+    let colorHash = {
         "無":black,   // 0x000000,
         "白":white,   // 0xffffff,
         "肌":beige,   // 0xffcccc,
@@ -67,10 +67,10 @@ function getRgbColor( c )
 }
 
 // ***********    Initialize application   *******************
-var canvas = document.getElementById("c");
+let canvas = document.getElementById("c");
 
 // Create the application and start the update loop
-var application = new pc.fw.Application(canvas);
+let application = new pc.Application(canvas);
 application.start();
 
 // Set the canvas to fill the window and automatically change resolution to be the same as the canvas size
@@ -83,7 +83,7 @@ application.context.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 application.context.systems.rigidbody.setGravity(0, -9.8, 0);
 
 function createMaterial (color) {
-    var material = new pc.scene.PhongMaterial();
+    let material = new pc.scene.PhongMaterial();
     material.diffuse = color;
     // we need to call material.update when we change its properties
     material.update()
@@ -92,7 +92,7 @@ function createMaterial (color) {
 
 // ***********    Create our floor   *******************
 
-var floor = new pc.fw.Entity();
+let floor = new pc.Entity();
 
 // add a 'box' model
 application.context.systems.model.addComponent(floor, {
@@ -123,7 +123,7 @@ application.context.root.addChild(floor);
 // ***********    Create lights   *******************
 
 // make our scene prettier by adding a directional light
-var light = new pc.fw.Entity();
+let light = new pc.Entity();
 application.context.systems.light.addComponent(light, {
     type: "directional",
     color: new pc.Color(1, 1, 1),
@@ -140,7 +140,7 @@ application.context.root.addChild(light);
 // ***********    Create camera    *******************
 
 // Create an Entity with a camera component
-var camera = new pc.fw.Entity();
+let camera = new pc.Entity();
 application.context.systems.camera.addComponent(camera, {
     clearColor: new pc.Color(0.5, 0.5, 0.8),
     farClip: 50
@@ -157,7 +157,7 @@ camera.lookAt(0, 0, 0);
 
 // Create a template for a falling box
 // It will have a model component of type 'box'...
-var domino = new pc.fw.Entity();
+let domino = new pc.Entity();
 application.context.systems.model.addComponent(domino, {
     type: "box",
     castShadows: true
@@ -184,7 +184,7 @@ domino.setLocalScale(0.1, 1, 1);
 
 // Create a template for a falling box
 // It will have a model component of type 'box'...
-var boxTemplate = new pc.fw.Entity();
+let boxTemplate = new pc.Entity();
 application.context.systems.model.addComponent(boxTemplate, {
     type: "box",
     castShadows: true
@@ -207,13 +207,13 @@ application.context.systems.collision.addComponent(boxTemplate, {
 // make the box red
 boxTemplate.model.material = red;
 
-for ( var i = 0; i < dataSet.length; i++ ) 
+for ( let i = 0; i < dataSet.length; i++ ) 
 {
-    var x = X_START_POS + (i % 16) * .8;
-    var z = Z_START_POS + Math.floor( i / 16 ) * 1.1;
+    let x = X_START_POS + (i % 16) * .8;
+    let z = Z_START_POS + Math.floor( i / 16 ) * 1.1;
     
     // Clone a random template and position it above the floor
-    var clone = domino.clone();
+    let clone = domino.clone();
     // enable the clone because the template is disabled
     clone.enabled = true;
     clone.model.material = getRgbColor(dataSet[i]);
@@ -231,8 +231,8 @@ for ( var i = 0; i < dataSet.length; i++ )
 // ***********    Update Function   *******************
 
 // initialize variables for our update function
-var timer = 0;
-var count = 16;
+let timer = 0;
+let count = 16;
 application.on("update", function (dt) {
     // create a falling box every 0.2 seconds
     if (count > 0) {
@@ -240,14 +240,14 @@ application.on("update", function (dt) {
         if (timer <= 0) {
             count--;
             timer = 0.1;
-            var clone = boxTemplate.clone();
+            let clone = boxTemplate.clone();
             // enable the clone because the template is disabled
             clone.enabled = true;
             application.context.root.addChild(clone);
             
             //clone.setLocalPosition(pc.math.random(-1,1), 10, pc.math.random(-1,1));
-            var x = X_START_POS + -0.5;
-            var z = Z_START_POS + count * 1.1;
+            let x = X_START_POS + -0.5;
+            let z = Z_START_POS + count * 1.1;
             clone.setLocalPosition( x, 3, z );
             
             // when we manually change the position of an Entity with a dynamic rigidbody
