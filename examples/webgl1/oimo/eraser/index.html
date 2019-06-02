@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGL 1.0 + Oimo.js Falling Eraser Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/oimo/1.0.9/oimo.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+#define PI 3.14159265359
+#define PI2 ( PI * 2.0 )
+
+attribute vec3 position;
+attribute vec3 normal;
+attribute vec2 textureCoord;
+attribute vec3 offset;
+attribute vec4 rot;
+uniform mat4 pMatrix;
+varying vec3 vColor;
+varying vec2 vTextureCoord;
+
+mat4 lookAt(in vec3 eye, in vec3 center, in vec3 up)
+{
+    vec3 w = normalize(eye - center);
+    vec3 u = normalize(cross(up, w));
+    vec3 v = normalize(cross(w, u));
+    return mat4(
+        u.x, v.x, w.x, 0.0,
+        u.y, v.y, w.y, 0.0,
+        u.z, v.z, w.z, 0.0,
+        -dot(u, eye), -dot(u, eye), -dot(w, eye), 1.0);    
+}    
+
+vec3 qtransform(in vec4 q, in vec3 p)
+{
+	return p + 2.0 * cross(cross(p, q.xyz) - q.w * p, q.xyz);
+}
+      
+vec3 hsv(in float h, in float s, in float v)
+{
+    return mix(vec3(1.0), clamp((abs(fract(
+        h + vec3(3.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0), 0.0, 1.0), s) * v;
+}
+
+float hash(in float n)
+{
+    return fract(sin(n)*753.5453123);
+}
+    
+void main()
+{
+    vTextureCoord = textureCoord;
+        mat4 vMatrix = lookAt(
+        vec3(0.0, 0.0, 40.0),
+        vec3(0.0), vec3(0.0, 1.0, 0.0));
+    vec3 nor = qtransform(rot, normal);
+    vec3 col = vec3(1.0, 1.0, 1.0);
+    vec3 light = normalize(vec3(1.0));
+    vColor = col * max(dot(light, (vMatrix * vec4(nor, 0.0)).xyz), 0.4);
+    vec3 pos = qtransform(rot, position);
+    pos += offset;
+    gl_Position = pMatrix * vMatrix * vec4(pos, 1.0);      
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D uTexture;
+varying vec3 vColor;
+varying vec2 vTextureCoord;
+
+void main() 
+{
+    vec3 col = pow(vColor, vec3(0.6));
+    gl_FragColor = texture2D(uTexture, vTextureCoord) * vec4(col, 1.0);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
