@@ -1,68 +1,137 @@
-﻿let container;
-let camera, scene, renderer;
-let meshGround;
-let meshCube;
-let world;
-let body;
+﻿// three var
+let camera, scene, light, renderer, container, content;
+let meshs = [];
+let grounds = [];
+//let paddel;
+let matGround, matGroundTrans;
+let matPocky = [];
+let matKoala;
+let matMono;
+let buffgeoBox;
+let buffgeoMono;
+let buffgeoCylinder;
+let raycaster, projector;
+let ToRad = Math.PI / 180;
+let ToDeg = 180 / Math.PI;
+let rotTest;
 let controls;
 
-let loader;
-let texture_grass;
-let texture_football;
+//oimo var
+let world = null;
+let bodys = null;
 
-// ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
-// ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
-// ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
-// ‥‥‥‥‥■■■□□■□‥■■■
-// ‥‥‥‥■□■□□□■□□■■■
-// ‥‥‥‥■□■■□□□■□□□■
-// ‥‥‥‥■■□□□□■■■■■‥
-// ‥‥‥‥‥‥□□□□□□□■‥‥
-// ‥‥■■■■■〓■■■〓■‥‥‥
-// ‥■■■■■■■〓■■■〓‥‥■
-// □□■■■■■■〓〓〓〓〓‥‥■
-// □□□‥〓〓■〓〓□〓〓□〓■■
-// ‥□‥■〓〓〓〓〓〓〓〓〓〓■■
-// ‥‥■■■〓〓〓〓〓〓〓〓〓■■
-// ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
-// ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-let dataSet = [
-    "無","無","無","無","無","無","無","無","無","無","無","無","無","肌","肌","肌",
-    "無","無","無","無","無","無","赤","赤","赤","赤","赤","無","無","肌","肌","肌",
-    "無","無","無","無","無","赤","赤","赤","赤","赤","赤","赤","赤","赤","肌","肌",
-    "無","無","無","無","無","茶","茶","茶","肌","肌","茶","肌","無","赤","赤","赤",
-    "無","無","無","無","茶","肌","茶","肌","肌","肌","茶","肌","肌","赤","赤","赤",
-    "無","無","無","無","茶","肌","茶","茶","肌","肌","肌","茶","肌","肌","肌","赤",
-    "無","無","無","無","茶","茶","肌","肌","肌","肌","茶","茶","茶","茶","赤","無",
-    "無","無","無","無","無","無","肌","肌","肌","肌","肌","肌","肌","赤","無","無",
-    "無","無","赤","赤","赤","赤","赤","青","赤","赤","赤","青","赤","無","無","無",
-    "無","赤","赤","赤","赤","赤","赤","赤","青","赤","赤","赤","青","無","無","茶",
-    "肌","肌","赤","赤","赤","赤","赤","赤","青","青","青","青","青","無","無","茶",
-    "肌","肌","肌","無","青","青","赤","青","青","黄","青","青","黄","青","茶","茶",
-    "無","肌","無","茶","青","青","青","青","青","青","青","青","青","青","茶","茶",
-    "無","無","茶","茶","茶","青","青","青","青","青","青","青","青","青","茶","茶",
-    "無","茶","茶","茶","青","青","青","青","青","青","青","無","無","無","無","無",
-    "無","茶","無","無","青","青","青","青","無","無","無","無","無","無","無","無"
-];
+let fps = [0,0,0,0];
+let type=1;
 
-function getRgbColor( c )
-{
-    let colorHash = {
-        "無":0xDCAA6B,
-        "白":0xffffff,
-        "肌":0xffcccc,
-        "茶":0x800000,
-        "赤":0xff0000,
-        "黄":0xffff00,
-        "緑":0x00ff00,
-        "水":0x00ffff,
-        "青":0x0000ff,
-        "紫":0x800080
-    };
-    return colorHash[ c ];
+init();
+loop();
+
+function init() {
+    
+    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.x = 0;
+    camera.position.y = 20;
+    camera.position.z = 500;
+    
+    scene = new THREE.Scene();
+    
+    content = new THREE.Object3D();
+    scene.add(content);
+    
+    scene.add( new THREE.AmbientLight( 0x3D4143 ) );
+    
+    light = new THREE.DirectionalLight( 0xffffff , 1);
+    light.position.set( 300, 1000, 500 );
+    light.target.position.set( 0, 0, 0 );
+    light.castShadow = true;
+    scene.add( light );
+    
+    // background
+    let buffgeoBack = new THREE.BufferGeometry();
+    buffgeoBack.fromGeometry( new THREE.IcosahedronGeometry(8000,1) );
+    
+    buffgeoSphere = new THREE.BufferGeometry();
+    buffgeoSphere.fromGeometry( new THREE.SphereGeometry( 1, 20, 10 ) );
+    
+    buffgeoBox = new THREE.BufferGeometry();
+    buffgeoBox.fromGeometry( new THREE.BoxGeometry( 1, 1, 1 ) );
+    buffgeoMono = new THREE.BoxGeometry( 1, 1, 1 );
+
+    buffgeoCylinder= new THREE.BufferGeometry();
+    buffgeoCylinder.fromGeometry( new THREE.CylinderGeometry( 0.5, 0.5, 1, 6 ) );
+    
+    let materials = [
+       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_right.png')}),
+       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_left.png')}),
+       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_top.png')}),
+       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_bottom.png')}),
+       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_front.png')}),
+       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_back.png')})
+    ];
+    
+    matBox = new THREE.MeshLambertMaterial( {  map: basicTexture(0), name:'box' } );
+    matMono = new THREE.MeshFaceMaterial( materials );
+    matGround = new THREE.MeshLambertMaterial( { color: 0x3D4143 } );
+    matGroundTrans = new THREE.MeshLambertMaterial( { color: 0x3D4143, transparent:true, opacity:0.6 } );
+    
+    renderer = new THREE.WebGLRenderer({precision: "mediump", antialias:false });
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.autoClear = false;
+    
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls.userPan = false;
+    controls.userPanSpeed = 0.0;
+    controls.maxDistance = 5000.0;
+    controls.maxPolarAngle = Math.PI * 0.4;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 5.0;
+
+    rotTest = new THREE.Vector3();
+    
+    container = document.getElementById("container");
+    container.appendChild( renderer.domElement );
+    
+    //initEvents();
+    initOimoPhysics();
 }
 
-function initOimo() {
+function loop() {
+    requestAnimationFrame( loop );
+    controls.update();
+    renderer.clear();
+    renderer.render( scene, camera );
+}
+
+function addStaticBox(size, position, rotation, spec) {
+    let mesh;
+    if(spec) mesh = new THREE.Mesh( buffgeoBox, matGroundTrans );
+    else mesh = new THREE.Mesh( buffgeoBox, matGround );
+    mesh.scale.set( size[0], size[1], size[2] );
+    mesh.position.set( position[0], position[1], position[2] );
+    mesh.rotation.set( rotation[0]*ToRad, rotation[1]*ToRad, rotation[2]*ToRad );
+    if(!grounds.length) content.add( mesh );
+    else scene.add( mesh );
+    grounds.push(mesh);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+}
+
+function clearMesh(){
+    let i=meshs.length;
+    while (i--) scene.remove(meshs[ i ]);
+    i = grounds.length;
+    while (i--) scene.remove(grounds[ i ]);
+    grounds = [];
+    meshs = [];
+}
+
+//----------------------------------
+//  OIMO PHYSICS
+//----------------------------------
+
+function initOimoPhysics(){
+    
+    //world = new OIMO.World(1/60, 2);
     world = new OIMO.World({ 
         timestep: 1/30, 
         iterations: 8, 
@@ -70,129 +139,190 @@ function initOimo() {
         worldscale: 1, // scale full world 
         random: true,  // randomize sample
         info: false,   // calculate statistic or not
-        gravity: [0, -9.8, 0] 
+        gravity: [0,-9.8,0] 
     });
-    let groundBody = world.add({
+    populate(1);
+    setInterval(updateOimoPhysics, 1000/60);
+    
+}
+
+function populate(n) {
+    
+    // The Bit of a collision group
+    let group1 = 1 << 0;  // 00000000 00000000 00000000 00000001
+    let group2 = 1 << 1;  // 00000000 00000000 00000000 00000010
+    let group3 = 1 << 2;  // 00000000 00000000 00000000 00000100
+    let all = 0xffffffff; // 11111111 11111111 11111111 11111111
+    
+    let max = 120;
+    
+    type = 2;
+    
+    // reset old
+    clearMesh();
+    world.clear();
+    bodys = [];
+    
+    // Is all the physics setting for rigidbody
+    let config = [
+        1, // The density of the shape.
+        0.4, // The coefficient of friction of the shape.
+        0.2, // The coefficient of restitution of the shape.
+        1, // The bits of the collision groups to which the shape belongs.
+        all // The bits of the collision groups with which the shape collides.
+    ];
+    
+    
+    
+    //add ground
+    //let ground = new OIMO.Body({size:[400, 40, 400], pos:[0,-20,0], world:world, config:config});
+    let ground = world.add({
         type: "box",
-        size: [50, 1, 50],
-        pos: [0, -5, 0],
+        size: [400, 40, 400],
+        pos: [0, -20, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
-        friction: 0.6,
-        restitution: 0.5,
+        friction: 0.5,
+        restitution: 0.1,
     });
-}
-
-function initThree() {
-    container = document.getElementById('container');
-    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.x = 0;
-    camera.position.y = 20;
-    camera.position.z = 50;
-    scene = new THREE.Scene();
-
-    loader = new THREE.TextureLoader();
-    texture_grass = loader.load('../../../../assets/textures/grass.jpg');
-    texture_football = loader.load('../../../../assets/textures/football.png');
-
-    let material = new THREE.MeshBasicMaterial({map: texture_grass});
-    let geometryGround = new THREE.BoxGeometry(50, 1, 50);
-    meshGround = new THREE.Mesh(geometryGround, material);
-    meshGround.position.y = -5;
-    scene.add(meshGround);
-
-    renderer = new THREE.WebGLRenderer();
-    renderer.setClearColor(0x000000);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    container.appendChild(renderer.domElement);
-
-    controls = new THREE.OrbitControls(camera);
-    controls.autoRotate = true;
-}
-
-function initLights() {
-    let directionalLight, ambientLight;
-    directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(0.2, 0.5, 0.3);
-    scene.add(directionalLight);
-    ambientLight = new THREE.AmbientLight(0x101020);
-    scene.add(ambientLight);
-}
-
-function createBall(x, y, z, w, h, d, mass, color) {
-    let body = world.add({
-        type: "sphere",
-        size: [w/2],
-        pos: [x, y, z],
-        rot: [0, 0, 0],
-        move: true,
+    addStaticBox([400, 40, 400], [0,-20,0], [0,0,0]);
+    
+    let ground2 = world.add({
+        type: "box",
+        size: [200, 30, 390],
+        pos: [130, 40, 0],
+        rot: [0, 0, 32],
+        move: false,
         density: 1,
-        friction: 0.4,
-        restitution: 0.6,
+        friction: 0.5,
+        restitution: 0.1,
     });
-
-    geometry = new THREE.SphereGeometry(w/2, 36, 36);
-    material = new THREE.MeshLambertMaterial({
-        color: Math.round(color),
-        map: texture_football
-    });
-    mesh = new THREE.Mesh(geometry, material);
-    mesh.rigidBody = body;
-    scene.add(mesh);
+    addStaticBox([200, 30, 390], [130,40,0], [0,0,32]);
+    
+    // now add object
+    let x, y, z, w, h, d;
+    let i = max;
+    
+    while (i--){
+        t = type;
+        x = 150;
+        z = -100 + Math.random()*200;
+        y = 100 + Math.random()*1000;
+        w = 43;
+        h = 11;
+        d = 17;
+        
+        config[4] = all;
+        
+        if(t===2){
+            config[3] = group3;
+		    bodys[i] = world.add({
+		        type: "box",
+		        size: [w, h, d],
+		        pos: [x, y, z],
+		        move: true,
+		        density: 1,
+		        friction: 0.5,
+		        restitution: 0.1,
+		    });
+            meshs[i] = new THREE.Mesh( buffgeoMono, matMono );
+            meshs[i].scale.set( w, h, d );
+        }
+        meshs[i].castShadow = true;
+        meshs[i].receiveShadow = true;
+        
+        scene.add( meshs[i] );
+    }
+    
+    config[3] = 1;
+    config[4] = all;
 }
 
-function createBalls() {
-    const BOX_SIZE = 1;
-    for (var x = 0; x < 16; x++) {
-        for (var y = 0; y < 16; y++) {
-            i = x + (15 - y) * 16;
-            var z = 0;
-            let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
-            let y1 = 0 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
-            let z1 = z * BOX_SIZE * 1 + Math.random() * 0.1;
-            let color = getRgbColor(dataSet[y * 16 + x]);
-            let w = BOX_SIZE * 1;
-            let h = BOX_SIZE * 1;
-            let d = BOX_SIZE * 1;
-            let mass = 1;
-            createBall(x1, y1, z1, w, h, d, mass, color);
+
+
+function updateOimoPhysics() {
+    
+    world.step();
+    
+    let p, r, m, x, y, z;
+    let mtx = new THREE.Matrix4();
+    let i = bodys.length;
+    let mesh;
+    let body;
+    
+    while (i--){
+        body = bodys[i];
+        mesh = meshs[i];
+        
+        if(!body.sleeping){
+            
+            mesh.position.copy(body.getPosition());
+            mesh.quaternion.copy(body.getQuaternion());
+            
+            // change material
+            if(mesh.material.name === 'box') mesh.material = matBox; 
+            
+            // reset position
+            if(mesh.position.y<-100){
+                x = 150;
+                z = -100 + Math.random()*200;
+                y = 100 + Math.random()*1000;
+                body.resetPosition(x,y,z);
+            }
         }
     }
 }
 
-function animate() {
-    controls.update();
-    requestAnimationFrame(animate);
-    updatePhysics();
-    render();
+function gravity(g){
+    nG = document.getElementById("gravity").value
+    world.gravity = new OIMO.Vec3(0, nG, 0);
 }
 
-function updatePhysics() {
-    world.step();
-
-    (function updateObject3D(mesh) {
-        if (mesh.rigidBody) {
-            mesh.position.x = mesh.rigidBody.position.x;
-            mesh.position.y = mesh.rigidBody.position.y;
-            mesh.position.z = mesh.rigidBody.position.z;
-            mesh.quaternion.x = mesh.rigidBody.quaternion.x;
-            mesh.quaternion.y = mesh.rigidBody.quaternion.y;
-            mesh.quaternion.z = mesh.rigidBody.quaternion.z;
-            mesh.quaternion.w = mesh.rigidBody.quaternion.w;
-        }
-        if (mesh.children) {
-            mesh.children.map(updateObject3D);
-        }
-    })(scene);
+let unwrapDegrees = function (r) {
+    r = r % 360;
+    if (r > 180) r -= 360;
+    if (r < -180) r += 360;
+    return r;
 }
 
-function render() {
-    renderer.render(scene, camera);
-}
+function basicTexture(n){
+    let canvas = document.createElement( 'canvas' );
+    canvas.width = canvas.height = 64;
+    let ctx = canvas.getContext( '2d' );
+    let colors = [];
 
-initOimo();
-initThree();
-initLights();
-createBalls();
-animate();
+    if(n===0){ // box
+        colors[0] = "#AA8058";
+        colors[1] = "#FFAA58";
+    }
+    if(n===1){ // pocky1(normal)
+        colors[0] = "#FFC14D";
+        colors[1] = "#684B48";
+    }
+    if(n===2){ // pocky2(strawberry)
+        colors[0] = "#FFC14D";
+        colors[1] = "#D36FC0";
+    }
+    if(n===3){ // pocky3(pretz)
+        colors[0] = "#FFC14D";
+        colors[1] = "#FFC14D";
+    }
+    
+    if(n!==0){
+        ctx.fillStyle = colors[0];
+        ctx.fillRect(0, 0, 64, 64);
+        ctx.fillStyle = colors[1];
+        ctx.fillRect(0, 0, 64, 52);
+    }else{
+        ctx.fillStyle = colors[0];
+        ctx.fillRect(0, 0, 64, 64);
+        ctx.fillStyle = colors[1];
+        ctx.fillRect(0, 0, 32, 32);
+        ctx.fillRect(32, 32, 32, 32);
+    }
+
+    let tx = new THREE.Texture(canvas);
+    tx.needsUpdate = true;
+    return tx;
+}
