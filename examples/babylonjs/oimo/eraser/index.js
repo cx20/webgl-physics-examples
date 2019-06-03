@@ -89,7 +89,7 @@ let createScene = function() {
 
     let matEraser = new BABYLON.StandardMaterial("material", scene);
     matEraser.reflectionTexture = new BABYLON.CubeTexture(
-        "../../../../assets/textures/",
+        "../../../../assets/textures/eraser_002/",
         scene,
         [
         "eraser_px.png",
