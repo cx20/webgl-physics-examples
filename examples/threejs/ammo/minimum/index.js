@@ -1,4 +1,4 @@
-﻿const SCALE = 1/20;
+﻿const SCALE = 1 / 20;
 const deltaT = 30;
 
 let scene;
@@ -11,142 +11,141 @@ let objs = [];
 let numObjects = 0;
 
 class Box {
-	constructor(x, y, z, w, h, d, m) {
-	    this.x = x;
-	    this.y = y;
-	    this.z = z;
-	    this.w = w;
-	    this.h = h;
-	    this.d = d;
-	    this.bulletObj = null;
-	    this.threeObj = null;
-	    this._trans = new Ammo.btTransform();
-	    this.initThreeObj();
-	    this.initBulletObj(m);
-	}
+    constructor(x, y, z, w, h, d, m) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.w = w;
+        this.h = h;
+        this.d = d;
+        this.bulletObj = null;
+        this.threeObj = null;
+        this._trans = new Ammo.btTransform();
+        this.initThreeObj();
+        this.initBulletObj(m);
+    }
 
-	initThreeObj() {
-	    let w = this.w;
-	    let h = this.h;
-	    let d = this.d;
-	    let geometry = new THREE.CubeGeometry(w, h, d);
-	    let material = new THREE.MeshBasicMaterial({
-	        map: texture
-	    });
-	    let box = new THREE.Mesh(geometry, material);
-	    box.position.x = this.x;
-	    box.position.y = this.y;
-	    box.position.z = this.z;
+    initThreeObj() {
+        let w = this.w;
+        let h = this.h;
+        let d = this.d;
+        let geometry = new THREE.CubeGeometry(w, h, d);
+        let material = new THREE.MeshBasicMaterial({
+            map: texture
+        });
+        let box = new THREE.Mesh(geometry, material);
+        box.position.x = this.x;
+        box.position.y = this.y;
+        box.position.z = this.z;
 
-	    this.threeObj = box;
-	}
+        this.threeObj = box;
+    }
 
-	initBulletObj(m) {
-	    let startTransform = new Ammo.btTransform();
-	    startTransform.setIdentity();
-	    let origin = startTransform.getOrigin();
-	    origin.setX(this.x);
-	    origin.setY(this.y);
-	    origin.setZ(this.z);
-	    let quaternion = new Ammo.btQuaternion();
-	    quaternion.setEulerZYX(Math.PI * 10 / 180, 0, 0);
-	    startTransform.setRotation(quaternion);
+    initBulletObj(m) {
+        let startTransform = new Ammo.btTransform();
+        startTransform.setIdentity();
+        let origin = startTransform.getOrigin();
+        origin.setX(this.x);
+        origin.setY(this.y);
+        origin.setZ(this.z);
+        let quaternion = new Ammo.btQuaternion();
+        quaternion.setEulerZYX(Math.PI * 10 / 180, 0, 0);
+        startTransform.setRotation(quaternion);
 
-	    let w = this.w;
-	    let h = this.h;
-	    let d = this.d;
-	    let tmpVec = new Ammo.btVector3(w / 2, h / 2, d / 2);
-	    let shape = new Ammo.btBoxShape(tmpVec);
-	    let localInertia = new Ammo.btVector3(0, 0, 0);
-	    shape.calculateLocalInertia(m, localInertia);
+        let w = this.w;
+        let h = this.h;
+        let d = this.d;
+        let tmpVec = new Ammo.btVector3(w / 2, h / 2, d / 2);
+        let shape = new Ammo.btBoxShape(tmpVec);
+        let localInertia = new Ammo.btVector3(0, 0, 0);
+        shape.calculateLocalInertia(m, localInertia);
 
-	    let motionState = new Ammo.btDefaultMotionState(startTransform);
-	    let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
-	    rbInfo.set_m_friction(1.0);
-	    rbInfo.set_m_restitution(0.2);
-	    let body = new Ammo.btRigidBody(rbInfo);
+        let motionState = new Ammo.btDefaultMotionState(startTransform);
+        let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
+        rbInfo.set_m_friction(1.0);
+        rbInfo.set_m_restitution(0.2);
+        let body = new Ammo.btRigidBody(rbInfo);
 
-	    Ammo.destroy(quaternion);
-	    Ammo.destroy(startTransform);
-	    Ammo.destroy(localInertia);
-	    Ammo.destroy(rbInfo);
+        Ammo.destroy(quaternion);
+        Ammo.destroy(startTransform);
+        Ammo.destroy(localInertia);
+        Ammo.destroy(rbInfo);
 
-	    this.bulletObj = body;
-	}
+        this.bulletObj = body;
+    }
 
-	move() {
-	    let quat = new THREE.Quaternion;
-	    let pos = [0, 0, 0];
+    move() {
+        let quat = new THREE.Quaternion;
+        let pos = [0, 0, 0];
 
-	    this.bulletObj.getMotionState().getWorldTransform(this._trans);
-	    let origin = this._trans.getOrigin();
-	    pos[0] = origin.x();
-	    pos[1] = origin.y();
-	    pos[2] = origin.z();
-	    let rotation = this._trans.getRotation();
-	    quat.x = rotation.x();
-	    quat.y = rotation.y();
-	    quat.z = rotation.z();
-	    quat.w = rotation.w();
-	    
-	    this.threeObj.position.x = pos[0];
-	    this.threeObj.position.y = pos[1];
-	    this.threeObj.position.z = pos[2];
-	    this.threeObj.quaternion.copy(quat);
-	}
+        this.bulletObj.getMotionState().getWorldTransform(this._trans);
+        let origin = this._trans.getOrigin();
+        pos[0] = origin.x();
+        pos[1] = origin.y();
+        pos[2] = origin.z();
+        let rotation = this._trans.getRotation();
+        quat.x = rotation.x();
+        quat.y = rotation.y();
+        quat.z = rotation.z();
+        quat.w = rotation.w();
+
+        this.threeObj.position.x = pos[0];
+        this.threeObj.position.y = pos[1];
+        this.threeObj.position.z = pos[2];
+        this.threeObj.quaternion.copy(quat);
+    }
 }
 
-
 class Plane {
-	constructor(x, y, z, s, m) {
-	    this.x = x;
-	    this.y = y;
-	    this.z = z;
-	    this.s = s; // size (length of one side of cube)
-	    this.bulletObj = null;
-	    this.threeObj = null;
-	    this.initThreeObj();
-	    this.initBulletObj(m);
-	}
+    constructor(x, y, z, s, m) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.s = s; // size (length of one side of cube)
+        this.bulletObj = null;
+        this.threeObj = null;
+        this.initThreeObj();
+        this.initBulletObj(m);
+    }
 
-	initThreeObj() {
-	    let s = this.s;
-	    let geometry = new THREE.CubeGeometry(s, 1 * SCALE, s);
-	    let material = new THREE.MeshBasicMaterial({
-	        map: texture
-	    });
-	    let ground = new THREE.Mesh(geometry, material);
-	    ground.position.x = this.x;
-	    ground.position.y = this.y;
-	    ground.position.z = this.z;
+    initThreeObj() {
+        let s = this.s;
+        let geometry = new THREE.CubeGeometry(s, 1 * SCALE, s);
+        let material = new THREE.MeshBasicMaterial({
+            map: texture
+        });
+        let ground = new THREE.Mesh(geometry, material);
+        ground.position.x = this.x;
+        ground.position.y = this.y;
+        ground.position.z = this.z;
 
-	    this.threeObj = ground;
-	}
+        this.threeObj = ground;
+    }
 
-	initBulletObj(m) {
-	    let s = this.s;
-	    let tmpVec = new Ammo.btVector3(s / 2, 0 / 2, s / 2);
-	    let shape = new Ammo.btBoxShape(tmpVec);
-	    Ammo.destroy(tmpVec);
-	    let startTransform = new Ammo.btTransform();
-	    startTransform.setIdentity();
-	    tmpVec = new Ammo.btVector3(this.x, this.y, this.z);
-	    startTransform.setOrigin(tmpVec);
-	    Ammo.destroy(tmpVec);
+    initBulletObj(m) {
+        let s = this.s;
+        let tmpVec = new Ammo.btVector3(s / 2, 0 / 2, s / 2);
+        let shape = new Ammo.btBoxShape(tmpVec);
+        Ammo.destroy(tmpVec);
+        let startTransform = new Ammo.btTransform();
+        startTransform.setIdentity();
+        tmpVec = new Ammo.btVector3(this.x, this.y, this.z);
+        startTransform.setOrigin(tmpVec);
+        Ammo.destroy(tmpVec);
 
-	    let localInertia = new Ammo.btVector3(0, 0, 0);
-	    let motionState = new Ammo.btDefaultMotionState(startTransform);
-	    let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
-	    rbInfo.set_m_friction(1.0);
-	    rbInfo.set_m_restitution(0.1);
-	    let body = new Ammo.btRigidBody(rbInfo);
+        let localInertia = new Ammo.btVector3(0, 0, 0);
+        let motionState = new Ammo.btDefaultMotionState(startTransform);
+        let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
+        rbInfo.set_m_friction(1.0);
+        rbInfo.set_m_restitution(0.1);
+        let body = new Ammo.btRigidBody(rbInfo);
 
-	    Ammo.destroy(startTransform);
-	    Ammo.destroy(localInertia);
-	    Ammo.destroy(rbInfo);
+        Ammo.destroy(startTransform);
+        Ammo.destroy(localInertia);
+        Ammo.destroy(rbInfo);
 
-	    this.bulletObj = body;
-	}
+        this.bulletObj = body;
+    }
 }
 
 function initWorld() {
@@ -193,7 +192,7 @@ function init() {
 
     function rendering() {
         controls.update();
-        
+
         world.stepSimulation(deltaT / 1000);
 
         for (let i = numObjects; i--;) {
@@ -221,7 +220,7 @@ function createBox() {
     numObjects++;
 }
 
-window.addEventListener("load", function () {
+window.addEventListener("load", function() {
     loader = new THREE.TextureLoader();
     texture = loader.load('../../../../assets/textures/frog.jpg');
 
