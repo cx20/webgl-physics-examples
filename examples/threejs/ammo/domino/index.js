@@ -1,4 +1,15 @@
-﻿let controls;
+﻿const SCALE = 1 / 20;
+const deltaT = 30;
+
+let scene;
+let controls;
+let loader;
+let texture_grass;
+let texture_football;
+
+let world;
+let objs = [];
+let numObjects = 0;
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -52,263 +63,246 @@ function getRgbColor( c )
     return colorHash[ c ];
 }
 
-Ammo().then(function(Ammo) {
-let scene;
-let dynamicsWorld;
-let objs = [];
-let numObjects = 0;
+class Ball {
+    constructor(x, y, z, r, m, color) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.r = r;
+        this.color = color;
+        this.bulletObj = null;
+        this.threeObj = null;
+        this._trans = new Ammo.btTransform();
+        this.initThreeObj();
+        this.initBulletObj(m);
+    }
 
-function Ball(x, y, z, r, m, color) {
-    this.x = x;
-    this.y = y;
-    this.z = z;
-    this.r = r;
-    this.color = color;
-    this.bulletObj = null;
-    this.threeObj = null;
-    this._trans = new Ammo.btTransform();
-    this.initThreeObj();
-    this.initBulletObj(m);
+    destructor() {
+        Ammo.destroy(this.bulletObj);
+        Ammo.destroy(this._trans);
+    }
+
+    initThreeObj() {
+        let geometry = new THREE.SphereGeometry(this.r, 10, 10);
+        let material = new THREE.MeshLambertMaterial({
+            color: Math.round(this.color),
+            map: texture_football
+        });
+        let ball = new THREE.Mesh(geometry, material);
+        ball.position.x = this.x;
+        ball.position.y = this.y;
+        ball.position.z = this.z;
+
+        this.threeObj = ball;
+    }
+
+    initBulletObj(m) {
+        let startTransform = new Ammo.btTransform();
+        startTransform.setIdentity();
+        let origin = startTransform.getOrigin();
+        origin.setX(this.x);
+        origin.setY(this.y);
+        origin.setZ(this.z);
+
+        let shape = new Ammo.btSphereShape(this.r);
+        let localInertia = new Ammo.btVector3(0, 0, 0);
+        shape.calculateLocalInertia(m, localInertia);
+
+        let motionState = new Ammo.btDefaultMotionState(startTransform);
+        let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
+        //rbInfo.set_m_restitution(1);
+        rbInfo.set_m_restitution(0.6); // 反発係数（0～1）
+        let body = new Ammo.btRigidBody(rbInfo);
+
+        Ammo.destroy(startTransform);
+        Ammo.destroy(localInertia);
+        Ammo.destroy(rbInfo);
+
+        this.bulletObj = body;
+    }
+
+    move() {
+        let quat = new THREE.Quaternion;
+        let pos = [0, 0, 0];
+
+        this.bulletObj.getMotionState().getWorldTransform(this._trans);
+        let origin = this._trans.getOrigin();
+        pos[0] = origin.x();
+        pos[1] = origin.y();
+        pos[2] = origin.z();
+        let rotation = this._trans.getRotation();
+        quat.x = rotation.x();
+        quat.y = rotation.y();
+        quat.z = rotation.z();
+        quat.w = rotation.w();
+        
+        this.threeObj.position.x = pos[0];
+        this.threeObj.position.y = pos[1];
+        this.threeObj.position.z = pos[2];
+        // クォータニオン（ammo.js） → クォータニオン（three.js）
+        this.threeObj.quaternion.copy(quat);
+    }
 }
 
-Ball.prototype.destructor = function () {
-    Ammo.destroy(this.bulletObj);
-    Ammo.destroy(this._trans);
-};
+class Box {
+    constructor(x, y, z, w, h, d, m, color) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.w = w;
+        this.h = h;
+        this.d = d;
+        this.color = color;
+        this.bulletObj = null;
+        this.threeObj = null;
+        this._trans = new Ammo.btTransform();
+        this.initThreeObj();
+        this.initBulletObj(m);
+    }
 
-Ball.prototype.initThreeObj = function () {
-    let texture = THREE.ImageUtils.loadTexture('../../../../assets/textures/football.png');
-    let geometry = new THREE.SphereGeometry(this.r, 10, 10);
-    let material = new THREE.MeshLambertMaterial({
-        color: Math.round(this.color),
-        map: texture
-    });
-    let ball = new THREE.Mesh(geometry, material);
-    ball.position.x = this.x;
-    ball.position.y = this.y;
-    ball.position.z = this.z;
+    initThreeObj() {
+        let w = this.w;
+        let h = this.h;
+        let d = this.d;
+        let geometry = new THREE.CubeGeometry(w, h, d);
+        let material = new THREE.MeshLambertMaterial({
+            color: Math.round(this.color)
+        });
+        let box = new THREE.Mesh(geometry, material);
+        box.position.x = this.x;
+        box.position.y = this.y;
+        box.position.z = this.z;
 
-    this.threeObj = ball;
-};
+        this.threeObj = box;
+    }
 
-Ball.prototype.initBulletObj = function (m) {
-    let startTransform = new Ammo.btTransform();
-    startTransform.setIdentity();
-    let origin = startTransform.getOrigin();
-    origin.setX(this.x);
-    origin.setY(this.y);
-    origin.setZ(this.z);
+    initBulletObj(m) {
+        let startTransform = new Ammo.btTransform();
+        startTransform.setIdentity();
+        let origin = startTransform.getOrigin();
+        origin.setX(this.x);
+        origin.setY(this.y);
+        origin.setZ(this.z);
 
-    let shape = new Ammo.btSphereShape(this.r);
-    let localInertia = new Ammo.btVector3(0, 0, 0);
-    shape.calculateLocalInertia(m, localInertia);
+        let w = this.w;
+        let h = this.h;
+        let d = this.d;
+        let tmpVec = new Ammo.btVector3(w / 2, h / 2, d / 2);
+        let shape = new Ammo.btBoxShape(tmpVec);
+        let localInertia = new Ammo.btVector3(0, 0, 0);
+        shape.calculateLocalInertia(m, localInertia);
 
-    let motionState = new Ammo.btDefaultMotionState(startTransform);
-    let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
-    //rbInfo.set_m_restitution(1);
-    rbInfo.set_m_restitution(0.6); // 反発係数（0～1）
-    let body = new Ammo.btRigidBody(rbInfo);
+        let motionState = new Ammo.btDefaultMotionState(startTransform);
+        let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
+        //rbInfo.set_m_restitution(1);
+        rbInfo.set_m_restitution(0.2); // 反発係数（0～1）
+        let body = new Ammo.btRigidBody(rbInfo);
 
-    Ammo.destroy(startTransform);
-    Ammo.destroy(localInertia);
-    Ammo.destroy(rbInfo);
+        Ammo.destroy(startTransform);
+        Ammo.destroy(localInertia);
+        Ammo.destroy(rbInfo);
 
-    this.bulletObj = body;
-};
+        this.bulletObj = body;
+    }
 
-Ball.prototype.move = function () {
-    let quat = new THREE.Quaternion;
-    let pos = [0, 0, 0];
+    move() {
+        let quat = new THREE.Quaternion;
+        let pos = [0, 0, 0];
 
-    this.bulletObj.getMotionState().getWorldTransform(this._trans);
-    let origin = this._trans.getOrigin();
-    pos[0] = origin.x();
-    pos[1] = origin.y();
-    pos[2] = origin.z();
-    let rotation = this._trans.getRotation();
-    quat.x = rotation.x();
-    quat.y = rotation.y();
-    quat.z = rotation.z();
-    quat.w = rotation.w();
-    
-    this.threeObj.position.x = pos[0];
-    this.threeObj.position.y = pos[1];
-    this.threeObj.position.z = pos[2];
-    // クォータニオン（ammo.js） → クォータニオン（three.js）
-    this.threeObj.quaternion.copy(quat);
-};
-
-function Box(x, y, z, w, h, d, m, color) {
-    this.x = x;
-    this.y = y;
-    this.z = z;
-    this.w = w;
-    this.h = h;
-    this.d = d;
-    this.color = color;
-    this.bulletObj = null;
-    this.threeObj = null;
-    this._trans = new Ammo.btTransform();
-    this.initThreeObj();
-    this.initBulletObj(m);
+        this.bulletObj.getMotionState().getWorldTransform(this._trans);
+        let origin = this._trans.getOrigin();
+        pos[0] = origin.x();
+        pos[1] = origin.y();
+        pos[2] = origin.z();
+        let rotation = this._trans.getRotation();
+        quat.x = rotation.x();
+        quat.y = rotation.y();
+        quat.z = rotation.z();
+        quat.w = rotation.w();
+        
+        this.threeObj.position.x = pos[0];
+        this.threeObj.position.y = pos[1];
+        this.threeObj.position.z = pos[2];
+        // クォータニオン（ammo.js） → クォータニオン（three.js）
+        this.threeObj.quaternion.copy(quat);
+    }
 }
 
-Box.prototype.destructor = function () {
-    // TODO:
-};
+class Plane {
+    constructor(x, y, z, s, m, color) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.s = s; // size (length of one side of cube)
+        this.color = color;
+        this.bulletObj = null;
+        this.threeObj = null;
+        this.initThreeObj();
+        this.initBulletObj(m);
+    }
 
-Box.prototype.initThreeObj = function () {
-    let w = this.w;
-    let h = this.h;
-    let d = this.d;
-    let geometry = new THREE.CubeGeometry(w, h, d);
-    let material = new THREE.MeshLambertMaterial({
-        color: Math.round(this.color)
-    });
-    let box = new THREE.Mesh(geometry, material);
-    box.position.x = this.x;
-    box.position.y = this.y;
-    box.position.z = this.z;
+    initThreeObj() {
+        let s = this.s;
+        let geometry = new THREE.CubeGeometry(s, 1 * SCALE, s);
+        let material = new THREE.MeshLambertMaterial({
+            color: this.color,
+            map: texture_grass
+        });
+        let ground = new THREE.Mesh(geometry, material);
+        ground.position.x = this.x;
+        ground.position.y = this.y;
+        ground.position.z = this.z;
 
-    this.threeObj = box;
-};
+        this.threeObj = ground;
+    }
 
-Box.prototype.initBulletObj = function (m) {
-    let startTransform = new Ammo.btTransform();
-    startTransform.setIdentity();
-    let origin = startTransform.getOrigin();
-    origin.setX(this.x);
-    origin.setY(this.y);
-    origin.setZ(this.z);
+    initBulletObj(m) {
+        let s = this.s;
+        let tmpVec = new Ammo.btVector3(s / 2, 1 / 2 * SCALE, s / 2);
+        let shape = new Ammo.btBoxShape(tmpVec);
+        Ammo.destroy(tmpVec);
+        let startTransform = new Ammo.btTransform();
+        startTransform.setIdentity();
+        tmpVec = new Ammo.btVector3(this.x, this.y, this.z);
+        startTransform.setOrigin(tmpVec);
+        Ammo.destroy(tmpVec);
 
-    let w = this.w;
-    let h = this.h;
-    let d = this.d;
-    let tmpVec = new Ammo.btVector3(w / 2, h / 2, d / 2);
-    let shape = new Ammo.btBoxShape(tmpVec);
-    let localInertia = new Ammo.btVector3(0, 0, 0);
-    shape.calculateLocalInertia(m, localInertia);
+        let localInertia = new Ammo.btVector3(0, 0, 0);
+        let motionState = new Ammo.btDefaultMotionState(startTransform);
+        let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
+        rbInfo.set_m_restitution(1);
+        let body = new Ammo.btRigidBody(rbInfo);
 
-    let motionState = new Ammo.btDefaultMotionState(startTransform);
-    let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
-    //rbInfo.set_m_restitution(1);
-    rbInfo.set_m_restitution(0.2); // 反発係数（0～1）
-    let body = new Ammo.btRigidBody(rbInfo);
+        Ammo.destroy(startTransform);
+        Ammo.destroy(localInertia);
+        Ammo.destroy(rbInfo);
 
-    Ammo.destroy(startTransform);
-    Ammo.destroy(localInertia);
-    Ammo.destroy(rbInfo);
-
-    this.bulletObj = body;
-};
-
-Box.prototype.move = function () {
-    let quat = new THREE.Quaternion;
-    let pos = [0, 0, 0];
-
-    this.bulletObj.getMotionState().getWorldTransform(this._trans);
-    let origin = this._trans.getOrigin();
-    pos[0] = origin.x();
-    pos[1] = origin.y();
-    pos[2] = origin.z();
-    let rotation = this._trans.getRotation();
-    quat.x = rotation.x();
-    quat.y = rotation.y();
-    quat.z = rotation.z();
-    quat.w = rotation.w();
-    
-    this.threeObj.position.x = pos[0];
-    this.threeObj.position.y = pos[1];
-    this.threeObj.position.z = pos[2];
-    // クォータニオン（ammo.js） → クォータニオン（three.js）
-    this.threeObj.quaternion.copy(quat);
-};
-
-function Plane(x, y, z, s, m, color) {
-    this.x = x;
-    this.y = y;
-    this.z = z;
-    this.s = s; // size (length of one side of cube)
-    this.color = color;
-    this.bulletObj = null;
-    this.threeObj = null;
-    this.initThreeObj();
-    this.initBulletObj(m);
+        this.bulletObj = body;
+    }
 }
 
-Plane.prototype.destructor = function () {
-    // TODO:
-};
-
-Plane.prototype.initThreeObj = function () {
-    let s = this.s;
-    let texture = THREE.ImageUtils.loadTexture("../../../../assets/textures/grass.jpg");
-    texture.wrapS   = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set( 20, 20 );  
-    let geometry = new THREE.CubeGeometry(s, 1, s);
-    let material = new THREE.MeshLambertMaterial({
-        color: this.color,
-        map: texture
-    });
-    ground = new THREE.Mesh(geometry, material);
-    ground.position.x = this.x;
-    ground.position.y = this.y;
-    ground.position.z = this.z;
-
-    this.threeObj = ground;
-};
-
-Plane.prototype.initBulletObj = function (m) {
-    let s = this.s;
-    let tmpVec = new Ammo.btVector3(s / 2, 1 / 2, s / 2);
-    let shape = new Ammo.btBoxShape(tmpVec);
-    Ammo.destroy(tmpVec);
-    let startTransform = new Ammo.btTransform();
-    startTransform.setIdentity();
-    tmpVec = new Ammo.btVector3(this.x, this.y + 1, this.z);
-    startTransform.setOrigin(tmpVec);
-    Ammo.destroy(tmpVec);
-
-    let localInertia = new Ammo.btVector3(0, 0, 0);
-    let motionState = new Ammo.btDefaultMotionState(startTransform);
-    let rbInfo = new Ammo.btRigidBodyConstructionInfo(m, motionState, shape, localInertia);
-    rbInfo.set_m_restitution(1);
-    let body = new Ammo.btRigidBody(rbInfo);
-
-    Ammo.destroy(startTransform);
-    Ammo.destroy(localInertia);
-    Ammo.destroy(rbInfo);
-
-    this.bulletObj = body;
-};
-
-Plane.prototype.move = function () {
-    // TODO:
-};
-
-function initPhysicsWorld() {
+function initWorld() {
     let gravity = new Ammo.btVector3(0, -9.8, 0);
 
     let collisionConfiguration = new Ammo.btDefaultCollisionConfiguration();
     let dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
     let overlappingPairCache = new Ammo.btDbvtBroadphase();
     let solver = new Ammo.btSequentialImpulseConstraintSolver();
-    let dynamicsWorld = new Ammo.btDiscreteDynamicsWorld(
+    let world = new Ammo.btDiscreteDynamicsWorld(
         dispatcher, overlappingPairCache, solver, collisionConfiguration);
-    dynamicsWorld.setGravity(gravity);
+    world.setGravity(gravity);
 
-    return dynamicsWorld;
+    return world;
 }
 
-window.addEventListener("load", function () {
+function init() {
     let width = window.innerWidth;
     let height = window.innerHeight;
-    let deltaT = 30;
 
     let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
     camera.position.x = 0;
-    camera.position.y = 20;
-    camera.position.z = 30;
+    camera.position.y = 200 * SCALE;
+    camera.position.z = 300 * SCALE;
     camera.lookAt(new THREE.Vector3(0, 0, 0));
 
     scene = new THREE.Scene();
@@ -317,10 +311,10 @@ window.addEventListener("load", function () {
     directionalLight.position.z = 3;
     scene.add(directionalLight);
 
-    dynamicsWorld = initPhysicsWorld();
-    let ground = new Plane(0, 0, 0, 500, 0, 0xdddddd);
+    world = initWorld();
+    let ground = new Plane(0, 0, 0, 300 * SCALE, 0, 0xdddddd);
     scene.add(ground.threeObj);
-    dynamicsWorld.addRigidBody(ground.bulletObj);
+    world.addRigidBody(ground.bulletObj);
 
     createDominos();
     createShapes();
@@ -335,7 +329,7 @@ window.addEventListener("load", function () {
     function rendering() {
         controls.update();
         
-        dynamicsWorld.stepSimulation(deltaT / 1000);
+        world.stepSimulation(deltaT / 1000);
 
         for (let i = numObjects; i--;) {
             let obj = objs[i];
@@ -347,20 +341,19 @@ window.addEventListener("load", function () {
     }
 
     rendering();
-
-}, false);
+}
 
 function createDominos() {
-    let box_size = 1;
+    let BOX_SIZE = 10;
     for ( let y = 0; y < 16; y++ ) {
         for ( let x = 0; x < 16; x++ ) {
-            let x1 = -6 + x * box_size * 0.95;
-            let y1 = box_size * 2;
-            let z1 = -8 + y * box_size * 1.2;
+            let x1 = (-6 + x) * BOX_SIZE * SCALE * 0.95;
+            let y1 = BOX_SIZE * SCALE * 1;
+            let z1 = (-8 + y) * BOX_SIZE * SCALE * 1.2;
             let color = getRgbColor( dataSet[y * 16 + x] );
-            let box = new Box(x1, y1, z1, 0.2, 1.2, 1, 10, color);
+            let box = new Box(x1, y1, z1, 0.2 * BOX_SIZE * SCALE, 1.2 * BOX_SIZE * SCALE, 1 * BOX_SIZE * SCALE, 10, color);
             scene.add(box.threeObj);
-            dynamicsWorld.addRigidBody(box.bulletObj);
+            world.addRigidBody(box.bulletObj);
             objs.push(box);
             numObjects++;
         }
@@ -368,18 +361,30 @@ function createDominos() {
 }
 
 function createShapes() {
-    let ball_size = 0.5;
-    let box_size = 1;
+    let BALL_SIZE = 5;
+    let BOX_SIZE = 10;
     for ( let y = 0; y < 16; y++ ) {
-        let x1 = -6.2;
-        let y1 = 4;
-        let z1 = -8 + (15 - y) * box_size * 1.2;
+        let x1 = -6 * BOX_SIZE * SCALE;
+        let y1 = 2 * BOX_SIZE * SCALE;
+        let z1 = (-8 + (15 - y)) * BOX_SIZE * SCALE * 1.2;
         let color = getRgbColor("白");
-        let ball = new Ball(x1, y1, z1, ball_size, 10, color);
+        let ball = new Ball(x1, y1, z1, BALL_SIZE * SCALE, 10, color);
         scene.add(ball.threeObj);
-        dynamicsWorld.addRigidBody(ball.bulletObj);
+        world.addRigidBody(ball.bulletObj);
         objs.push(ball);
         numObjects++;
     }
 }
-});
+
+window.addEventListener("load", function () {
+    loader = new THREE.TextureLoader();
+    texture_grass = loader.load('../../../../assets/textures/grass.jpg');
+    texture_grass.wrapS = texture_grass.wrapT = THREE.RepeatWrapping;
+    texture_grass.repeat.set( 5, 5 );
+    texture_football = loader.load('../../../../assets/textures/football.png');
+
+    Ammo().then(function(Ammo) {
+        init();
+    });
+}, false);
+
