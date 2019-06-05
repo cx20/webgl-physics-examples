@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Grimoire.js + Oimo.js Minimum Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/grimoirejs-preset-basic@1.11.20/register/grimoire-preset-basic.js"></script>
+  <script src="https://unpkg.com/grimoirejs-forward-shading@1.10.2/register/grimoire-forward-shading.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/oimo/1.0.9/oimo.js"></script>
+</head>
+<body>
+
+<script type="text/goml" id="main">
+  <goml width="fit" height="fit">
+      <scene>
+          <camera class="camera" position="0,10,30">
+              <camera.components>
+                  <MouseCameraControl></MouseCameraControl>
+              </camera.components>
+          </camera>
+          <rigid-cube geometry="cube" position="0,-5,0" scale="20, 0.5, 20" texture="../../../../assets/textures/frog.jpg" move="false">
+          </rigid-cube>
+          <light type="directional" rotation="-30d,30d,0d"  color="white" intensity="4.0"/>
+          <light type="directional" rotation="0d,-150d,0d" color="white" intensity="4.0"/>
+      </scene>
+  </goml>
+</script>
+
+<script src="index.js"></script>
+</body>
+</html>
