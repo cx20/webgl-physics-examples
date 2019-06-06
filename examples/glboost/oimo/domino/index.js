@@ -191,7 +191,7 @@ function populate() {
         bodys[size+i] = world.add({
             type: "box",
             size: [w, h, d],
-            pos: [(-8.5+x)*DOT_SIZE, y*DOT_SIZE, (-8+z)*DOT_SIZE*1.2],
+            pos: [(-8.4+x)*DOT_SIZE, y*DOT_SIZE, (-8+z)*DOT_SIZE*1.2],
             rot: [0, 0, 0],
             move: true,
             density: 1,
