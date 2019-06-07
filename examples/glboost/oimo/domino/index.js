@@ -73,7 +73,7 @@ function init() {
     let width = window.innerWidth;
     let height = window.innerHeight;
     glBoostContext = new GLBoost.GLBoostMiddleContext(canvas);
-    renderer = glBoostContext.createRenderer({ canvas: canvas, clearColor: {red:1, green:1, blue:1, alpha:1}});
+    renderer = glBoostContext.createRenderer({ canvas: canvas, clearColor: {red:0, green:0, blue:0, alpha:1}});
     renderer.resize(width, height);
     scene = glBoostContext.createScene();
 
@@ -170,6 +170,7 @@ function populate() {
             });
 
             let material = glBoostContext.createClassicMaterial();
+            material.shaderClass = GLBoost.PhongShader;
             let color = new GLBoost.Vector4(c.r / 0xff, c.g / 0xff, c.b / 0xff, 1.0);
             let geoBox = glBoostContext.createCube(new GLBoost.Vector3(w, h, d), color);
 
@@ -200,6 +201,7 @@ function populate() {
         });
 
         let material = glBoostContext.createClassicMaterial();
+        material.shaderClass = GLBoost.PhongShader;
         let color = new GLBoost.Vector4(1, 0, 0, 1);
         let geoBox = glBoostContext.createCube(new GLBoost.Vector3(w, h, d), color);
         meshs[size+i] = glBoostContext.createMesh(geoBox, material);
