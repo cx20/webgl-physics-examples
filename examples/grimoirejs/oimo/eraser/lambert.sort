@@ -1,0 +1,40 @@
+@Pass{
+    FS_PREC(mediump,float)
+    @DepthFunc(LEQUAL)
+    @Disable(CULL_FACE)
+    @BlendFunc(SRC_ALPHA,ONE_MINUS_SRC_ALPHA)
+    @CullFace(BACK)
+
+    varying vec2 vTexCoord;
+    varying vec3 vNormal;
+
+    #ifdef VS
+      attribute vec3 position;
+      attribute vec3 normal;
+      attribute vec2 texCoord;
+      uniform mat4 _matPVM;
+      uniform mat4 _matM;
+      void main(){
+        gl_Position = _matPVM * vec4(position, 1.);
+        vTexCoord = texCoord;
+        vNormal = (_matM * vec4(normal, 0.)).xyz;
+      }
+    #endif
+
+    #ifdef FS
+      @{usedFlag:"_textureUsed"}
+      uniform sampler2D texture;
+      uniform bool _textureUsed;
+      @{type:"color", default:"#6E183D"}
+      uniform vec4 color;
+      @{type:"vec3", default:"n(1,1,1)"}
+      uniform vec3 sun;
+      void main(){
+        vec3 diffuse = max(dot(vNormal, -1. * sun), 0.3) * color.rgb;
+        if (_textureUsed) {
+          diffuse = diffuse * texture2D(texture, vTexCoord).rgb;
+        }
+        gl_FragColor = vec4(diffuse, 1.0);
+      }
+    #endif
+}

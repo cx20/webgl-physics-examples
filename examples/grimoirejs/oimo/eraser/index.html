@@ -1,0 +1,40 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <title>Grimoire.js + Oimo.js Falling Eraser Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+<!--
+  <script src="https://unpkg.com/grimoirejs-preset-basic@1.11.20/register/grimoire-preset-basic.js"></script>
+  <script src="https://unpkg.com/grimoirejs-forward-shading@1.10.2/register/grimoire-forward-shading.js"></script>
+-->
+  <script src="https://unpkg.com/grimoirejs-preset-basic@1.9.28/register/grimoire-preset-basic.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/oimo/1.0.9/oimo.js"></script>
+</head>
+<body>
+
+<script type="text/goml" id="main">
+  <goml width="fit" height="fit">
+      <geometry type="custom" name="c1"/>
+      <import-material typeName="textureShader" src="textureShader.sort"/>
+      <import-material typeName="lambert" src="lambert.sort" />
+      <material id="red"   type="lambert" color="#f00" sun="n(1,-1.1,-10)" />
+      <material id="green" type="lambert" color="#0f0" sun="n(1,-1.1,-10)" />
+      <material id="blue"  type="lambert" color="#00f" sun="n(1,-1.1,-10)" />
+      <scene>
+          <camera>
+              <camera.components>
+                  <MouseCameraControl></MouseCameraControl>
+              </camera.components>
+          </camera>
+          <mesh material="#blue" geometry="cube" position="0,-5,0" scale="3">
+              <mesh.components>
+                  <Rigid move="false"></Rigid>
+              </mesh.components>
+          </mesh>
+      </scene>
+  </goml>
+</script>
+
+<script src="index.js"></script>
+</body>
+</html>

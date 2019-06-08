@@ -1,0 +1,32 @@
+@Pass{
+    FS_PREC(mediump,float)
+    @Disable(CULL_FACE)
+    varying vec2 vTexCoord;
+    varying float vTime;
+
+#ifdef VS
+    @POSITION
+    attribute vec3 position;
+    @TEXCOORD
+    attribute vec2 texcoord;
+    uniform mat4 _matPVM;
+    uniform float _time;
+
+    void main(){
+        vTexCoord = texcoord;
+        float c = cos(_time/1000.0);
+        float s = sin(_time/1000.0);
+    
+        //gl_Position = _matPVM * matAxisX * matAxisY * vec4(position, 1.0);
+        gl_Position = _matPVM * vec4(position,1.0);
+    }
+#endif
+
+#ifdef FS
+    uniform sampler2D texture;
+    void main(){
+        vec3 diffuse = texture2D(texture, vTexCoord).rgb;
+        gl_FragColor = vec4(diffuse, 1.0);
+    }
+#endif
+}
