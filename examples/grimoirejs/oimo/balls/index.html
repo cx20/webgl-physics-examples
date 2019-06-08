@@ -1,0 +1,32 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <title>Grimoire.js + Oimo.js Falling Balls Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/grimoirejs-preset-basic@1.11.20/register/grimoire-preset-basic.js"></script>
+  <script src="https://unpkg.com/grimoirejs-forward-shading@1.10.2/register/grimoire-forward-shading.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/oimo/1.0.9/oimo.js"></script>
+</head>
+<body>
+
+<script type="text/goml" id="main">
+  <goml width="fit" height="fit">
+      <scene>
+          <light rotation="x(-30d)" color="white" type="directional" position="0,10,0" intensity="3"/>
+          <camera class="camera" near="0.01" far="400.0" aspect="1.0" fovy="45d" position="0,10,30" rotation="x(0d)">
+              <camera.components>
+                  <MouseCameraControl></MouseCameraControl>
+              </camera.components>
+          </camera>
+          <rigid-cube position="0,0,-4.5" scale="5, 5, 0.5" move="false" transparent="true" albedo="#40404070" emission="#000000"/>
+          <rigid-cube position="0,0,+4.5" scale="5, 5, 0.5" move="false" transparent="true" albedo="#40404070" emission="#000000"/>
+          <rigid-cube position="-4.5,0,0" scale="0.5, 5, 5" move="false" transparent="true" albedo="#40404070" emission="#000000"/>
+          <rigid-cube position="+4.5,0,0" scale="0.5, 5, 5" move="false" transparent="true" albedo="#40404070" emission="#000000"/>
+          <rigid-cube position="0,-5,0" scale="15, 0.5, 15" move="false" transparent="false" albedo="#404040FF" emission="#000000"/>
+      </scene>
+  </goml>
+</script>
+
+<script src="index.js"></script>
+</body>
+</html>
