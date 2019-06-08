@@ -90,19 +90,24 @@ function initBoost() {
     expression.prepareToRender();
 }
 
-function animate() {
-    renderer.clearCanvas();
-    renderer.draw(expression);
-    updatePhysics();
-    requestAnimationFrame(animate);
-}
-
 function updatePhysics() {
     world.step();
     let p = body.getPosition();
     let q = body.getQuaternion();
     meshCube.translate = new GLBoost.Vector3(p.x, p.y, p.z);
     meshCube.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
+}
+
+function animate() {
+    renderer.clearCanvas();
+    renderer.draw(expression);
+    updatePhysics();
+
+    let rotateMatrix = GLBoost.Matrix33.rotateY(0.1);
+    let rotatedVector = rotateMatrix.multiplyVector(camera.eye);
+    camera.eye = rotatedVector;
+
+    requestAnimationFrame(animate);
 }
 
 initOimo();

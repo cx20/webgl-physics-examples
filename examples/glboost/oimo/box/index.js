@@ -170,7 +170,7 @@ function populate() {
             });
 
             let material = glBoostContext.createClassicMaterial();
-            material.shaderClass = GLBoost.PhongShader;
+            material.shaderClass = GLBoost.LambertShader;
             let color = new GLBoost.Vector4(c.r / 0xff, c.g / 0xff, c.b / 0xff, 1.0);
             let geoBox = glBoostContext.createCube(new GLBoost.Vector3(w, h, d), color);
 
@@ -199,6 +199,10 @@ function animate() {
         mesh.translate = new GLBoost.Vector3(p.x, p.y, p.z);
         mesh.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
     }
+
+    let rotateMatrix = GLBoost.Matrix33.rotateY(0.1);
+    let rotatedVector = rotateMatrix.multiplyVector(camera.eye);
+    camera.eye = rotatedVector;
 
     requestAnimationFrame(animate);
 }

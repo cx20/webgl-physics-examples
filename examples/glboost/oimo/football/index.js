@@ -205,5 +205,9 @@ function animate() {
         mesh.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
     }
 
+    let rotateMatrix = GLBoost.Matrix33.rotateY(0.1);
+    let rotatedVector = rotateMatrix.multiplyVector(camera.eye);
+    camera.eye = rotatedVector;
+
     requestAnimationFrame(animate);
 }
