@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>XenoGL + OimoPhysics.js Minimum Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <!-- xenogl.js v0.1.1 -->
+  <script src="https://cdn.rawgit.com/kotofurumiya/xenogl/db14c9dcdf9f6f30de3aa7d8b2c464db3d4ffaff/build/xenogl.min.js"></script>
+  <!-- matrixgl.js v1.0.1 -->
+  <script src="https://cdn.rawgit.com/kotofurumiya/matrixgl/42f8c89c/build/matrixgl.min.js"></script>
+  <!-- OimoPhysics.js v1.2.0 -->
+  <script src="https://cdn.rawgit.com/saharan/OimoPhysics/a4f307b0/bin/js/OimoPhysics.min.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">#version 300 es
+in  vec3 position;
+in  vec2 textureCoord;
+uniform mat4 uPMatrix;
+uniform mat4 uMVMatrix;
+out vec2 vTextureCoord;
+
+void main() {
+    vTextureCoord = textureCoord;
+    gl_Position = uPMatrix * uMVMatrix * vec4(position, 1.0);
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">#version 300 es
+precision mediump float;
+uniform sampler2D uTexture;
+in  vec2 vTextureCoord;
+out vec4 fragColor;
+
+void main() {
+    fragColor = texture(uTexture, vTextureCoord);
+}
+</script>
+
+<script src="index.js"></script>
+</body>
+</html>
