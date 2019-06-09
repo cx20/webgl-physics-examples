@@ -2,7 +2,7 @@ let { Asset, EntityMgr, System, ComponentSystem, Camera, Texture, vec3, vec4, ma
 
 async function main() {
     let screen = new Screen('#c');
-    screen.bgColor = [0, 0, 0, 1];
+    screen.bgColor = [1, 1, 1, 1];
 
     let scene = EntityMgr.create('root');
 
