@@ -39,7 +39,7 @@ let height = window.innerHeight;
 function getRgbColor( c )
 {
     let colorHash = {
-        "無":{r:0xDC,g:0xAA,b:0x6B},    // 段ボール色
+        "無":{r:0xDC,g:0xAA,b:0x6B},
         "白":{r:0xff,g:0xff,b:0xff},
         "肌":{r:0xff,g:0xcc,b:0xcc},
         "茶":{r:0x80,g:0x00,b:0x00},
@@ -54,7 +54,6 @@ function getRgbColor( c )
 }
 
 let TIME_STEP = 1 / 30;
-let VIEW_ANGLE = 60;
 let N = 256;
 
 // glboost var
