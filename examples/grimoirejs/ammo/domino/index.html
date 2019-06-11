@@ -1,0 +1,32 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <title>Grimoire.js + ammo.js Domino Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/grimoirejs-preset-basic@1.11.20/register/grimoire-preset-basic.js"></script>
+  <script src="https://unpkg.com/grimoirejs-forward-shading@1.10.2/register/grimoire-forward-shading.js"></script>
+  <script src="https://rawgit.com/kripken/ammo.js/master/builds/ammo.js"></script>
+</head>
+<body>
+
+<script type="text/goml" id="main">
+  <goml width="fit" height="fit">
+      <scene>
+          <camera class="camera" near="0.01" far="4000.0" position="0,20,15">
+              <camera.components>
+                  <MouseCameraControl></MouseCameraControl>
+              </camera.components>
+          </camera>
+          <mesh geometry="cube" position="0,-5,0" scale="20, 0.5, 20" texture="../../../../assets/textures/grass.jpg">
+              <mesh.components>
+                  <Rigid move="false"></Rigid>
+              </mesh.components>
+          </mesh>
+          <light rotation="x(-30d)" color="white" type="directional" position="0,10,0" intensity="5"/>
+      </scene>
+  </goml>
+</script>
+
+<script src="index.js"></script>
+</body>
+</html>
