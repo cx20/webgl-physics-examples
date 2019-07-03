@@ -119,17 +119,17 @@ let createScene = function() {
     };
 
     const BOX_SIZE = 15;
-    var i = 0;
-    for (var y = 0; y < 16; y++) {
-        for (var x = 0; x < 16; x++) {
+    let i = 0;
+    for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
             i = x + (15 - y) * 16;
-            var s = BABYLON.Mesh.CreateBox("Box" + String(i), BOX_SIZE, scene);
-            var x1 = -130 + x * BOX_SIZE * 1.2 + Math.random();
-            var y1 = 30 + y * BOX_SIZE * 1.2;
-            var z1 = 1.0 * Math.random();
+            let s = BABYLON.Mesh.CreateBox("Box" + String(i), BOX_SIZE, scene);
+            let x1 = -130 + x * BOX_SIZE * 1.2 + Math.random();
+            let y1 = 30 + y * BOX_SIZE * 1.2;
+            let z1 = 1.0 * Math.random();
             s.position = new BABYLON.Vector3(x1, y1, z1);
-            var matCube = new BABYLON.StandardMaterial("ball", scene);
-            var rgbColor = getRgbColor(dataSet[i]);
+            let matCube = new BABYLON.StandardMaterial("ball", scene);
+            let rgbColor = getRgbColor(dataSet[i]);
             matCube.diffuseColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
             s.material = matCube;
             s.physicsImpostor = new BABYLON.PhysicsImpostor(s, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1, friction: 1.0, restitution: 0.0}, scene);
