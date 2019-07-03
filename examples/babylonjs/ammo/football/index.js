@@ -119,18 +119,18 @@ let createScene = function() {
     };
 
     const BALL_SIZE = 15;
-    var i = 0;
-    for (var y = 0; y < 16; y++) {
-        for (var x = 0; x < 16; x++) {
+    let i = 0;
+    for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
             i = x + (15 - y) * 16;
-            var s = BABYLON.Mesh.CreateSphere("Sphere" + String(i), 16, BALL_SIZE, scene);
-            var x1 = -130 + x * BALL_SIZE * 1.2 + Math.random();
-            var y1 = 30 + y * BALL_SIZE * 1.2;
-            var z1 = 1.0 * Math.random();
+            let s = BABYLON.Mesh.CreateSphere("Sphere" + String(i), 16, BALL_SIZE, scene);
+            let x1 = -130 + x * BALL_SIZE * 1.2 + Math.random();
+            let y1 = 30 + y * BALL_SIZE * 1.2;
+            let z1 = 1.0 * Math.random();
             s.position = new BABYLON.Vector3(x1, y1, z1);
-            var matSphere = new BABYLON.StandardMaterial("ball", scene);
+            let matSphere = new BABYLON.StandardMaterial("ball", scene);
             matSphere.diffuseTexture = new BABYLON.Texture("../../../../assets/textures/football.png", scene);
-            var rgbColor = getRgbColor(dataSet[i]);
+            let rgbColor = getRgbColor(dataSet[i]);
             matSphere.emissiveColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
             matSphere.diffuseColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
             s.material = matSphere;
