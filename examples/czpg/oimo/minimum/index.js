@@ -1,5 +1,5 @@
-var world;
-var body;
+let world;
+let body;
 
 function initOimo() {
     world = new OIMO.World({ 
@@ -12,7 +12,7 @@ function initOimo() {
         gravity: [0,-9.8,0] 
     });
 
-    var groundBody = world.add({
+    let groundBody = world.add({
         type: "box",
         size: [200, 2, 200],
         pos: [0, -20, 0],
@@ -34,15 +34,15 @@ function initOimo() {
     });
 }
 
-var renderer;
-var context;
-var scene;
-var camera;
-var modelCube;
-var modelGround;
-var shader;
-var controler;
-var cameraControler
+let renderer;
+let context;
+let scene;
+let camera;
+let modelCube;
+let modelGround;
+let shader;
+let controler;
+let cameraControler
 
 function initCzpg() {
     renderer = new CZPG.Renderer('c').setSize('100%', '100%').clear(1.0, 1.0, 1.0, 1.0);
