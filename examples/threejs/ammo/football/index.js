@@ -261,10 +261,10 @@ function init() {
 
 function createBalls() {
     const BALL_SIZE = 10;
-    for (var x = 0; x < 16; x++) {
-        for (var y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+        for (let y = 0; y < 16; y++) {
             i = x + (15 - y) * 16;
-            var z = 0;
+            let z = 0;
             let x1 = (-7 + x) * BALL_SIZE * SCALE * 1.5 + Math.random() * 0.1;
             let y1 = (15 - y) * BALL_SIZE * SCALE * 1.2 + Math.random() * 0.1;
             let z1 = z * BALL_SIZE * SCALE * 1 + Math.random() * 0.1;

@@ -206,7 +206,7 @@ function init() {
 }
 
 function createBox() {
-    var z = 0;
+    let z = 0;
     let x1 = 0;
     let y1 = 50 * SCALE;
     let z1 = 0;

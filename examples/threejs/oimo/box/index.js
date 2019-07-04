@@ -137,10 +137,10 @@ function createBox(x, y, z, w, h, d, mass, color) {
 
 function createBoxes() {
     const BOX_SIZE = 1;
-    for (var x = 0; x < 16; x++) {
-        for (var y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+        for (let y = 0; y < 16; y++) {
             i = x + (15 - y) * 16;
-            var z = 0;
+            let z = 0;
             let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
             let y1 = -5  + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
             let z1 = z * BOX_SIZE * 1 + Math.random() * 0.1;
