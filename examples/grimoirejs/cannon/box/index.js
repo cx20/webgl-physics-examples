@@ -1,4 +1,4 @@
-﻿var timeStep = 1 / 30;
+﻿let timeStep = 1 / 30;
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -16,7 +16,7 @@
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","RD","RD","RD","RD","BG","BG",
@@ -37,7 +37,7 @@ var dataSet = [
 
 function getRgbColor(colorType)
 {
-    var colorHash = {
+    let colorHash = {
         "BK":"#dcaa6b", // black
         "WH":"#FFFFFF", // white
         "BG":"#FFCCCC", // beige
@@ -55,10 +55,10 @@ function getRgbColor(colorType)
 const Quaternion = gr.lib.math.Quaternion;
 gr(function() {
     const scene = gr("#main")("scene").single();
-    for (var i = 0; i < dataSet.length; i++) {
-        var x = i % 16 - 8;
-        var y = 16 - Math.floor(i / 16);
-        var z = 0;
+    for (let i = 0; i < dataSet.length; i++) {
+        let x = i % 16 - 8;
+        let y = 16 - Math.floor(i / 16);
+        let z = 0;
         const n = scene.addChildByName("rigid-cube", {
             albedo: getRgbColor(dataSet[i]),
             scale: 0.5,
@@ -102,8 +102,8 @@ gr.register(() => {
             const p = this.transform.position;
             const r = this.transform.rotation;
             const s = this.transform.scale;
-            var mass = 1.0;
-            var shape;
+            let mass = 1.0;
+            let shape;
             if (this.shape == "box") {
                 shape = new CANNON.Box(new CANNON.Vec3(s.X, s.Y, s.Z));
             }

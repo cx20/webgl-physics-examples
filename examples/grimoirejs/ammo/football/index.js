@@ -1,6 +1,6 @@
 ﻿
 Ammo().then(function(Ammo) {
-var update_trans = new Ammo.btTransform();
+let update_trans = new Ammo.btTransform();
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -18,7 +18,7 @@ var update_trans = new Ammo.btTransform();
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","RD","RD","RD","RD","BG","BG",
@@ -39,7 +39,7 @@ var dataSet = [
 
 function getRgbColor(colorType)
 {
-    var colorHash = {
+    let colorHash = {
         "BK":"#dcaa6b", // black
         "WH":"#FFFFFF", // white
         "BG":"#FFCCCC", // beige
@@ -58,10 +58,10 @@ function getRgbColor(colorType)
 const Quaternion = gr.lib.math.Quaternion;
 gr(function() {
     const scene = gr("#main")("scene").single();
-    for (var i = 0; i < dataSet.length; i++) {
-        var x = i % 16 - 8;
-        var y = 16 - Math.floor(i / 16);
-        var z = 0;
+    for (let i = 0; i < dataSet.length; i++) {
+        let x = i % 16 - 8;
+        let y = 16 - Math.floor(i / 16);
+        let z = 0;
         const n = scene.addChildByName("rigid-ball", {
             color: getRgbColor(dataSet[i]),
             scale: 0.5,
@@ -76,11 +76,11 @@ gr.register(() => {
         attributes: {
         },
         $awake: function() {
-            var collisionConfiguration = new Ammo.btDefaultCollisionConfiguration();
-            var dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
-            var overlappingPairCache = new Ammo.btDbvtBroadphase();
-            var solver = new Ammo.btSequentialImpulseConstraintSolver();
-            var dynamicsWorld = new Ammo.btDiscreteDynamicsWorld(
+            let collisionConfiguration = new Ammo.btDefaultCollisionConfiguration();
+            let dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
+            let overlappingPairCache = new Ammo.btDbvtBroadphase();
+            let solver = new Ammo.btSequentialImpulseConstraintSolver();
+            let dynamicsWorld = new Ammo.btDiscreteDynamicsWorld(
                 dispatcher, 
                 overlappingPairCache, 
                 solver, 
@@ -112,21 +112,21 @@ gr.register(() => {
             const r = this.transform.rotation;
             const s = this.transform.scale;
             const ammoScene = this.node.getComponentInAncestor("AmmoScene");
-            var size = new Ammo.btVector3(s.X, s.Y, s.Z);
-            var pos = new Ammo.btVector3(p.X, p.Y, p.Z);
-            var form = new Ammo.btTransform();
+            let size = new Ammo.btVector3(s.X, s.Y, s.Z);
+            let pos = new Ammo.btVector3(p.X, p.Y, p.Z);
+            let form = new Ammo.btTransform();
             form.setIdentity();
             form.setOrigin(pos);
-            var shape;
-            var mass = this.move ? 10 : 0;
+            let shape;
+            let mass = this.move ? 10 : 0;
             if ( this.shape == "box" ) {
                 shape = new Ammo.btBoxShape(size);
             } else if ( this.shape == "sphere" ) {
                 shape = new Ammo.btSphereShape(size);
             }
-            var localInertia = new Ammo.btVector3(0, 0, 0);
+            let localInertia = new Ammo.btVector3(0, 0, 0);
             shape.calculateLocalInertia(mass,localInertia);
-            var body = new Ammo.btRigidBody(
+            let body = new Ammo.btRigidBody(
                 new Ammo.btRigidBodyConstructionInfo(
                     mass,
                     new Ammo.btDefaultMotionState(form),

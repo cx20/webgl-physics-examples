@@ -8,8 +8,8 @@ const dataSet = [
 ];
 gr(function() {
     const scene = gr("#main")("scene").single();
-    var timer = setInterval(function() {
-        var idx = Math.floor(Math.random() * dataSet.length);
+    let timer = setInterval(function() {
+        let idx = Math.floor(Math.random() * dataSet.length);
         const n = scene.addChildByName("rigid-sphere", {
             texture: dataSet[idx].imageFile,
             scale:dataSet[idx].scale,

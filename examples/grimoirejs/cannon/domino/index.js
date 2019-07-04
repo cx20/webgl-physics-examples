@@ -1,4 +1,4 @@
-﻿var timeStep = 1 / 30;
+﻿let timeStep = 1 / 30;
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -16,7 +16,7 @@
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","RD","RD","RD","RD","BG","BG",
@@ -37,7 +37,7 @@ var dataSet = [
 
 function getRgbColor(colorType)
 {
-    var colorHash = {
+    let colorHash = {
         "BK":"#dcaa6b", // black
         "WH":"#FFFFFF", // white
         "BG":"#FFCCCC", // beige
@@ -56,8 +56,8 @@ function getRgbColor(colorType)
 const Quaternion = gr.lib.math.Quaternion;
 gr(function() {
     const scene = gr("#main")("scene").single();
-    for ( var x = 0; x < 16; x++ ) {
-        for ( var z = 0; z < 16; z ++ ) {
+    for ( let x = 0; x < 16; x++ ) {
+        for ( let z = 0; z < 16; z ++ ) {
             i = x + (z) * 16;
             y = -3.5;
             const n = scene.addChildByName("rigid-cube", {
@@ -113,8 +113,8 @@ gr.register(() => {
             const p = this.transform.position;
             const r = this.transform.rotation;
             const s = this.transform.scale;
-            var mass = 1.0;
-            var shape;
+            let mass = 1.0;
+            let shape;
             if (this.shape == "box") {
                 shape = new CANNON.Box(new CANNON.Vec3(s.X, s.Y, s.Z));
             }
@@ -161,15 +161,15 @@ gr.register(() => {
  * @param CANNON.Vec3 t1 Vector object to save the first tangent in
  * @param CANNON.Vec3 t2 Vector object to save the second tangent in
  */
-var Vec3_tangents_n = new CANNON.Vec3();
-var Vec3_tangents_randVec = new CANNON.Vec3();
+let Vec3_tangents_n = new CANNON.Vec3();
+let Vec3_tangents_randVec = new CANNON.Vec3();
 CANNON.Vec3.prototype.tangents = function(t1,t2){
-    var norm = this.norm();
+    let norm = this.norm();
     if(norm>0.0){
-        var n = Vec3_tangents_n;
-        var inorm = 1/norm;
+        let n = Vec3_tangents_n;
+        let inorm = 1/norm;
         n.set(this.x*inorm,this.y*inorm,this.z*inorm);
-        var randVec = Vec3_tangents_randVec;
+        let randVec = Vec3_tangents_randVec;
         if(Math.abs(n.x) < 0.9){
             randVec.set(1,0,0);
             n.cross(randVec,t1);

@@ -14,7 +14,7 @@
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","BK","BK","BG","BG","BG",
     "BK","BK","BK","BK","BK","RD","RD","RD","RD","RD","RD","RD","RD","RD","BG","BG",
@@ -35,7 +35,7 @@ var dataSet = [
 
 function getRgbColor(colorType)
 {
-    var colorHash = {
+    let colorHash = {
         "BK":"#dcaa6b", // black
         "WH":"#FFFFFF", // white
         "BG":"#FFCCCC", // beige
@@ -54,8 +54,8 @@ function getRgbColor(colorType)
 const Quaternion = gr.lib.math.Quaternion;
 gr(function() {
     const scene = gr("#main")("scene").single();
-    for ( var x = 0; x < 16; x++ ) {
-        for ( var z = 0; z < 16; z ++ ) {
+    for ( let x = 0; x < 16; x++ ) {
+        for ( let z = 0; z < 16; z ++ ) {
             i = x + (z) * 16;
             y = -3.5;
             const n = scene.addChildByName("rigid-cube", {
