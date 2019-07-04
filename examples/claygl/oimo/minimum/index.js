@@ -1,4 +1,4 @@
-var app = clay.application.create('#main', {
+let app = clay.application.create('#main', {
     init: function (app) {
         this._world = new OIMO.World({ 
             timestep: 1/60 * 2, 
@@ -16,13 +16,13 @@ var app = clay.application.create('#main', {
         app.resize(window.innerWidth, window.innerHeight);
         
         // Create geometry
-        var geometryCube  = new clay.geometry.Cube();
-        var geometryGround  = new clay.geometry.Cube();
+        let geometryCube  = new clay.geometry.Cube();
+        let geometryGround  = new clay.geometry.Cube();
         geometryCube .generateTangents();
         geometryGround .generateTangents();
         
-        var shader = clay.shader.library.get('clay.standard', 'diffuseMap');
-        var material = new clay.Material({
+        let shader = clay.shader.library.get('clay.standard', 'diffuseMap');
+        let material = new clay.Material({
             shader: shader
         })
                 
@@ -52,7 +52,7 @@ var app = clay.application.create('#main', {
         this._meshGround = app.createMesh(geometryGround, material);
         this._meshGround.scale.set(200, 4, 200);
         this._meshGround.position.set(0, -50, 0);
-        var diffuse = new clay.Texture2D;
+        let diffuse = new clay.Texture2D;
         diffuse.load("../../../../assets/textures/frog.jpg");
         material.set('diffuseMap', diffuse);
         
@@ -70,9 +70,9 @@ var app = clay.application.create('#main', {
 
         this._world.step();
         
-        var pos = this._oimoCube.getPosition();
+        let pos = this._oimoCube.getPosition();
         this._meshCube.position.set(pos.x, pos.y, pos.z);
-        var rot = this._oimoCube.getQuaternion();
+        let rot = this._oimoCube.getQuaternion();
         this._meshCube.rotation.set(rot.x, rot.y, rot.z, rot.w);
         //this._camera.lookAt( new clay.Vector3(0,0,0), new clay.Vector3(0, 1, 0));
         //this._camera.position.set( 400 * Math.sin(this._rad ), 0, 400 * Math.cos(this._rad ));
