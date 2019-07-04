@@ -1,11 +1,11 @@
-var xgl;
-var program;
-var uMVMatrix;
-var uPMatrix;
-var uTexture;
-var world;
-var oimoGround;
-var oimoCube;
+let xgl;
+let program;
+let uMVMatrix;
+let uPMatrix;
+let uTexture;
+let world;
+let oimoGround;
+let oimoCube;
 
 function initWebGL() {
     const canvas = document.createElement('canvas');
@@ -45,7 +45,7 @@ function initShaders() {
 
 async function initBuffers() {
 
-    // —§•û‘Ì‚ÌÀ•Wƒf[ƒ^‚ğ—pˆÓ
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ì‚Ìï¿½ï¿½Wï¿½fï¿½[ï¿½^ï¿½ï¿½pï¿½ï¿½
     //             1.0 y 
     //              ^  -1.0 
     //              | / z

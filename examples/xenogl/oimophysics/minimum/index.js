@@ -1,11 +1,11 @@
-﻿var xgl;
-var program;
-var uMVMatrix;
-var uPMatrix;
-var uTexture;
-var world;
-var groundBody;
-var body;
+﻿let xgl;
+let program;
+let uMVMatrix;
+let uPMatrix;
+let uTexture;
+let world;
+let groundBody;
+let body;
 
 function initWebGL() {
     const canvas = document.createElement('canvas');
@@ -176,9 +176,9 @@ async function initBuffers() {
 }
 
 function addGround() {
-    var groundShapec = new OIMO.ShapeConfig();
+    let groundShapec = new OIMO.ShapeConfig();
     groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(100, 1, 100));
-    var groundBodyc = new OIMO.RigidBodyConfig();
+    let groundBodyc = new OIMO.RigidBodyConfig();
     groundBodyc.type = OIMO.RigidBodyType.STATIC;
     groundBodyc.position = new OIMO.Vec3(0, -20, 0);
     groundBody = new OIMO.RigidBody(groundBodyc);
@@ -187,9 +187,9 @@ function addGround() {
 }
 
 function addCube() {
-    var shapec = new OIMO.ShapeConfig();
+    let shapec = new OIMO.ShapeConfig();
     shapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(25, 25, 25));
-    var bodyc = new OIMO.RigidBodyConfig();
+    let bodyc = new OIMO.RigidBodyConfig();
     bodyc.type = OIMO.RigidBodyType.DYNAMIC;
     bodyc.position = new OIMO.Vec3(0, 100, 0);
     body = new OIMO.RigidBody(bodyc);
