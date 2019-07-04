@@ -1,15 +1,15 @@
 // Hilo3d variable
-var camera;
-var stage;
-var meshGround;
-var meshBox;
-var ticker;
+let camera;
+let stage;
+let meshGround;
+let meshBox;
+let ticker;
 
 // oimo variable
-var world;
-var oimoGround;
-var oimoBox;
-var rad = 0;
+let world;
+let oimoGround;
+let oimoBox;
+let rad = 0;
 
 function initScene() {
     camera = new Hilo3d.PerspectiveCamera({
@@ -43,7 +43,7 @@ function initWorld() {
 }
 
 function addGround() {
-    var geometryGround = new Hilo3d.BoxGeometry();
+    let geometryGround = new Hilo3d.BoxGeometry();
     geometryGround.setAllRectUV([[0, 1], [1, 1], [1, 0], [0, 0]]);
 
     meshGround = new Hilo3d.Mesh({
@@ -73,7 +73,7 @@ function addGround() {
 }
 
 function addBox() {
-    var geometryBox = new Hilo3d.BoxGeometry();
+    let geometryBox = new Hilo3d.BoxGeometry();
     geometryBox.setAllRectUV([[0, 1], [1, 1], [1, 0], [0, 0]]);
 
     meshBox = new Hilo3d.Mesh({
@@ -109,9 +109,9 @@ function animate() {
     meshGround.onUpdate = function() {
         world.step();
 
-        var pos = oimoBox.getPosition();
+        let pos = oimoBox.getPosition();
         meshBox.setPosition(pos.x, pos.y, pos.z);
-        var rot = oimoBox.getQuaternion();
+        let rot = oimoBox.getQuaternion();
         meshBox.quaternion.set(rot.x, rot.y, rot.z, rot.w);
         
         camera.lookAt( new Hilo3d.Vector3(0,0,0));
