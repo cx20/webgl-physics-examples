@@ -340,10 +340,10 @@ window.addEventListener("load", function () {
 function createBalls() {
     let ball_size = 0.5;
     let box_size = 1;
-    for (var i = 0; i < dataSet.length; i++) {
-        var x = (-8 + (i % 16)) * ball_size * 2.5;
-        var y = 10 + (15 - Math.floor(i / 16)) * ball_size * 2.5;
-        var z = Math.random();
+    for (let i = 0; i < dataSet.length; i++) {
+        let x = (-8 + (i % 16)) * ball_size * 2.5;
+        let y = 10 + (15 - Math.floor(i / 16)) * ball_size * 2.5;
+        let z = Math.random();
 
         let color = getRgbColor( dataSet[i] );
         let ball = new Ball(x, y, z, ball_size, 10, color);
