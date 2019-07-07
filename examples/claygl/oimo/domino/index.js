@@ -14,7 +14,7 @@
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "無","無","無","無","無","無","無","無","無","無","無","無","無","肌","肌","肌",
     "無","無","無","無","無","無","赤","赤","赤","赤","赤","無","無","肌","肌","肌",
     "無","無","無","無","無","赤","赤","赤","赤","赤","赤","赤","赤","赤","肌","肌",
@@ -35,7 +35,7 @@ var dataSet = [
 
 function getRgbColor( c )
 {
-    var colorHash = {
+    let colorHash = {
         "無":[0xDC/0xFF, 0xAA/0xFF, 0x6B/0xFF],    // 段ボール色
         "白":[0xff/0xFF, 0xff/0xFF, 0xff/0xFF],
         "肌":[0xff/0xFF, 0xcc/0xFF, 0xcc/0xFF],
@@ -50,10 +50,10 @@ function getRgbColor( c )
     return colorHash[c];
 }
 
-var meshCubes = [];
-var oimoCubes = [];
+let meshCubes = [];
+let oimoCubes = [];
 
-var app = clay.application.create('#main', {
+let app = clay.application.create('#main', {
     init: function (app) {
         this._world = new OIMO.World({ 
             timestep: 1/60 * 5, 
@@ -70,16 +70,16 @@ var app = clay.application.create('#main', {
         this._camera.position.set(0, 0, 500);
         app.resize(window.innerWidth, window.innerHeight);
         // Create geometry
-        var geometryCube  = new clay.geometry.Cube();
-        var geometryGround  = new clay.geometry.Cube();
+        let geometryCube  = new clay.geometry.Cube();
+        let geometryGround  = new clay.geometry.Cube();
         geometryCube .generateTangents();
         geometryGround .generateTangents();
         
-        var shader = clay.shader.library.get('clay.standard', 'diffuseMap');
-        var materialGround = new clay.Material({
+        let shader = clay.shader.library.get('clay.standard', 'diffuseMap');
+        let materialGround = new clay.Material({
             shader: shader
         })
-        var diffuse = new clay.Texture2D;
+        let diffuse = new clay.Texture2D;
         diffuse.load("white.png"); // white.png
         
         this._oimoGround = this._world.add({
@@ -91,26 +91,26 @@ var app = clay.application.create('#main', {
             density: 1
         });
         
-        var box_size = 8;
-        var DOT_SIZE = 8;
-        var w = DOT_SIZE*0.2;
-        var h = DOT_SIZE*1.5;
-        var d = DOT_SIZE;
-        var y = -2;
-        var i = 0;
-        for (var x = 0; x < 16; x++) {
-            for (var z = 0; z < 16; z++) {
+        let box_size = 8;
+        let DOT_SIZE = 8;
+        let w = DOT_SIZE*0.2;
+        let h = DOT_SIZE*1.5;
+        let d = DOT_SIZE;
+        let y = -2;
+        let i = 0;
+        for (let x = 0; x < 16; x++) {
+            for (let z = 0; z < 16; z++) {
                 i = x + z * 16;
-                var x1 = -110+x*(DOT_SIZE*2);
-                var y1 = y*(DOT_SIZE*2);
-                var z1 = -120+z*(DOT_SIZE*2)*1.2;
-                var rgbColor = getRgbColor(dataSet[i]);
-                var meshCube = app.createCube({color:rgbColor});
+                let x1 = -110+x*(DOT_SIZE*2);
+                let y1 = y*(DOT_SIZE*2);
+                let z1 = -120+z*(DOT_SIZE*2)*1.2;
+                let rgbColor = getRgbColor(dataSet[i]);
+                let meshCube = app.createCube({color:rgbColor});
                 //meshCube.scale.set(box_size, box_size, box_size);
                 meshCube.scale.set(w, h, d);
                 meshCube.position.set(x1*2, y1*2, z1*2);
                 meshCubes.push(meshCube);
-                var oimoCube = this._world.add({
+                let oimoCube = this._world.add({
                     type: "box",
                     //size: [box_size*2, box_size*2, box_size*2],
                     size: [w*2, h*2, d*2],
@@ -130,14 +130,14 @@ var app = clay.application.create('#main', {
             x = 0;
             y = 1;
             z = i;
-            var x1 = -115+x*(DOT_SIZE*2);
-            var y1 = y*(DOT_SIZE*2);
-            var z1 = -120+z*(DOT_SIZE*2)*1.2;
-            var meshCube = app.createCube({color:getRgbColor("赤")});
+            let x1 = -115+x*(DOT_SIZE*2);
+            let y1 = y*(DOT_SIZE*2);
+            let z1 = -120+z*(DOT_SIZE*2)*1.2;
+            let meshCube = app.createCube({color:getRgbColor("赤")});
             meshCube.scale.set(w, h, d);
             meshCube.position.set(x1*2, y1*2, z1*2);
             meshCubes.push(meshCube);
-            var oimoCube = this._world.add({
+            let oimoCube = this._world.add({
                 type: "box",
                 size: [w*2, h*2, d*2],
                 pos: [x1, y1, z1],
@@ -169,12 +169,12 @@ var app = clay.application.create('#main', {
 
         this._world.step();
         
-        for ( var i = 0; i < oimoCubes.length; i++ ) {
-            var oimoCube = oimoCubes[i];
-            var meshCube = meshCubes[i];
-            var pos = oimoCube.getPosition();
+        for ( let i = 0; i < oimoCubes.length; i++ ) {
+            let oimoCube = oimoCubes[i];
+            let meshCube = meshCubes[i];
+            let pos = oimoCube.getPosition();
             meshCube.position.set(pos.x, pos.y, pos.z);
-            var rot = oimoCube.getQuaternion();
+            let rot = oimoCube.getQuaternion();
             meshCube.rotation.set(rot.x, rot.y, rot.z, rot.w);
         }
      }

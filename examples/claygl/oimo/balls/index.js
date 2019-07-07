@@ -6,10 +6,10 @@
     {imageFile:"../../../../assets/textures/TennisBall.jpg", scale:0.3}, // TennisBall.jpg
 ];
  
-var meshSpheres = [];
-var oimoSpheres = [];
+let meshSpheres = [];
+let oimoSpheres = [];
 
-var app = clay.application.create('#main', {
+let app = clay.application.create('#main', {
     init: function (app) {
         this.initWorld();
         
@@ -44,14 +44,14 @@ var app = clay.application.create('#main', {
         });
     },
     addGround: function(app) {
-        var geometryGround  = new clay.geometry.Cube();
+        let geometryGround  = new clay.geometry.Cube();
         geometryGround.generateTangents();
         
-        var shader = clay.shader.library.get('clay.standard', 'diffuseMap');
-        var materialGround = new clay.Material({
+        let shader = clay.shader.library.get('clay.standard', 'diffuseMap');
+        let materialGround = new clay.Material({
             shader: shader
         })
-        var diffuse = new clay.Texture2D();
+        let diffuse = new clay.Texture2D();
         diffuse.load("../../../../assets/textures/grass.jpg"); // grass.jpg
 
         this._oimoGround = this._world.add({
@@ -70,11 +70,11 @@ var app = clay.application.create('#main', {
         
     },
     addBox: function(app) {
-        var shader = clay.shader.library.get('clay.standard', 'diffuseMap');
-        var materialSurface = new clay.Material({
+        let shader = clay.shader.library.get('clay.standard', 'diffuseMap');
+        let materialSurface = new clay.Material({
             shader: shader
         });
-        var diffuseSurface = new clay.Texture2D();
+        let diffuseSurface = new clay.Texture2D();
         diffuseSurface.load("./white.png"); // white.png
         materialSurface.set('diffuseMap', diffuseSurface);
         materialSurface.set('color', [0x70/0xFF, 0x70/0xFF, 0x70/0xFF]);
@@ -82,25 +82,25 @@ var app = clay.application.create('#main', {
         materialSurface.transparent = true;
         materialSurface.set('alpha', 0.5);
     
-        var boxDataSet = [
+        let boxDataSet = [
             { size:[100, 100,  10], pos:[  0, 50,-50], rot:[0,0,0] },
             { size:[100, 100,  10], pos:[  0, 50, 50], rot:[0,0,0] },
             { size:[ 10, 100, 100], pos:[-50, 50,  0], rot:[0,0,0] },
             { size:[ 10, 100, 100], pos:[ 50, 50,  0], rot:[0,0,0] } 
         ];
-        var geometrySurface = new clay.geometry.Cube();
-        var surfaces = [];
-        for ( var i = 0; i < boxDataSet.length; i++ ) {
-            var size = boxDataSet[i].size;
-            var pos  = boxDataSet[i].pos;
-            var rot  = boxDataSet[i].rot;
-            var meshSurface = app.createMesh(
+        let geometrySurface = new clay.geometry.Cube();
+        let surfaces = [];
+        for ( let i = 0; i < boxDataSet.length; i++ ) {
+            let size = boxDataSet[i].size;
+            let pos  = boxDataSet[i].pos;
+            let rot  = boxDataSet[i].rot;
+            let meshSurface = app.createMesh(
                 geometrySurface,
                 materialSurface
             );
             meshSurface.position.set(pos[0], pos[1] - 80, pos[2]);
             meshSurface.scale.set(size[0]/2, size[1]/2, size[2]/2);
-            var oimoGround = this._world.add({
+            let oimoGround = this._world.add({
                 type: "box",
                 size: [size[0], size[1], size[2]],
                 pos: [pos[0], pos[1] - 80, pos[2]],
@@ -111,38 +111,38 @@ var app = clay.application.create('#main', {
         }
     },
     addBall: function (app) {
-        var shader = clay.shader.library.get('clay.standard', 'diffuseMap');
-        var materialSpheres = [];
-        for (var i = 0; i < dataSet.length; i++ ) {
-            var diffuseSphere = new clay.Texture2D();
+        let shader = clay.shader.library.get('clay.standard', 'diffuseMap');
+        let materialSpheres = [];
+        for (let i = 0; i < dataSet.length; i++ ) {
+            let diffuseSphere = new clay.Texture2D();
             diffuseSphere.load(dataSet[i].imageFile);
-            var materialSphere = new clay.Material({
+            let materialSphere = new clay.Material({
                 shader: shader
             });
             materialSphere.set('diffuseMap', diffuseSphere);
             materialSpheres.push(materialSphere);
         }
         
-        var geometrySphere = new clay.geometry.Sphere();
-        var n = 400;
+        let geometrySphere = new clay.geometry.Sphere();
+        let n = 400;
         while (n--){
-            var x = -50 + Math.random()*100;
-            var y = 200 + Math.random()*100;
-            var z = -50 + Math.random()*100;
-            var w = 10;
-            var h = 10;
-            var d = 10;
-            var pos = Math.floor(Math.random() * dataSet.length);
-            var scale = dataSet[pos].scale;
+            let x = -50 + Math.random()*100;
+            let y = 200 + Math.random()*100;
+            let z = -50 + Math.random()*100;
+            let w = 10;
+            let h = 10;
+            let d = 10;
+            let pos = Math.floor(Math.random() * dataSet.length);
+            let scale = dataSet[pos].scale;
             
-            var meshSphere = app.createMesh(
+            let meshSphere = app.createMesh(
                 geometrySphere,
                 materialSpheres[pos]
             );
             meshSphere.scale.set(w*scale, h*scale, d*scale);
             meshSphere.position.set(x, y, z);
             meshSpheres.push(meshSphere);
-            var oimoSphere = this._world.add({
+            let oimoSphere = this._world.add({
                 type: "sphere",
                 size: [w*scale, h*scale, d*scale],
                 pos: [x, y, z],
@@ -159,17 +159,17 @@ var app = clay.application.create('#main', {
         this._control.update(app.deltaTime);
 
         this._world.step();
-        for ( var i = 0; i < oimoSpheres.length; i++ ) {
-            var oimoSphere = oimoSpheres[i];
-           var meshSphere = meshSpheres[i];
-            var pos = oimoSphere.getPosition();
+        for ( let i = 0; i < oimoSpheres.length; i++ ) {
+            let oimoSphere = oimoSpheres[i];
+           let meshSphere = meshSpheres[i];
+            let pos = oimoSphere.getPosition();
             meshSphere.position.set(pos.x, pos.y, pos.z);
-            var rot = oimoSphere.getQuaternion();
+            let rot = oimoSphere.getQuaternion();
             meshSphere.rotation.set(rot.x, rot.y, rot.z, rot.w);
             if ( meshSphere.position.y < -100 ) {
-                var x = -50 + Math.random()*100;
-                var y = 200 + Math.random()*100;
-                var z = -50 + Math.random()*100;
+                let x = -50 + Math.random()*100;
+                let y = 200 + Math.random()*100;
+                let z = -50 + Math.random()*100;
                oimoSphere.resetPosition(x, y, z);
             }
         }

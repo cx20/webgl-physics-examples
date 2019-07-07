@@ -14,7 +14,7 @@
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "無","無","無","無","無","無","無","無","無","無","無","無","無","肌","肌","肌",
     "無","無","無","無","無","無","赤","赤","赤","赤","赤","無","無","肌","肌","肌",
     "無","無","無","無","無","赤","赤","赤","赤","赤","赤","赤","赤","赤","肌","肌",
@@ -35,7 +35,7 @@ var dataSet = [
 
 function getRgbColor( c )
 {
-    var colorHash = {
+    let colorHash = {
         "無":[0xDC/0xFF, 0xAA/0xFF, 0x6B/0xFF],    // 段ボール色
         "白":[0xff/0xFF, 0xff/0xFF, 0xff/0xFF],
         "肌":[0xff/0xFF, 0xcc/0xFF, 0xcc/0xFF],
@@ -50,10 +50,10 @@ function getRgbColor( c )
     return colorHash[c];
 }
 
-var meshSpheres = [];
-var oimoSpheres = [];
+let meshSpheres = [];
+let oimoSpheres = [];
 
-var app = clay.application.create('#main', {
+let app = clay.application.create('#main', {
     init: function (app) {
         this._world = new OIMO.World({ 
             timestep: 1/60 * 5, 
@@ -70,19 +70,19 @@ var app = clay.application.create('#main', {
         this._camera.position.set(0, 0, 500);
         app.resize(window.innerWidth, window.innerHeight);
         // Create geometry
-        var geometrySphere  = new clay.geometry.Sphere();
-        var geometryGround  = new clay.geometry.Cube();
+        let geometrySphere  = new clay.geometry.Sphere();
+        let geometryGround  = new clay.geometry.Cube();
         geometrySphere.generateTangents();
         geometryGround.generateTangents();
         
-        var shader = clay.shader.library.get('clay.standard', 'diffuseMap');
-        var materialGround = new clay.Material({
+        let shader = clay.shader.library.get('clay.standard', 'diffuseMap');
+        let materialGround = new clay.Material({
             shader: shader
         })
-        var diffuse = new clay.Texture2D();
+        let diffuse = new clay.Texture2D();
         diffuse.load("../../../../assets/textures/grass.jpg"); // grass.jpg
 
-        var diffuseFootball = new clay.Texture2D();
+        let diffuseFootball = new clay.Texture2D();
         diffuseFootball.load("../../../../assets/textures/football.png"); // Football.png
         
         this._oimoGround = this._world.add({
@@ -94,21 +94,21 @@ var app = clay.application.create('#main', {
             density: 1
         });
         
-        var box_size = 8;
-        var i = 0;
-        for (var y = 0; y < 16; y++) {
-            for (var x = 0; x < 16; x++) {
+        let box_size = 8;
+        let i = 0;
+        for (let y = 0; y < 16; y++) {
+            for (let x = 0; x < 16; x++) {
                 i = (15 - x) + (15 - y) * 16;
                 //i = x + (15 - y) * 16;
-                var x1 = -130 + x * (box_size+1)*2 + Math.random();
-                var y1 = 30 + y * (box_size+1)*2 + Math.random();
-                var z1 = 0 + Math.random();
-                var rgbColor = getRgbColor(dataSet[i]);
-                var meshSphere = app.createSphere({color:rgbColor, diffuseMap:diffuseFootball});
+                let x1 = -130 + x * (box_size+1)*2 + Math.random();
+                let y1 = 30 + y * (box_size+1)*2 + Math.random();
+                let z1 = 0 + Math.random();
+                let rgbColor = getRgbColor(dataSet[i]);
+                let meshSphere = app.createSphere({color:rgbColor, diffuseMap:diffuseFootball});
                 meshSphere.scale.set(box_size, box_size, box_size);
                 meshSphere.position.set(x1*2, y1*2, z1*2);
                 meshSpheres.push(meshSphere);
-                var oimoSphere = this._world.add({
+                let oimoSphere = this._world.add({
                     type: "sphere",
                     size: [box_size, box_size, box_size],
                     pos: [x1, y1, z1],
@@ -141,12 +141,12 @@ var app = clay.application.create('#main', {
 
         this._world.step();
         
-        for ( var i = 0; i < oimoSpheres.length; i++ ) {
-            var oimoSphere = oimoSpheres[i];
-            var meshSphere = meshSpheres[i];
-            var pos = oimoSphere.getPosition();
+        for ( let i = 0; i < oimoSpheres.length; i++ ) {
+            let oimoSphere = oimoSpheres[i];
+            let meshSphere = meshSpheres[i];
+            let pos = oimoSphere.getPosition();
             meshSphere.position.set(pos.x, pos.y, pos.z);
-            var rot = oimoSphere.getQuaternion();
+            let rot = oimoSphere.getQuaternion();
             meshSphere.rotation.set(rot.x, rot.y, rot.z, rot.w);
         }
      }
