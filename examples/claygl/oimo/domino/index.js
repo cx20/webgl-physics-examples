@@ -67,7 +67,7 @@ var app = clay.application.create('#main', {
         
         // Create a orthographic camera
         this._camera = app.createCamera(null, null, 'perspective');
-        this._camera.position.set(0, 0, 5);
+        this._camera.position.set(0, 0, 500);
         app.resize(window.innerWidth, window.innerHeight);
         // Create geometry
         var geometryCube  = new clay.geometry.Cube();
@@ -81,7 +81,7 @@ var app = clay.application.create('#main', {
         })
         var diffuse = new clay.Texture2D;
         diffuse.load("white.png"); // white.png
-                
+        
         this._oimoGround = this._world.add({
            type: "box",
             size: [200*2, 4*2, 200*2],
@@ -133,16 +133,6 @@ var app = clay.application.create('#main', {
             var x1 = -115+x*(DOT_SIZE*2);
             var y1 = y*(DOT_SIZE*2);
             var z1 = -120+z*(DOT_SIZE*2)*1.2;
-            //var materialCube = new qtek.Material({
-            //    shader: shader
-            //});
-            //materialCube.set('diffuseMap', diffuse);
-            //materialCube.set('color', getRgbColor("赤"));
-            
-            //var meshCube = new qtek.Mesh({
-            //    geometry: geometryCube,
-            //    material: materialCube,
-            //});
             var meshCube = app.createCube({color:getRgbColor("赤")});
             meshCube.scale.set(w, h, d);
             meshCube.position.set(x1*2, y1*2, z1*2);
@@ -166,8 +156,17 @@ var app = clay.application.create('#main', {
         
         app.createAmbientLight("#fff", 0.2);
         this._mainLight = app.createDirectionalLight([-1, -1, -1]);
+
+        this._control = new clay.plugin.OrbitControl({
+            target: this._camera,
+            domElement: app.container,
+            autoRotateSpeed: 10,
+            autoRotate :true
+        });
     },
     loop: function () {
+        this._control.update(app.deltaTime);
+
         this._world.step();
         
         for ( var i = 0; i < oimoCubes.length; i++ ) {
@@ -178,8 +177,5 @@ var app = clay.application.create('#main', {
             var rot = oimoCube.getQuaternion();
             meshCube.rotation.set(rot.x, rot.y, rot.z, rot.w);
         }
-        this._camera.lookAt( new clay.Vector3(0,0,0), new clay.Vector3(0, 1, 0));
-        this._camera.position.set( 400 * Math.sin(this._rad ), 100, 400 * Math.cos(this._rad ));
-        //this._rad += Math.PI/180;
      }
 });
