@@ -67,7 +67,7 @@ var app = clay.application.create('#main', {
         
         // Create a orthographic camera
         this._camera = app.createCamera(null, null, 'perspective');
-        this._camera.position.set(0, 0, 5);
+        this._camera.position.set(0, 0, 500);
         app.resize(window.innerWidth, window.innerHeight);
         // Create geometry
         var geometrySphere  = new clay.geometry.Sphere();
@@ -128,8 +128,17 @@ var app = clay.application.create('#main', {
         
         app.createAmbientLight("#fff", 0.2);
         this._mainLight = app.createDirectionalLight([-1, -1, -1]);
+
+        this._control = new clay.plugin.OrbitControl({
+            target: this._camera,
+            domElement: app.container,
+            autoRotateSpeed: 10,
+            autoRotate :true
+        });
     },
     loop: function () {
+        this._control.update(app.deltaTime);
+
         this._world.step();
         
         for ( var i = 0; i < oimoSpheres.length; i++ ) {
@@ -140,8 +149,5 @@ var app = clay.application.create('#main', {
             var rot = oimoSphere.getQuaternion();
             meshSphere.rotation.set(rot.x, rot.y, rot.z, rot.w);
         }
-        this._camera.lookAt( new clay.Vector3(0,0,0), new clay.Vector3(0, 1, 0));
-        this._camera.position.set( 400 * Math.sin(this._rad ), 0, 400 * Math.cos(this._rad ));
-        this._rad += Math.PI/180 * 0.1;
      }
 });
