@@ -70,6 +70,11 @@ function addGround() {
         density: 1
     });
     stage.addChild(meshGround);
+
+    let orbitControls = new OrbitControls(stage, {
+        isLockMove:true,
+        isLockZ:true,
+    });
 }
 
 function addBox() {
