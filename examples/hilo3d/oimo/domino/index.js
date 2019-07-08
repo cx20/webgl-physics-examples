@@ -14,7 +14,7 @@
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-var dataSet = [
+let dataSet = [
     "無","無","無","無","無","無","無","無","無","無","無","無","無","肌","肌","肌",
     "無","無","無","無","無","無","赤","赤","赤","赤","赤","無","無","肌","肌","肌",
     "無","無","無","無","無","赤","赤","赤","赤","赤","赤","赤","赤","赤","肌","肌",
@@ -35,7 +35,7 @@ var dataSet = [
 
 function getRgbColor( c )
 {
-    var colorHash = {
+    let colorHash = {
         "無":[0xDC/0xFF, 0xAA/0xFF, 0x6B/0xFF],    // 段ボール色
         "白":[0xff/0xFF, 0xff/0xFF, 0xff/0xFF],
         "肌":[0xff/0xFF, 0xcc/0xFF, 0xcc/0xFF],
@@ -51,17 +51,17 @@ function getRgbColor( c )
 }
 
 // Hilo3d variable
-var camera;
-var stage;
-var meshGround;
-var meshBoxes = [];
-var ticker;
+let camera;
+let stage;
+let meshGround;
+let meshBoxes = [];
+let ticker;
 
 // oimo variable
-var world;
-var oimoGround;
-var oimoBoxes = [];
-var rad = 0;
+let world;
+let oimoGround;
+let oimoBoxes = [];
+let rad = 0;
 
 function initScene() {
     camera = new Hilo3d.PerspectiveCamera({
@@ -81,15 +81,20 @@ function initScene() {
         height: innerHeight
     });
 
-    var directionLight = new Hilo3d.DirectionalLight({
+    let directionLight = new Hilo3d.DirectionalLight({
         color:new Hilo3d.Color(1, 1, 1),
         direction:new Hilo3d.Vector3(0, -1, 0)
     }).addTo(stage);
     
-    var ambientLight = new Hilo3d.AmbientLight({
+    let ambientLight = new Hilo3d.AmbientLight({
         color:new Hilo3d.Color(1, 1, 1),
         amount: .5
     }).addTo(stage);
+
+    let orbitControls = new OrbitControls(stage, {
+        isLockMove:true,
+        isLockZ:true,
+    });
 }
 
 function initWorld() {
@@ -105,7 +110,7 @@ function initWorld() {
 }
 
 function addGround() {
-    var geometryGround = new Hilo3d.BoxGeometry();
+    let geometryGround = new Hilo3d.BoxGeometry();
     geometryGround.setAllRectUV([[0, 1], [1, 1], [1, 0], [0, 0]]);
 
     meshGround = new Hilo3d.Mesh({
@@ -134,20 +139,20 @@ function addGround() {
 }
 
 function addBox() {
-    var DOT_SIZE = 8;
-    var w = DOT_SIZE*0.2;
-    var h = DOT_SIZE*1.5;
-    var d = DOT_SIZE;
-    var y = 2;
-    var geometryBox = new Hilo3d.BoxGeometry();
+    let DOT_SIZE = 8;
+    let w = DOT_SIZE*0.2;
+    let h = DOT_SIZE*1.5;
+    let d = DOT_SIZE;
+    let y = 2;
+    let geometryBox = new Hilo3d.BoxGeometry();
 
-    for (var x = 0; x < 16; x++) {
-        for (var z = 0; z < 16; z++) {
+    for (let x = 0; x < 16; x++) {
+        for (let z = 0; z < 16; z++) {
             i = x + z * 16;
-            var x1 = -60+x*(DOT_SIZE);
-            var y1 = y*(DOT_SIZE);
-            var z1 = -70+z*(DOT_SIZE)*1.2;
-            var c = getRgbColor(dataSet[i]);
+            let x1 = -60+x*(DOT_SIZE);
+            let y1 = y*(DOT_SIZE);
+            let z1 = -70+z*(DOT_SIZE)*1.2;
+            let c = getRgbColor(dataSet[i]);
 
             meshBox = new Hilo3d.Mesh({
                 scaleX: w,
@@ -165,7 +170,7 @@ function addBox() {
             meshBoxes.push(meshBox);
             stage.addChild(meshBox);
             
-            var oimoBox = world.add({
+            let oimoBox = world.add({
                 type: "box",
                 size: [w, h, d],
                 pos: [x1, y1, z1],
@@ -179,25 +184,25 @@ function addBox() {
 }
 
 function addBox2() {
-    var DOT_SIZE = 8;
-    var w = DOT_SIZE;
-    var h = DOT_SIZE;
-    var d = DOT_SIZE;
-    var x = 0;
-    var y = 0;
-    var z = 0;
-    var geometryBox = new Hilo3d.BoxGeometry();
+    let DOT_SIZE = 8;
+    let w = DOT_SIZE;
+    let h = DOT_SIZE;
+    let d = DOT_SIZE;
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    let geometryBox = new Hilo3d.BoxGeometry();
 
-    for (var i = 0; i < 16; i++) {
+    for (let i = 0; i < 16; i++) {
         w = DOT_SIZE;
         h = DOT_SIZE;
         d = DOT_SIZE;
         x = 0;
         y = 5;
         z = i;
-        var x1 = -62+x*(DOT_SIZE);
-        var y1 = y*(DOT_SIZE);
-        var z1 = -70+z*(DOT_SIZE)*1.2;
+        let x1 = -62+x*(DOT_SIZE);
+        let y1 = y*(DOT_SIZE);
+        let z1 = -70+z*(DOT_SIZE)*1.2;
         
         meshBox = new Hilo3d.Mesh({
             scaleX: w,
@@ -214,7 +219,7 @@ function addBox2() {
         meshBoxes.push(meshBox);
         stage.addChild(meshBox);
         
-        var oimoBox = world.add({
+        let oimoBox = world.add({
             type: "box",
             size: [w, h, d],
             pos: [x1, y1, z1],
@@ -230,12 +235,12 @@ function addBox2() {
 function animate() {
     meshGround.onUpdate = function() {
         world.step();
-        for ( var i = 0; i < oimoBoxes.length; i++ ) {
-            var oimoBox = oimoBoxes[i];
-            var meshBox = meshBoxes[i];
-            var pos = oimoBox.getPosition();
+        for ( let i = 0; i < oimoBoxes.length; i++ ) {
+            let oimoBox = oimoBoxes[i];
+            let meshBox = meshBoxes[i];
+            let pos = oimoBox.getPosition();
             meshBox.setPosition(pos.x, pos.y, pos.z);
-            var rot = oimoBox.getQuaternion();
+            let rot = oimoBox.getQuaternion();
             meshBox.quaternion.set(rot.x, rot.y, rot.z, rot.w);
         }
         
@@ -256,4 +261,3 @@ addGround();
 addBox();
 addBox2();
 animate();
-	
