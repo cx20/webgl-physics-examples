@@ -250,7 +250,7 @@ function draw() {
     let p;
     let r;
     world.step();
-    rad -= Math.PI * 1.0 / 180.0;
+    rad -= Math.PI * 1.0 / 180.0 * 0.1;
 
     // Camera
     vec3.set(eye, 200 * Math.sin(rad), 50, 200 * Math.cos(rad));
