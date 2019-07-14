@@ -1,5 +1,5 @@
 # webgl-physics-examples
-Examples of WebGL Physics Library 
+Examples of WebGL Physics Library. 
 
 
 ## Minimum examples
