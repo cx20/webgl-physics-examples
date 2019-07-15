@@ -207,7 +207,7 @@ let rad = 0;
 async function draw() {
     world.step(1/30);
 
-    rad += Math.PI * 1.0 / 180.0;
+    rad += Math.PI * 0.1 / 180.0;
 
     let pos = body.getPosition();
     let rot = body.getOrientation();
