@@ -9,7 +9,7 @@ var createScene = function(engine) {
         scene.enablePhysics(new BABYLON.Vector3(0,-9.8,0), new BABYLON.CannonJSPlugin());
         scene.getPhysicsEngine().setTimeStep(1 / 30);
         
-        //scene.forceShowBoundingBoxes = true;
+        scene.forceShowBoundingBoxes = true;
 
         var material = new BABYLON.StandardMaterial("material", scene);
         material.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5);
