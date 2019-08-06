@@ -1,62 +1,62 @@
 'use strict';
 
-var gltf = null;
-var world, shape, body, ground, timeStep = 1 / 60;
-var camera, scene, renderer, duck, plane,
+let gltf = null;
+let world, shape, body, ground, timeStep = 1 / 60;
+let camera, scene, renderer, duck, plane,
     cubeSize = 1;
 
-var wireframeCube;
-var trackball;
+let wireframeCube;
+let trackball;
 
-var cubeSizeX = 16/16*5;
-var cubeSizeY = 16/16*5;
-var cubeSizeZ = 9/16*5;
+let cubeSizeX = 16/16*5;
+let cubeSizeY = 16/16*5;
+let cubeSizeZ = 9/16*5;
 
 function createCube(w, h, d) {
-    var geometry = new THREE.CubeGeometry(w, h, d, 10, 10);
-    var material = new THREE.MeshLambertMaterial({
+    let geometry = new THREE.CubeGeometry(w, h, d, 10, 10);
+    let material = new THREE.MeshLambertMaterial({
         color: 0x666666
     });
-    var mesh = new THREE.Mesh(geometry, material);
+    let mesh = new THREE.Mesh(geometry, material);
 
     return mesh;
 }
 
 function createWireframeCube(w, h, d) {
-    var materialColor = 0x00ff00;
-    var geometry = new THREE.CubeGeometry(w, h, d);
-    var material = new THREE.MeshBasicMaterial({
+    let materialColor = 0x00ff00;
+    let geometry = new THREE.CubeGeometry(w, h, d);
+    let material = new THREE.MeshBasicMaterial({
         color: materialColor,
         wireframe:true
     });
-    var mesh = new THREE.Mesh(geometry, material);
+    let mesh = new THREE.Mesh(geometry, material);
 
     return mesh;
 }
 
 function loadDuck() {
-    var manager = new THREE.LoadingManager();
+    let manager = new THREE.LoadingManager();
     manager.onProgress = function ( item, loaded, total ) {
         console.log( item, loaded, total );
     };
 
-    var texture = new THREE.Texture();
+    let texture = new THREE.Texture();
     
-    var objLoader = new THREE.GLTFLoader();
+    let objLoader = new THREE.GLTFLoader();
     objLoader.setCrossOrigin( 'anonymous' );
-    var url =  'https://cdn.rawgit.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
+    let url =  'https://cdn.rawgit.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
     objLoader.load(url, function ( data ) {
         gltf = data;
-        var object = gltf.scene;
+        let object = gltf.scene;
         object.traverse( function ( child ) {
             if ( child instanceof THREE.Mesh ) {
-		        child.translateY(child.position.y - 100);
+                child.translateY(child.position.y - 100);
             }
         } );
         object.scale.set( 5, 5, 5 );
         duck = object;
 
-        var axis = new THREE.AxesHelper(1000);   
+        let axis = new THREE.AxesHelper(1000);   
         duck.add(axis);
         duck.castShadow = true;
         duck.receiveShadow = true;
@@ -67,13 +67,13 @@ function loadDuck() {
 }
 
 function createPlane(w, h) {
-    var geometry = new THREE.PlaneGeometry(w, h);
-    var material = new THREE.MeshPhongMaterial({
+    let geometry = new THREE.PlaneGeometry(w, h);
+    let material = new THREE.MeshPhongMaterial({
         color: 0xffffff,
         specular: 0xeeeeee,
         shininess: 50
     });
-    var mesh = new THREE.Mesh(geometry, material);
+    let mesh = new THREE.Mesh(geometry, material);
     mesh.position.y = -5;
 
     return mesh;
@@ -90,7 +90,7 @@ function initOimo() {
         gravity: [0,-9.8,0] 
     });
 
-    var groundBody = world.add({
+    let groundBody = world.add({
         type: "box",
         size: [400*2, 4*2, 400*2],
         pos: [0, -5, 0],
@@ -114,8 +114,8 @@ function initOimo() {
  }
 
 function initThree() {
-    var w = window.innerWidth;
-    var h = window.innerHeight;
+    let w = window.innerWidth;
+    let h = window.innerHeight;
     camera = new THREE.PerspectiveCamera(30, w / h, 1, 10000);
     camera.position.set(20, 3, 20 );
 
@@ -125,9 +125,9 @@ function initThree() {
     renderer.setSize(w, h);
     renderer.setClearColor(0x000000, 1);
 
-    var light = new THREE.DirectionalLight(0xffffff, 2);
-    var amb   = new THREE.AmbientLight(0x404040);
-    var d = 10;
+    let light = new THREE.DirectionalLight(0xffffff, 2);
+    let amb   = new THREE.AmbientLight(0x404040);
+    let d = 10;
 
     light.position.set(d, d, -d);
 
