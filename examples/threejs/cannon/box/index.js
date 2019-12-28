@@ -87,7 +87,7 @@ function init() {
 
     createBoxes();
 
-    controls = new THREE.OrbitControls(camera);
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 }
 

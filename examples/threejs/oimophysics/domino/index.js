@@ -97,7 +97,7 @@ function initThree() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls(camera);
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 }
 

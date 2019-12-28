@@ -142,7 +142,7 @@ function initThree() {
 
     renderer.render(scene, camera);
 
-    trackball = new THREE.TrackballControls(camera);
+    trackball = new THREE.TrackballControls( camera, renderer.domElement );
 }
 
 function animate() {

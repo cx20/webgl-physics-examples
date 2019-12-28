@@ -72,7 +72,7 @@ function init() {
     container = document.getElementById("container");
     container.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls(camera);
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 
     initOimoPhysics();

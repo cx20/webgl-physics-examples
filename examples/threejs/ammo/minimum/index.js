@@ -185,7 +185,7 @@ function init() {
     renderer.setSize(width, height);
     document.body.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls(camera);
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 
     rendering();
