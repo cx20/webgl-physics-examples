@@ -44,7 +44,7 @@ function loadDuck() {
     
     let objLoader = new THREE.GLTFLoader();
     objLoader.setCrossOrigin( 'anonymous' );
-    let url =  'https://cdn.rawgit.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
+    let url =  'https://rawcdn.githack.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
     objLoader.load(url, function ( data ) {
         gltf = data;
         let object = gltf.scene;

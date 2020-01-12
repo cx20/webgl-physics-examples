@@ -2,7 +2,7 @@ var createScene = function(engine) {
     var scene = new BABYLON.Scene(engine);
     var mesh;
 
-    var loader = BABYLON.SceneLoader.Load("https://cdn.rawgit.com/cx20/gltf-test/1f6515ce/sampleModels/Duck/glTF/", "Duck.gltf", engine, function (newScene) {
+    var loader = BABYLON.SceneLoader.Load("https://rawcdn.githack.com/cx20/gltf-test/1f6515ce/sampleModels/Duck/glTF/", "Duck.gltf", engine, function (newScene) {
         var gl = engine._gl;
 
         scene = newScene;
