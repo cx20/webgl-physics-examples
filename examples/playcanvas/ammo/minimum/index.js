@@ -1,11 +1,11 @@
 ﻿if (wasmSupported()) {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.wasm', demo);
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.wasm', init);
 } else {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.js', '', demo);
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.js', '', init);
 }
 
-function demo() {
-    var canvas = document.getElementById("application-canvas");
+function init() {
+    var canvas = document.getElementById("c");
 
     // Create the application and start the update loop
     var app = new pc.Application(canvas);
