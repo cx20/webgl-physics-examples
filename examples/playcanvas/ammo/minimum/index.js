@@ -1,7 +1,7 @@
 ﻿if (wasmSupported()) {
-    loadWasmModuleAsync('Ammo', 'http://playcanvas.github.io/lib/ammo/ammo.wasm.js', 'http://playcanvas.github.io/lib/ammo/ammo.wasm.wasm', demo);
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.wasm', demo);
 } else {
-    loadWasmModuleAsync('Ammo', 'http://playcanvas.github.io/lib/ammo/ammo.js', '', demo);
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.js', '', demo);
 }
 
 function demo() {
@@ -23,13 +23,6 @@ function demo() {
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
-    function createColorMaterial(color) {
-        var material = new pc.StandardMaterial();
-        material.diffuse = color;
-        material.update()
-
-        return material;
-    }
     function createTextureMaterial() {
         var material = new pc.scene.PhongMaterial();
         material.diffuseMap = getTexture();
@@ -37,9 +30,10 @@ function demo() {
 
         return material;
     }
+    
     function getTexture() {
-        let texture = new pc.gfx.Texture(app.graphicsDevice);
-        let img = new Image();
+        var texture = new pc.gfx.Texture(app.graphicsDevice);
+        var img = new Image();
         img.onload = function() {
             texture.minFilter = pc.gfx.FILTER_LINEAR;
             texture.magFilter = pc.gfx.FILTER_LINEAR;
@@ -54,7 +48,6 @@ function demo() {
 
     // Create a couple of materials for our objects
     var textureMaterial = createTextureMaterial();
-    //var gray = createColorMaterial(new pc.Color(0.7, 0.7, 0.7));
 
     // Define a scene hierarchy in JSON format. This is loaded/parsed in
     // the parseScene function below
