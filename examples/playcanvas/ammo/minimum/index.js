@@ -53,19 +53,15 @@ function init() {
     // the parseScene function below
     var scene = [
         {
-            // The Box entity has a collision component of type 'compound' and a
-            // rigidbody component. This means that any descendent entity with a
-            // collision component is added to a compound collision shape on the
-            // Box entity. You can use compound collision shapes to define
-            // complex, rigid shapes.
             name: 'Box',
             pos: [0, 10, 0],
             components: [
                 {
                     type: 'collision',
                     options: {
-                        type: 'compound'
-                    }
+                        type: 'box',
+                        halfExtents: [ 1, 1, 1 ]
+                            }
                 }, {
                     type: 'rigidbody',
                     options: {
@@ -78,29 +74,15 @@ function init() {
             ],
             children: [
                 {
-                    name: 'Seat',
+                    name: 'Box Model',
+                    scl: [ 2, 2, 2 ],
                     components: [
                         {
-                            type: 'collision',
+                            type: 'model',
                             options: {
                                 type: 'box',
-                                halfExtents: [ 1, 1, 1 ]
+                                material: textureMaterial
                             }
-                        }
-                    ],
-                    children: [
-                        {
-                            name: 'Seat Model',
-                            scl: [ 2, 2, 2 ],
-                            components: [
-                                {
-                                    type: 'model',
-                                    options: {
-                                        type: 'box',
-                                        material: textureMaterial
-                                    }
-                                }
-                            ]
                         }
                     ]
                 }
