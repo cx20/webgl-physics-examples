@@ -37,223 +37,121 @@ let dataSet = [
     "無","茶","無","無","青","青","青","青","無","無","無","無","無","無","無","無"
 ];
 
-// create a few materials for our objects
-let black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ));
-let white  = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0xff/0xff ));
-let beige  = createMaterial(new pc.Color( 0xff/0xff, 0xcc/0xff, 0xcc/0xff ));
-let brown  = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x00/0xff ));
-let red    = createMaterial(new pc.Color( 0xff/0xff, 0x00/0xff, 0x00/0xff ));
-let yellow = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0x00/0xff ));
-let green  = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0x00/0xff ));
-let ltblue = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0xff/0xff ));
-let blue   = createMaterial(new pc.Color( 0x00/0xff, 0x00/0xff, 0xff/0xff ));
-let purple = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x80/0xff ));
 
-function getRgbColor( c )
-{
-    let colorHash = {
-        "無":black,   // 0x000000,
-        "白":white,   // 0xffffff,
-        "肌":beige,   // 0xffcccc,
-        "茶":brown,   // 0x800000,
-        "赤":red,     // 0xff0000,
-        "黄":yellow,  // 0xffff00,
-        "緑":green,   // 0x00ff00,
-        "水":ltblue,  // 0x00ffff,
-        "青":blue,    // 0x0000ff,
-        "紫":purple   // 0x800080
-    };
-    return colorHash[ c ];
+// ***********    Initialize app   *******************
+if (wasmSupported()) {
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.wasm', init);
+} else {
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.js', '', init);
 }
 
-// ***********    Initialize application   *******************
-let canvas = document.getElementById("c");
+function init() {
+    // create a few materials for our objects
+    let black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ));
+    let white  = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0xff/0xff ));
+    let beige  = createMaterial(new pc.Color( 0xff/0xff, 0xcc/0xff, 0xcc/0xff ));
+    let brown  = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x00/0xff ));
+    let red    = createMaterial(new pc.Color( 0xff/0xff, 0x00/0xff, 0x00/0xff ));
+    let yellow = createMaterial(new pc.Color( 0xff/0xff, 0xff/0xff, 0x00/0xff ));
+    let green  = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0x00/0xff ));
+    let ltblue = createMaterial(new pc.Color( 0x00/0xff, 0xff/0xff, 0xff/0xff ));
+    let blue   = createMaterial(new pc.Color( 0x00/0xff, 0x00/0xff, 0xff/0xff ));
+    let purple = createMaterial(new pc.Color( 0x80/0xff, 0x00/0xff, 0x80/0xff ));
 
-// Create the application and start the update loop
-let application = new pc.Application(canvas);
-application.start();
-
-// Set the canvas to fill the window and automatically change resolution to be the same as the canvas size
-application.setCanvasFillMode(pc.fw.FillMode.FILL_WINDOW);
-application.setCanvasResolution(pc.fw.ResolutionMode.AUTO);
-
-application.context.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
-
-// Set the gravity for our rigid bodies
-application.context.systems.rigidbody.setGravity(0, -9.8, 0);
-
-function createMaterial (color) {
-    let material = new pc.scene.PhongMaterial();
-    material.diffuse = color;
-    // we need to call material.update when we change its properties
-    material.update()
-    return material;
-}
-
-// ***********    Create our floor   *******************
-
-let floor = new pc.Entity();
-
-// add a 'box' model
-application.context.systems.model.addComponent(floor, {
-    type: "box",
-});
-
-// make the floor white
-floor.model.material = white;
-
-// scale it
-floor.setLocalScale(20, 1, 20);
-
-// add a rigidbody component so that other objects collide with it
-application.context.systems.rigidbody.addComponent(floor, {
-    type: "static",
-    restitution: 0.5
-});
-
-// add a collision component
-application.context.systems.collision.addComponent(floor, {
-    type: "box",
-    halfExtents: new pc.Vec3(10, 0.5, 10)
-});
-
-// add the floor to the hierarchy
-application.context.root.addChild(floor);
-
-// ***********    Create lights   *******************
-
-// make our scene prettier by adding a directional light
-let light = new pc.Entity();
-application.context.systems.light.addComponent(light, {
-    type: "directional",
-    color: new pc.Color(1, 1, 1),
-    castShadows: true,
-    shadowResolution: 2048
-});
-
-// set the direction for our light
-light.setLocalEulerAngles(45, 30, 0);
-
-// Add the light to the hierarchy
-application.context.root.addChild(light);
-
-// ***********    Create camera    *******************
-
-// Create an Entity with a camera component
-let camera = new pc.Entity();
-application.context.systems.camera.addComponent(camera, {
-    clearColor: new pc.Color(0.5, 0.5, 0.8),
-    farClip: 50
-});
-
-// add the camera to the hierarchy
-application.context.root.addChild(camera);
-
-// Move the camera a little further away
-camera.translate(0, 10, 15);
-camera.lookAt(0, 0, 0);
-
-// ***********    Create templates    *******************
-
-// Create a template for a falling box
-// It will have a model component of type 'box'...
-let domino = new pc.Entity();
-application.context.systems.model.addComponent(domino, {
-    type: "box",
-    castShadows: true
-});
-
-// ...a rigidbody component of type 'dynamic' so that it is simulated
-// by the physics engine...
-application.context.systems.rigidbody.addComponent(domino, {
-    type: "dynamic",
-    mass: 50,
-    restitution: 0.5
-});
-
-// ... and a collision component of type 'box'
-application.context.systems.collision.addComponent(domino, {
-    type: "box",
-    halfExtents: new pc.Vec3(0.05, 0.5, 0.5)
-});
-
-domino.setLocalScale(0.1, 1, 1);
-
-// make the box red
-//domino.model.material = red;
-
-// Create a template for a falling box
-// It will have a model component of type 'box'...
-let boxTemplate = new pc.Entity();
-application.context.systems.model.addComponent(boxTemplate, {
-    type: "box",
-    castShadows: true
-});
-
-// ...a rigidbody component of type 'dynamic' so that it is simulated
-// by the physics engine...
-application.context.systems.rigidbody.addComponent(boxTemplate, {
-    type: "dynamic",
-    mass: 50,
-    restitution: 0.5
-});
-
-// ... and a collision component of type 'box'
-application.context.systems.collision.addComponent(boxTemplate, {
-    type: "box",
-    halfExtents: new pc.Vec3(0.5, 0.5, 0.5)
-});
-
-// make the box red
-boxTemplate.model.material = red;
-
-for ( let i = 0; i < dataSet.length; i++ ) 
-{
-    let x = X_START_POS + (i % 16) * .8;
-    let z = Z_START_POS + Math.floor( i / 16 ) * 1.1;
-    
-    // Clone a random template and position it above the floor
-    let clone = domino.clone();
-    // enable the clone because the template is disabled
-    clone.enabled = true;
-    clone.model.material = getRgbColor(dataSet[i]);
-    
-    application.context.root.addChild(clone);
-    
-    clone.setLocalPosition( x, 0.5, z );
-    
-    // when we manually change the position of an Entity with a dynamic rigidbody
-    // we need to call syncEntityToBody() so that the rigidbody will get the position
-    // and rotation of the Entity.
-    clone.rigidbody.syncEntityToBody();
-}
-
-// ***********    Update Function   *******************
-
-// initialize variables for our update function
-let timer = 0;
-let count = 16;
-application.on("update", function (dt) {
-    // create a falling box every 0.2 seconds
-    if (count > 0) {
-        timer -= dt;
-        if (timer <= 0) {
-            count--;
-            timer = 0.1;
-            let clone = boxTemplate.clone();
-            // enable the clone because the template is disabled
-            clone.enabled = true;
-            application.context.root.addChild(clone);
-            
-            //clone.setLocalPosition(pc.math.random(-1,1), 10, pc.math.random(-1,1));
-            let x = X_START_POS + -0.5;
-            let z = Z_START_POS + count * 1.1;
-            clone.setLocalPosition( x, 3, z );
-            
-            // when we manually change the position of an Entity with a dynamic rigidbody
-            // we need to call syncEntityToBody() so that the rigidbody will get the position
-            // and rotation of the Entity.
-            clone.rigidbody.syncEntityToBody();
-       }
+    function getRgbColor( c )
+    {
+        let colorHash = {
+            "無":black,   // 0x000000,
+            "白":white,   // 0xffffff,
+            "肌":beige,   // 0xffcccc,
+            "茶":brown,   // 0x800000,
+            "赤":red,     // 0xff0000,
+            "黄":yellow,  // 0xffff00,
+            "緑":green,   // 0x00ff00,
+            "水":ltblue,  // 0x00ffff,
+            "青":blue,    // 0x0000ff,
+            "紫":purple   // 0x800080
+        };
+        return colorHash[ c ];
     }
-});
+
+    let canvas = document.getElementById("c");
+
+    let app = new pc.Application(canvas);
+    app.start();
+
+    app.setCanvasFillMode(pc.fw.FillMode.FILL_WINDOW);
+    app.setCanvasResolution(pc.fw.ResolutionMode.AUTO);
+
+    app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
+
+    function createMaterial (color) {
+        var material = new pc.StandardMaterial();
+        material.diffuse = color;
+        material.update()
+        return material;
+    }
+
+    let floor = new pc.Entity("floor");
+    floor.setLocalScale(20, 1, 20);
+    floor.addComponent("collision", { type: "box", halfExtents: [10, 0.5, 10] });
+    floor.addComponent("rigidbody", { type: "static", restitution: 0.5 });
+    let floorModel = new pc.Entity("floorModel");
+    floorModel.addComponent("model", { type: "box", material: white });
+    floor.addChild(floorModel);
+    app.root.addChild(floor);
+
+    let light = new pc.Entity("light");
+    light.addComponent("light", {
+        type: "directional",
+        color: new pc.Color(1, 1, 1),
+        castShadows: true,
+        shadowResolution: 2048
+    });
+    light.setLocalEulerAngles(45, 30, 0);
+    app.root.addChild(light);
+
+    let camera = new pc.Entity("camera");
+    camera.addComponent("camera", {
+        clearColor: new pc.Color(0.5, 0.5, 0.8),
+        farClip: 50
+    });
+    camera.translate(0, 10, 15);
+    camera.lookAt(0, 0, 0);
+    app.root.addChild(camera);
+
+    let domino = new pc.Entity("domino");
+    domino.setLocalPosition(0, 5, 0);
+    domino.addComponent("collision", { type: "box", halfExtents: [0.1, 0.7, 0.5] });
+    domino.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
+    domino.setLocalScale(0.2, 1, 1);
+    let dominoModel = new pc.Entity("dominoModel");
+    dominoModel.setLocalScale(0.2, 1.4, 1);
+    dominoModel.addComponent("model", { type: "box", material: red });
+    domino.addChild(dominoModel);
+
+    let boxTemplate = new pc.Entity("boxTemplate");
+    boxTemplate.addComponent("rigidbody", { type: "dynamic", mass: 10, restitution: 0.5 });
+    boxTemplate.addComponent("collision", { type: "box", halfExtents: [0.5, 0.5, 0.5] });
+    let boxTemplateModel = new pc.Entity("boxTemplateModel");
+    boxTemplateModel.addComponent("model", { type: "box", mateiral: red });
+    boxTemplate.addChild(boxTemplateModel);
+
+    for (let i = 0; i < dataSet.length; i++) {
+        let x = X_START_POS + (i % 16) * .8;
+        let z = Z_START_POS + Math.floor( i / 16 ) * 1.1;
+
+        let clone = domino.clone();
+        clone.children[0].model.material = getRgbColor(dataSet[i]);
+        clone.setLocalPosition( x, 1, z );
+        app.root.addChild(clone);
+    }
+
+    for (let i = 0; i < 16; i++) {
+        let clone = boxTemplate.clone();
+        let x = X_START_POS + -0.2;
+        let z = Z_START_POS + i * 1.1;
+        clone.setLocalPosition( x, 3, z );
+        app.root.addChild(clone);
+    }
+}
