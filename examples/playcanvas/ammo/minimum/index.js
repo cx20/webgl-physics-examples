@@ -5,13 +5,11 @@
 }
 
 function init() {
-    var canvas = document.getElementById("c");
+    let canvas = document.getElementById("c");
 
-    // Create the application and start the update loop
-    var app = new pc.Application(canvas);
+    let app = new pc.Application(canvas);
     app.start();
 
-    // Set the canvas to fill the window and automatically change resolution to be the same as the canvas size
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
 
@@ -19,12 +17,12 @@ function init() {
         app.resizeCanvas(canvas.width, canvas.height);
     });
 
-    var miniStats = new pc.MiniStats(app);
+    let miniStats = new pc.MiniStats(app);
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
     function createTextureMaterial() {
-        var material = new pc.scene.PhongMaterial();
+        let material = new pc.scene.PhongMaterial();
         material.diffuseMap = getTexture();
         material.update()
 
@@ -32,8 +30,8 @@ function init() {
     }
     
     function getTexture() {
-        var texture = new pc.gfx.Texture(app.graphicsDevice);
-        var img = new Image();
+        let texture = new pc.gfx.Texture(app.graphicsDevice);
+        let img = new Image();
         img.onload = function() {
             texture.minFilter = pc.gfx.FILTER_LINEAR;
             texture.magFilter = pc.gfx.FILTER_LINEAR;
@@ -46,145 +44,45 @@ function init() {
         return texture;
     }
 
-    // Create a couple of materials for our objects
-    var textureMaterial = createTextureMaterial();
+    let textureMaterial = createTextureMaterial();
 
-    // Define a scene hierarchy in JSON format. This is loaded/parsed in
-    // the parseScene function below
-    var scene = [
-        {
-            name: 'Box',
-            pos: [0, 10, 0],
-            components: [
-                {
-                    type: 'collision',
-                    options: {
-                        type: 'box',
-                        halfExtents: [ 1, 1, 1 ]
-                            }
-                }, {
-                    type: 'rigidbody',
-                    options: {
-                        type: 'dynamic',
-                        friction: 0.5,
-                        mass: 10,
-                        restitution: 0.5
-                    }
-                }
-            ],
-            children: [
-                {
-                    name: 'Box Model',
-                    scl: [ 2, 2, 2 ],
-                    components: [
-                        {
-                            type: 'model',
-                            options: {
-                                type: 'box',
-                                material: textureMaterial
-                            }
-                        }
-                    ]
-                }
-            ]
-        }, {
-            name: 'Ground',
-            pos: [ 0, -0.5, 0 ],
-            components: [
-                {
-                    type: 'collision',
-                    options: {
-                        type: 'box',
-                        halfExtents: [ 5, 0.5, 5 ]
-                    }
-                }, {
-                    type: 'rigidbody',
-                    options: {
-                        type: 'static',
-                        restitution: 0.5
-                    }
-                }
-            ],
-            children: [
-                {
-                    name: 'Ground Model',
-                    scl: [ 10, 1, 10 ],
-                    components: [
-                        {
-                            type: 'model',
-                            options: {
-                                type: 'box',
-                                material: textureMaterial
-                            }
-                        }
-                    ]
-                }
-            ]
-        }, {
-            name: 'Directional Light',
-            rot: [ 45, 30, 0 ],
-            components: [
-                {
-                    type: 'light',
-                    options: {
-                        type: 'directional',
-                        castShadows: true,
-                        shadowDistance: 8,
-                        shadowBias: 0.1,
-                        normalOffsetBias: 0.05
-                    }
-                }
-            ]
-        }, {
-            name: 'Camera',
-            pos: [ 0, 4, 7 ],
-            rot: [ -30, 0, 0 ],
-            components: [
-                {
-                    type: 'camera',
-                    options: {
-                        color: [ 0.5, 0.5, 0.5 ]
-                    }
-                }
-            ]
-        }
-    ];
+    let light = new pc.Entity("light");
+    light.addComponent("light", {
+        type: "directional",
+        color: new pc.Color(1, 1, 1),
+        castShadows: true,
+        shadowResolution: 2048
+    });
+    light.setLocalEulerAngles(45, 30, 0);
+    app.root.addChild(light);
 
-    // Convert an entity definition in the structure above to a pc.Entity object
-    function parseEntity(e) {
-        var entity = new pc.Entity(e.name);
+    let camera = new pc.Entity("camera");
+    camera.addComponent("camera", {
+        clearColor: new pc.Color(0.5, 0.5, 0.8),
+        farClip: 50
+    });
+    camera.translate(0, 5, 10);
+    camera.lookAt(0, 0, 0);
+    app.root.addChild(camera);
 
-        if (e.pos) {
-            entity.setLocalPosition(e.pos[0], e.pos[1], e.pos[2]);
-        }
-        if (e.rot) {
-            entity.setLocalEulerAngles(e.rot[0], e.rot[1], e.rot[2]);
-        }
-        if (e.scl) {
-            entity.setLocalScale(e.scl[0], e.scl[1], e.scl[2]);
-        }
+    let box = new pc.Entity("box");
+    box.setLocalPosition(0, 10, 0);
+    box.addComponent("collision", { type: "box", halfExtents: [1, 1, 1] });
+    box.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
+    let boxModel = new pc.Entity("boxModel");
+    boxModel.setLocalScale(2, 2, 2);
+    boxModel.addComponent("model", { type: "box", material: textureMaterial });
+    box.addChild(boxModel);
+    app.root.addChild(box);
 
-        if (e.components) {
-            e.components.forEach(function (c) {
-                entity.addComponent(c.type, c.options);
-            });
-        }
+    let floor = new pc.Entity("floor");
+    floor.setLocalPosition(0, -0.5, 0);
+    floor.addComponent("collision", { type: "box", halfExtents: [5, 0.5, 5] });
+    floor.addComponent("rigidbody", { type: "static", restitution: 0.5 });
+    let floorModel = new pc.Entity("floorModel");
+    floorModel.setLocalScale(10, 1, 10);
+    floorModel.addComponent("model", { type: "box", material: textureMaterial });
+    floor.addChild(floorModel);
+    app.root.addChild(floor);
 
-        if (e.children) {
-            e.children.forEach(function (child) {
-                entity.addChild(parseEntity(child));
-            });
-        }
-
-        return entity;
-    }
-
-    // Parse the scene data above into entities and add them to the scene's root entity
-    function parseScene(s) {
-        s.forEach(function (e) {
-            app.root.addChild(parseEntity(e));
-        });
-    }
-
-    parseScene(scene);
 }
