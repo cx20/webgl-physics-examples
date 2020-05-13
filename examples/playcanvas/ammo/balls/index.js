@@ -29,15 +29,24 @@ function init() {
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
-    function createColorMaterial (color) {
-        var material = new pc.StandardMaterial();
+    function createColorMaterial(color) {
+        var material = new pc.PhongMaterial();
+        material.diffuse = color;
+        material.update()
+        return material;
+    }
+
+    function createTransparentMaterial(color) {
+        var material = new pc.PhongMaterial();
+        material.opacity = 0.5;
+        material.blendType = pc.BLEND_NORMAL;
         material.diffuse = color;
         material.update()
         return material;
     }
 
     function createTextureMaterial(imageFile) {
-        let material = new pc.scene.PhongMaterial();
+        let material = new pc.PhongMaterial();
         material.diffuseMap = getTexture(imageFile);
         material.update()
 
@@ -55,7 +64,6 @@ function init() {
             texture.setSource(img);
         };
         img.crossOrigin = "anonymous";
-        //img.src = "https://cx20.github.io/webgl-physics-examples/assets/textures/frog.jpg"; // frog.jpg
         img.src = imageFile;
         return texture;
     }
@@ -75,67 +83,96 @@ function init() {
     let camera = new pc.Entity("camera");
     camera.addComponent("camera", {
         clearColor: new pc.Color(0.5, 0.5, 0.8),
-        farClip: 50
+        fav: 60,
+        nearClip: 0.01,
+        farClip: 1000
     });
-    camera.translate(0, 5, 10);
+    camera.translate(18, 20, 30);
     camera.lookAt(0, 0, 0);
     app.root.addChild(camera);
 
-	let spheres = [];
+    let boxDataSet = [
+        { size:[10, 10,  1], pos:[ 0, 5,-5], rot:[0,0,0] },
+        { size:[10, 10,  1], pos:[ 0, 5, 5], rot:[0,0,0] },
+        { size:[ 1, 10, 10], pos:[-5, 5, 0], rot:[0,0,0] },
+        { size:[ 1, 10, 10], pos:[ 5, 5, 0], rot:[0,0,0] } 
+    ];
+
+    let surfaces = [];
+    for (let i = 0; i < boxDataSet.length; i++) {
+        let size = boxDataSet[i].size
+        let pos = boxDataSet[i].pos;
+        let rot = boxDataSet[i].rot;
+
+        let box = new pc.Entity("box");
+        box.setLocalPosition(pos[0], pos[1], pos[2]);
+        box.addComponent("collision", { type: "box", halfExtents: [size[0]/2, size[1]/2, size[2]/2] });
+        box.addComponent("rigidbody", { type: "static", friction: 0.6, restitution: 0.5 });
+        let boxModel = new pc.Entity("boxModel");
+        boxModel.setLocalScale(size[0], size[1], size[2]);
+        let whiteMaterial = createTransparentMaterial(new pc.Color(1, 1, 1));
+        boxModel.addComponent("model", { type: "box", material: whiteMaterial });
+        box.addChild(boxModel);
+        app.root.addChild(box);
+    }
+
+    let spheres = [];
     for (let i = 0; i < dataSet.length; i++ ) {
-    	let imageFile = dataSet[i].imageFile;
-    	let scale = dataSet[i].scale;
-	    let sphere = new pc.Entity("sphere" + i);
+        let imageFile = dataSet[i].imageFile;
+        let scale = dataSet[i].scale * 2    ;
+        let sphere = new pc.Entity("sphere" + i);
         sphere.setLocalPosition(Math.random(), i * 10, Math.random());
-	    sphere.addComponent("collision", { type: "sphere", radius: scale/2 });
-	    sphere.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
-	    let sphereModel = new pc.Entity("sphereModel" + i);
-	    sphereModel.setLocalScale(scale, scale, scale);
-	    let material = createTextureMaterial(imageFile);
-	    sphereModel.addComponent("model", { type: "sphere", material: material });
-	    sphere.addChild(sphereModel);
-	    spheres.push(sphere);
-        //app.root.addChild(sphere);
+        sphere.addComponent("collision", { type: "sphere", radius: scale/2 });
+        sphere.addComponent("rigidbody", { type: "dynamic", friction: 0.4, restitution: 0.8 });
+        let sphereModel = new pc.Entity("sphereModel" + i);
+        sphereModel.setLocalScale(scale, scale, scale);
+        let material = createTextureMaterial(imageFile);
+        sphereModel.addComponent("model", { type: "sphere", material: material });
+        sphere.addChild(sphereModel);
+        spheres.push(sphere);
     }
 
     let floor = new pc.Entity("floor");
-    floor.setLocalPosition(0, -0.5, 0);
-    floor.addComponent("collision", { type: "box", halfExtents: [5, 0.5, 5] });
-    floor.addComponent("rigidbody", { type: "static", restitution: 0.5 });
+    floor.setLocalPosition(0, -2, 0);
+    floor.addComponent("collision", { type: "box", halfExtents: [20, 2, 20] });
+    floor.addComponent("rigidbody", { type: "static", friction: 0.6, restitution: 0.8 });
     let floorModel = new pc.Entity("floorModel");
-    floorModel.setLocalScale(10, 1, 10);
-    let whiteMaterial = createColorMaterial(new pc.Color(1, 1, 1));
+    floorModel.setLocalScale(40, 4, 40);
+    let whiteMaterial = createColorMaterial(new pc.Color(0.8, 0.8, 0.8));
     floorModel.addComponent("model", { type: "box", material: whiteMaterial });
     floor.addChild(floorModel);
     app.root.addChild(floor);
 
     let time = 0;
-    let maxBalls = 100;
+    let maxBalls = 200;
     let numBalls = 0;
     let balls = [];
     function spawnBall() {
         let index = Math.floor(Math.random() * dataSet.length);
         var sphere = spheres[index];
         var clone = sphere.clone();
-        clone.setLocalPosition(Math.random() * 5 - 2.5, Math.random() * 20 + 1, Math.random() * 5 - 2.5);
+        let x = -5 + Math.random() * 10;
+        let y = 20 + Math.random() * 10;
+        let z = -5 + Math.random() * 10;
+        clone.setLocalPosition(x, y, z);
         balls.push(clone);
         app.root.addChild(clone);
         numBalls++;
     }
 
     app.on("update", function (dt) {
-    	time += dt;
-        if (time > 0.1 && numBalls < 100) {
+        time += dt;
+        if (time > 0.05 && numBalls < maxBalls) {
             spawnBall();
             time = 0;
         }
         
         for (let i = 0; i < numBalls; i++ ) {
-        	let ball = balls[i];
+            let ball = balls[i];
             if (ball.localPosition.y < -10) {
-                let x = -2.5 + Math.random() * 5;
-                let y =  1.0 + Math.random() * 20;
-                let z = -2.5 + Math.random() * 5;
+                let x = -5 + Math.random() * 10;
+                let y = 20 + Math.random() * 10;
+                let z = -5 + Math.random() * 10;
                 ball.setLocalPosition(x, y, z);
                 ball.rigidbody.linearVelocity = pc.Vec3.ZERO;
                 ball.rigidbody.angularVelocity = pc.Vec3.ZERO;
