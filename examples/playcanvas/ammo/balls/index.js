@@ -143,8 +143,6 @@ function init() {
     floor.addChild(floorModel);
     app.root.addChild(floor);
 
-    let time = 0;
-    let maxBalls = 200;
     let numBalls = 0;
     let balls = [];
     function spawnBall() {
@@ -160,7 +158,11 @@ function init() {
         numBalls++;
     }
 
+    let angle = 0;
+    let time = 0;
+    let maxBalls = 200;
     app.on("update", function (dt) {
+        angle += 0.5;
         time += dt;
         if (time > 0.05 && numBalls < maxBalls) {
             spawnBall();
@@ -179,5 +181,8 @@ function init() {
                 ball.rigidbody.syncEntityToBody();
             }
         }
+        
+        camera.setLocalPosition(Math.sin(Math.PI*angle/180) * 40, 10, Math.cos(Math.PI*angle/180) * 40);
+        camera.lookAt(0, 0, 0);
     });
 }
