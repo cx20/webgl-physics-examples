@@ -110,25 +110,25 @@ function init() {
     Camera.prototype.update = function (dt) {
       this.timer += dt;
       // Spin the camera around a center point
-      let x = Math.sin(this.timer * 0.25) * 6;
-      let z = Math.cos(this.timer * 0.25) * 4;
+      let x = Math.sin(this.timer * 0.25) * 9;
+      let z = Math.cos(this.timer * 0.25) * 6;
       let e = this.entity;
       e.setPosition(x, 5, z);
-      e.lookAt(0, 3, 0);
+      e.lookAt(0, 2, 0);
     }
 
     // Create spot light entity
     function Light() {
       let light = new pc.Entity();
       light.setPosition(10, 10, 10);
-      light.setEulerAngles(45, 45, 0);
+      //light.setLocalEulerAngles(45, 45, 0);
+      light.setLocalEulerAngles(45, 45, 45);
       app.context.systems.light.addComponent(light, {
-        type: "spot",
-        intensity: 1.2,
+        type: "directional",
+        color: new pc.Color(1, 1, 1),
         castShadows: true,
-        range: 60
+        shadowResolution: 2048
       });
-      //light.light.model.lights[0].setShadowBias(-0.00003);
       app.context.root.addChild(light);
       this.entity = light;
     }

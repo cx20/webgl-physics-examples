@@ -124,7 +124,8 @@ function init() {
     function Light() {
       let light = new pc.Entity();
       light.setPosition(10, 10, 10);
-      light.setEulerAngles(45, 45, 0);
+      //light.setLocalEulerAngles(45, 45, 0);
+      light.setLocalEulerAngles(45, 45, 45);
       app.context.systems.light.addComponent(light, {
         type: "directional",
         color: new pc.Color(1, 1, 1),
@@ -144,7 +145,9 @@ function init() {
         type: "box"
       });
       app.context.systems.rigidbody.addComponent(ground, {
-        type: "static"
+        type: "static",
+        friction: 0.6,
+        restitution: 0.8
       });
       app.context.systems.collision.addComponent(ground, {
         type: "box",
@@ -190,7 +193,9 @@ function init() {
         castShadows: true
       });
       app.context.systems.rigidbody.addComponent(e, {
-        type: "dynamic"
+        type: "dynamic",
+        friction: 0.4,
+        restitution: 0.8
       });
       app.context.systems.collision.addComponent(e, {
         type: "sphere",
