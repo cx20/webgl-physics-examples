@@ -77,7 +77,8 @@ function init() {
         castShadows: true,
         shadowResolution: 2048
     });
-    light.setLocalEulerAngles(45, 30, 0);
+    //light.setLocalEulerAngles(45, 30, 0);
+    light.setLocalEulerAngles(45, 45, 45);
     app.root.addChild(light);
 
     let camera = new pc.Entity("camera");
@@ -138,8 +139,9 @@ function init() {
     floor.addComponent("rigidbody", { type: "static", friction: 0.6, restitution: 0.8 });
     let floorModel = new pc.Entity("floorModel");
     floorModel.setLocalScale(40, 4, 40);
-    let whiteMaterial = createColorMaterial(new pc.Color(0.8, 0.8, 0.8));
-    floorModel.addComponent("model", { type: "box", material: whiteMaterial });
+    //let floorMaterial = createColorMaterial(new pc.Color(0.8, 0.8, 0.8));
+    let floorMaterial = createTextureMaterial("../../../../assets/textures/grass.jpg");
+    floorModel.addComponent("model", { type: "box", material: floorMaterial });
     floor.addChild(floorModel);
     app.root.addChild(floor);
 

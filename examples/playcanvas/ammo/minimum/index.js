@@ -53,7 +53,8 @@ function init() {
         castShadows: true,
         shadowResolution: 2048
     });
-    light.setLocalEulerAngles(45, 30, 0);
+     //light.setLocalEulerAngles(45, 30, 0);
+    light.setLocalEulerAngles(45, 45, 45);
     app.root.addChild(light);
 
     let camera = new pc.Entity("camera");
