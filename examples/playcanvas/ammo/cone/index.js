@@ -118,7 +118,7 @@ function init() {
     let carrotBodyMaterial = createTextureMaterial("../../../../assets/textures/carrot.jpg");
     carrotModel.addComponent("model", { type: "cone", material: carrotBodyMaterial });
     carrotBody.addChild(carrotModel);
-    app.root.addChild(carrotBody);
+    //app.root.addChild(carrotBody);
 
     let floor = new pc.Entity("floor");
     floor.setLocalPosition(0, -2, 0);

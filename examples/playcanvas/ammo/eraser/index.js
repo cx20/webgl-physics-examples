@@ -222,16 +222,16 @@ function init() {
     }
 
     const SCALE = 2;
-    let box = new pc.Entity("box");
-    box.setLocalPosition(0, 10, 0);
-    box.addComponent("collision", { type: "box", halfExtents: [1 * SCALE, 0.2 * SCALE, 0.5 * SCALE] });
-    box.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
-    let boxModel = new pc.Entity("boxModel");
-    boxModel.setLocalScale(SCALE, SCALE, SCALE);
-    boxModel.addComponent('script');
-    boxModel.script.create('cube');
-    box.addChild(boxModel);
-    app.root.addChild(box);
+    let eraserBody = new pc.Entity("eraserBody");
+    eraserBody.setLocalPosition(0, 10, 0);
+    eraserBody.addComponent("collision", { type: "box", halfExtents: [1 * SCALE, 0.2 * SCALE, 0.5 * SCALE] });
+    eraserBody.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
+    let eraserModel = new pc.Entity("eraserModel");
+    eraserModel.setLocalScale(SCALE, SCALE, SCALE);
+    eraserModel.addComponent('script');
+    eraserModel.script.create('cube');
+    eraserBody.addChild(eraserModel);
+    //app.root.addChild(eraserBody);
 
     let floor = new pc.Entity("floor");
     floor.setLocalPosition(0, -2, 0);
@@ -248,7 +248,7 @@ function init() {
     let numErasers = 0;
     let erasers = [];
     function spawnEraser() {
-        var clone = box.clone();
+        var clone = eraserBody.clone();
         let x = -5 + Math.random() * 10;
         let y = 20 + Math.random() * 10;
         let z = -5 + Math.random() * 10;
