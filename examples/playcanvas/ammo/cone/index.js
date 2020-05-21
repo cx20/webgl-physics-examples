@@ -110,7 +110,7 @@ function init() {
 
     const SCALE = 4;
     let carrotBody = new pc.Entity("carrotBody");
-    carrotBody.setLocalPosition(0, 10, 0);
+    carrotBody.setLocalPosition(0, 20, 0);
     carrotBody.addComponent("collision", { type: "cone", height: 1 * SCALE, radius: 0.25 * SCALE });
     carrotBody.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
     let carrotModel = new pc.Entity("carrotModel");
@@ -151,7 +151,7 @@ function init() {
     app.on("update", function (dt) {
         angle += 0.5;
         time += dt;
-        if (time > 0.05 && numCarrots < maxCarrots) {
+        if (time > 0.01 && numCarrots < maxCarrots) {
             spawnCarrot();
             time = 0;
         }
