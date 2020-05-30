@@ -223,7 +223,7 @@ function init() {
 
     const SCALE = 2;
     let eraserBody = new pc.Entity("eraserBody");
-    eraserBody.setLocalPosition(0, 10, 0);
+    eraserBody.setLocalPosition(0, 20, 0);
     eraserBody.addComponent("collision", { type: "box", halfExtents: [1 * SCALE, 0.2 * SCALE, 0.5 * SCALE] });
     eraserBody.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
     let eraserModel = new pc.Entity("eraserModel");
