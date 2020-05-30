@@ -17,14 +17,14 @@ var createScene = function(engine) {
         ground.position.y = -20;
         ground.scaling.y = 0.01;
         ground.material = material;
-        ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, {mass: 0, friction: 0.1, restitution: 0.1}, scene);
+        ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, {mass: 0, friction: 0.1, restitution: 0.2}, scene);
         
         mesh = scene.meshes[0];
         mesh.scaling = new BABYLON.Vector3(20, 20, 20);
         mesh.position.y = 30;
         //mesh.rotation.x = Math.PI * 10/180;
         //mesh.rotation.z = Math.PI * 10/180;
-        mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.BoxImpostor, {mass: 1, friction: 0.0, restitution: 0.5}, scene);
+        mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.BoxImpostor, {mass: 1, friction: 0.0, restitution: 1.0}, scene);
 
         var camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
         camera.setPosition(new BABYLON.Vector3(0, 20, -100));
