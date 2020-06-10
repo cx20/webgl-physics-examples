@@ -6,7 +6,7 @@ let camera, scene, renderer, duck, plane,
     cubeSize = 1;
 
 let wireframeCube;
-let trackball;
+let controls;
 
 let cubeSizeX = 16/16*5;
 let cubeSizeY = 16/16*5;
@@ -148,11 +148,11 @@ function initThree() {
 
     renderer.render(scene, camera);
 
-    trackball = new THREE.TrackballControls( camera, renderer.domElement );
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
 }
 
 function animate() {
-    trackball.update();
+    controls.update();
     requestAnimationFrame(animate);
     updatePhysics();
     render();
