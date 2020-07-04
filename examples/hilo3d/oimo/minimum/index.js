@@ -55,7 +55,8 @@ function addGround() {
         z: 0,
         geometry: geometryGround,
         material: new Hilo3d.BasicMaterial({
-            diffuse:new Hilo3d.LazyTexture({
+                lightType: 'NONE',
+                diffuse:new Hilo3d.LazyTexture({
                 src:'../../../../assets/textures/frog.jpg'
             })
         }),
@@ -90,6 +91,7 @@ function addBox() {
         z: 0,
         geometry: geometryBox,
         material: new Hilo3d.BasicMaterial({
+            lightType: 'NONE',
             diffuse:new Hilo3d.LazyTexture({
                 src:'../../../../assets/textures/frog.jpg'
             })
