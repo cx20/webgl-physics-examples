@@ -130,7 +130,7 @@ function init() {
         app.scene.addModel(model);
     };
 
-    let miniStats = new pc.MiniStats(app);
+    let miniStats = new pcx.MiniStats(app);
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
