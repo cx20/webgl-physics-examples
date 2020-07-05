@@ -17,7 +17,7 @@ function init() {
         app.resizeCanvas(canvas.width, canvas.height);
     });
 
-    let miniStats = new pc.MiniStats(app);
+    let miniStats = new pcx.MiniStats(app);
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
