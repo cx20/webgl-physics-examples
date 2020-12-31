@@ -88,6 +88,15 @@ Examples of WebGL Physics Library.
 |[PlayCanvas](https://github.com/playcanvas/engine)           |[Link](https://cx20.github.io/webgl-physics-examples/examples/playcanvas/ammo/eraser/)  |                                                                                          |                                                                                        |                                                                                              |
 |[three.js](https://github.com/mrdoob/three.js/)              |                                                                                        |                                                                                          |[Link](https://cx20.github.io/webgl-physics-examples/examples/threejs/oimo/eraser/)     |                                                                                              |
 
+## Falling Shogi examples
+
+![](assets/screenshot/shogi.jpg)
+
+|Library                                                      |[ammo.js](https://github.com/kripken/ammo.js/)                                          |[Cannon.js](https://github.com/schteppe/cannon.js)                                        |[Oimo.js](https://github.com/lo-th/Oimo.js/)                                            |[OimoPhysics](https://github.com/saharan/OimoPhysics)                                         |
+|:------------------------------------------------------------|:---------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------|
+|WebGL 1.0                                                    |                                                                                        |                                                                                          |[Link](https://cx20.github.io/webgl-physics-examples/examples/webgl1/oimo/shogi/)       |                                                                                              |
+|[GLBoost](https://github.com/emadurandal/GLBoost)            |                                                                                        |                                                                                          |[Link](https://cx20.github.io/webgl-physics-examples/examples/glboost/oimo/shogi/)      |                                                                                              |
+
 ## Falling Cone examples
 
 ![](assets/screenshot/cone.jpg)
