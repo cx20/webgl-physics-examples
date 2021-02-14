@@ -112,7 +112,7 @@ function initGround() {
 
 function createBox(w, h, d) {
     let material = new THREE.MeshBasicMaterial( { map: texture_grass } );
-    let geometry = new THREE.CubeGeometry( w, h, d );
+    let geometry = new THREE.BoxGeometry( w, h, d );
     let mesh = new THREE.Mesh(geometry, material);
     return mesh;
 }

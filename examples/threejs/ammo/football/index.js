@@ -159,7 +159,7 @@ class Plane {
 
     initThreeObj() {
         let s = this.s;
-        let geometry = new THREE.CubeGeometry(s, 1 * SCALE, s);
+        let geometry = new THREE.BoxGeometry(s, 1 * SCALE, s);
         let material = new THREE.MeshBasicMaterial({
             color: this.color,
             map: texture_grass
