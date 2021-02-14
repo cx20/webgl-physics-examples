@@ -126,7 +126,7 @@ function createBox(x, y, z, w, h, d, mass, color) {
         density: 1,
     });
 
-    geometry = new THREE.CubeGeometry(w, h, d);
+    geometry = new THREE.BoxGeometry(w, h, d);
     material = new THREE.MeshLambertMaterial({
         color: Math.round(color),
     });

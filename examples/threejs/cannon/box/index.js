@@ -112,7 +112,7 @@ function initGround() {
 
 function createGround(w, h, d) {
     let material = new THREE.MeshBasicMaterial( { map: texture_grass } );
-    let geometry = new THREE.CubeGeometry( w, h, d );
+    let geometry = new THREE.BoxGeometry( w, h, d );
     let mesh = new THREE.Mesh(geometry, material);
     return mesh;
 }
@@ -128,7 +128,7 @@ function createBox(x, y, z, w, h, d, mass, color) {
     body.position.z = z;
     world.add(body);
 
-    geometry = new THREE.CubeGeometry(w, h, d);
+    geometry = new THREE.BoxGeometry(w, h, d);
     material = new THREE.MeshLambertMaterial({
         color: Math.round(color),
         //map: texture_football

@@ -13,7 +13,7 @@ let cubeSizeY = 16/16*5;
 let cubeSizeZ = 9/16*5;
 
 function createCube(w, h, d) {
-    let geometry = new THREE.CubeGeometry(w, h, d, 10, 10);
+    let geometry = new THREE.BoxGeometry(w, h, d, 10, 10);
     let material = new THREE.MeshLambertMaterial({
         color: 0x666666
     });
@@ -24,7 +24,7 @@ function createCube(w, h, d) {
 
 function createWireframeCube(w, h, d) {
     let materialColor = 0x00ff00;
-    let geometry = new THREE.CubeGeometry(w, h, d);
+    let geometry = new THREE.BoxGeometry(w, h, d);
     let material = new THREE.MeshBasicMaterial({
         color: materialColor,
         wireframe:true

@@ -128,7 +128,7 @@ function createDomino(x, y, z, w, h, d, mass, color) {
         restitution: 0.1,
     });
     // initialize Object3D
-    geometry = new THREE.CubeGeometry(w, h, d);
+    geometry = new THREE.BoxGeometry(w, h, d);
     material = new THREE.MeshLambertMaterial({
         color: Math.round(color)
     });

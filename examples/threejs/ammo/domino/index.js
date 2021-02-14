@@ -164,7 +164,7 @@ class Box {
         let w = this.w;
         let h = this.h;
         let d = this.d;
-        let geometry = new THREE.CubeGeometry(w, h, d);
+        let geometry = new THREE.BoxGeometry(w, h, d);
         let material = new THREE.MeshLambertMaterial({
             color: Math.round(this.color)
         });
@@ -243,7 +243,7 @@ class Plane {
 
     initThreeObj() {
         let s = this.s;
-        let geometry = new THREE.CubeGeometry(s, 1 * SCALE, s);
+        let geometry = new THREE.BoxGeometry(s, 1 * SCALE, s);
         let material = new THREE.MeshLambertMaterial({
             color: this.color,
             map: texture_grass
