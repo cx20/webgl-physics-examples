@@ -39,11 +39,8 @@ function init() {
     light.shadow.camera = new THREE.OrthographicCamera(-30, 30, 30, -30, 0.1, 1000);
     scene.add(light);
 
-    buffgeoCylinder = new THREE.BufferGeometry();
-    buffgeoCylinder.fromGeometry(new THREE.CylinderGeometry(0.1,1,4,20));
-
-    buffgeoBox = new THREE.BufferGeometry();
-    buffgeoBox.fromGeometry(new THREE.BoxGeometry(1, 1, 1));
+    buffgeoCylinder = new THREE.CylinderGeometry(0.1,1,4,20);
+    buffgeoBox = new THREE.BoxGeometry(1, 1, 1);
 
     let loader = new THREE.TextureLoader();
 
