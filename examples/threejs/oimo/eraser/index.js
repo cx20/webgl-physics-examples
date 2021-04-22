@@ -46,19 +46,10 @@ function init() {
     light.castShadow = true;
     scene.add( light );
     
-    // background
-    let buffgeoBack = new THREE.BufferGeometry();
-    buffgeoBack.fromGeometry( new THREE.IcosahedronGeometry(8000,1) );
-    
-    buffgeoSphere = new THREE.BufferGeometry();
-    buffgeoSphere.fromGeometry( new THREE.SphereGeometry( 1, 20, 10 ) );
-    
-    buffgeoBox = new THREE.BufferGeometry();
-    buffgeoBox.fromGeometry( new THREE.BoxGeometry( 1, 1, 1 ) );
+    buffgeoSphere = new THREE.SphereGeometry( 1, 20, 10 );
+    buffgeoBox = new THREE.BoxGeometry( 1, 1, 1 );
     buffgeoMono = new THREE.BoxGeometry( 1, 1, 1 );
-
-    buffgeoCylinder= new THREE.BufferGeometry();
-    buffgeoCylinder.fromGeometry( new THREE.CylinderGeometry( 0.5, 0.5, 1, 6 ) );
+    buffgeoCylinder = new THREE.CylinderGeometry( 0.5, 0.5, 1, 6 );
     
     let materials = [
        new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_right.png')}),
@@ -84,7 +75,7 @@ function init() {
     controls.maxDistance = 5000.0;
     controls.maxPolarAngle = Math.PI * 0.4;
     controls.autoRotate = true;
-    controls.autoRotateSpeed = 5.0;
+    controls.autoRotateSpeed = 1.0;
 
     rotTest = new THREE.Vector3();
     
