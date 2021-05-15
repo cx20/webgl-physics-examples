@@ -84,7 +84,7 @@ function animate() {
 }
 
 function updatePhysics() {
-    world.step(1/30);
+    world.step(1/60);
 
     meshCube.position.x = body.position.x;
     meshCube.position.y = body.position.y;

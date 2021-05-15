@@ -1,5 +1,5 @@
 ﻿const SCALE = 1 / 10;
-const deltaT = 30;
+const deltaT = 60;
 
 let scene;
 let controls;
@@ -214,7 +214,7 @@ function initPhysicsWorld() {
 function init() {
     let width = window.innerWidth;
     let height = window.innerHeight;
-    let deltaT = 30;
+    let deltaT = 60;
 
     let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
     camera.position.x = 0;
@@ -245,7 +245,7 @@ function init() {
     function rendering() {
         controls.update();
         
-        dynamicsWorld.stepSimulation(deltaT / 1000);
+        dynamicsWorld.stepSimulation(1/deltaT); // TODO:set actual FPS
 
         for (let i = numObjects; i--;) {
             let obj = objs[i];

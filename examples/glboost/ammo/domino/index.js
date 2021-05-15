@@ -283,7 +283,7 @@ function initPhysicsWorld() {
 window.addEventListener("load", function () {
     let width = window.innerWidth;
     let height = window.innerHeight;
-    let deltaT = 10;
+    let deltaT = 60;
 
     canvas = document.getElementById("world");
     glBoostContext = new GLBoost.GLBoostMiddleContext(canvas);
@@ -322,8 +322,7 @@ window.addEventListener("load", function () {
     expression.prepareToRender();
 
     function rendering() {
-        dynamicsWorld.stepSimulation(deltaT / 1000);
-
+        dynamicsWorld.stepSimulation(1/deltaT); // TODO:set actual FPS
         for (let i = numObjects; i--;) {
             let obj = objs[i];
             obj.move();

@@ -84,7 +84,7 @@ gr.register(() => {
             this.world.gravity = new OIMO.Vec3(0, -9.80665, 0);
         },
         $update: function() {
-            this.world.step(1/30);
+            this.world.step(1/60);
         }
     });
     gr.overrideDeclaration("scene", ["OimoScene"]);

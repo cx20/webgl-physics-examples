@@ -164,7 +164,7 @@ function animate() {
 }
 
 function updatePhysics() {
-    world.step(1/30);
+    world.step(1/60);
 
     // position graphical object on physical object recursively
     (function updateObject3D(mesh) {

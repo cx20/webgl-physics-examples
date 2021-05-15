@@ -70,7 +70,7 @@ gr.register(() => {
         attributes: {
         },
         $awake: function() {
-            this.world = new OIMO.World({timestep: 1/30});
+            this.world = new OIMO.World({timestep: 1/60});
         },
         $update: function() {
             this.world.step();

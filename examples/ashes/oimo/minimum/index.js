@@ -78,7 +78,7 @@ class OimoSystem extends ComponentSystem {
         OimoComponent.name
     ];
     static world = new OIMO.World({ 
-        timestep: 1/30, 
+        timestep: 1/60, 
         iterations: 8, 
         broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
         worldscale: 1, // scale full world 
@@ -106,7 +106,7 @@ class OimoSystem extends ComponentSystem {
 
 System.registSystem(new OimoSystem());
 
-// —§•û‘Ì‚ÌÀ•Wƒf[ƒ^‚ğ—pˆÓ
+// ï¿½ï¿½ï¿½ï¿½ï¿½Ì‚Ìï¿½ï¿½Wï¿½fï¿½[ï¿½^ï¿½ï¿½pï¿½ï¿½
 //             1.0 y 
 //              ^  -1.0 
 //              | / z

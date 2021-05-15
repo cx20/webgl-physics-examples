@@ -170,7 +170,7 @@ function initOimoPhysics() {
 
 function updateOimoPhysics() {
 
-    world.step(1/30);
+    world.step(1/60);
     let i = bodys.length;
 
     while (i--) {
