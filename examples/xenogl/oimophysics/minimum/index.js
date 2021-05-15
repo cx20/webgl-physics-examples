@@ -205,7 +205,7 @@ function animate() {
 
 let rad = 0;
 async function draw() {
-    world.step(1/30);
+    world.step(1/60);
 
     rad += Math.PI * 0.1 / 180.0;
 

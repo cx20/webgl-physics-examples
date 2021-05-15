@@ -1,5 +1,5 @@
 ﻿const SCALE = 1 / 10;
-const deltaT = 30;
+const deltaT = 60;
 
 let scene;
 let controls;
@@ -245,7 +245,7 @@ function init() {
     function rendering() {
         controls.update();
         
-        world.stepSimulation(deltaT / 1000);
+        world.stepSimulation(1/deltaT); // TODO:set actual FPS
 
         for (let i = numObjects; i--;) {
             let obj = objs[i];

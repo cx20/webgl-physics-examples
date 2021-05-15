@@ -168,7 +168,7 @@ function animate() {
 }
 
 function updatePhysics() {
-    world.step(1/30);
+    world.step(1/60);
 
     (function updateObject3D(mesh) {
         if (mesh.rigidBody) {
