@@ -7,9 +7,9 @@
 ];
 
 if (wasmSupported()) {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/lib/ammo/ammo.wasm.wasm', init);
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.wasm', init);
 } else {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/lib/ammo/ammo.js', '', init);
+    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.js', '', init);
 }
 
 function init() {
@@ -163,8 +163,10 @@ function init() {
     let angle = 0;
     let time = 0;
     let maxBalls = 200;
+    const EXCEPTED_FPS = 60;
     app.on("update", function (dt) {
-        angle += 0.5;
+        let ADJUST_SPEED = dt / (1/EXCEPTED_FPS);
+        angle += 0.5 * ADJUST_SPEED;
         time += dt;
         if (time > 0.05 && numBalls < maxBalls) {
             spawnBall();
