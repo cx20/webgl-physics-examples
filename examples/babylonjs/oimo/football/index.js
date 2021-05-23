@@ -53,6 +53,8 @@ function getRgbColor( c )
 let engine;
 let scene;
 let canvas;
+let FPS = 60;    // default is 60 FPS
+let PHYSICS_SCALE = 1/10;
 
 document.addEventListener("DOMContentLoaded", function () {
     onload();
@@ -72,17 +74,24 @@ let onload = function () {
 
     engine.runRenderLoop(function () {
         scene.render();
-        scene.activeCamera.alpha += 0.01;
+        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
+
+   setTimeout(adjustSceneFps, 1000);
+   function adjustSceneFps() {
+        FPS = engine.getFps();
+        scene.getPhysicsEngine().setTimeStep(1 / FPS);
+   }
 };
 
 let createScene = function() {
 
     scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.OimoJSPlugin());
-    scene.getPhysicsEngine().setTimeStep(1 / 10);
+    scene.getPhysicsEngine().setTimeStep(1 / FPS);
 
     let camera = new BABYLON.ArcRotateCamera("Camera", -2.2, 1.0, 500, BABYLON.Vector3.Zero(), scene);
+    camera.setPosition(new BABYLON.Vector3(0, 30 * PHYSICS_SCALE, -500 * PHYSICS_SCALE));
     camera.attachControl(canvas);
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
     new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0.0, -1.0, 0.5), scene);
@@ -93,8 +102,8 @@ let createScene = function() {
     t.uScale = t.vScale = 2;
     mat.diffuseTexture = t;
     mat.specularColor = BABYLON.Color3.Black();
-    let g = BABYLON.Mesh.CreateBox("ground", 400, scene);
-    g.position.y = -20;
+    let g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
+    g.position.y = -20 * PHYSICS_SCALE;
     g.scaling.y = 0.01;
     g.material = mat;
     g.physicsImpostor = new BABYLON.PhysicsImpostor(g, BABYLON.PhysicsImpostor.BoxImpostor, {
@@ -115,7 +124,7 @@ let createScene = function() {
 
     let objects = [];
     let getPosition = function(y) {
-        return new BABYLON.Vector3(randomNumber(-25, 25), randomNumber(0, 100) + y, randomNumber(-25, 25));
+        return new BABYLON.Vector3(randomNumber(-25, 25) * PHYSICS_SCALE, (randomNumber(0, 100) + y) * PHYSICS_SCALE, randomNumber(-25, 25) * PHYSICS_SCALE);
     };
 
     const BALL_SIZE = 15;
@@ -123,10 +132,10 @@ let createScene = function() {
     for (let y = 0; y < 16; y++) {
         for (let x = 0; x < 16; x++) {
             i = x + (15 - y) * 16;
-            let s = BABYLON.Mesh.CreateSphere("Sphere" + String(i), 16, BALL_SIZE, scene);
-            let x1 = -130 + x * BALL_SIZE * 1.2 + Math.random();
-            let y1 = 30 + y * BALL_SIZE * 1.2;
-            let z1 = 1.0 * Math.random();
+            let s = BABYLON.Mesh.CreateSphere("Sphere" + String(i), 16, BALL_SIZE * PHYSICS_SCALE, scene);
+            let x1 = (-130 + x * BALL_SIZE * 1.2 + Math.random()) * PHYSICS_SCALE;
+            let y1 = (30 + y * BALL_SIZE * 1.2)  * PHYSICS_SCALE;
+            let z1 = (1.0 * Math.random()) * PHYSICS_SCALE;
             s.position = new BABYLON.Vector3(x1, y1, z1);
             let matSphere = new BABYLON.StandardMaterial("ball", scene);
             matSphere.diffuseTexture = new BABYLON.Texture("../../../../assets/textures/football.png", scene);
@@ -142,7 +151,7 @@ let createScene = function() {
     }
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
-            if (obj.position.y < -100) {
+            if (obj.position.y < -100 * PHYSICS_SCALE) {
                 obj.position = getPosition(200);
                 obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
             }

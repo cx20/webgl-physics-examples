@@ -53,6 +53,8 @@ function getRgbColor( c )
 let engine;
 let scene;
 let canvas;
+let FPS = 60;    // default is 60 FPS
+let PHYSICS_SCALE = 1/10;
 
 document.addEventListener("DOMContentLoaded", function () {
     onload();
@@ -72,17 +74,24 @@ let onload = function () {
 
     engine.runRenderLoop(function () {
         scene.render();
-        scene.activeCamera.alpha += 0.01;
+        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
+
+    setTimeout(adjustSceneFps, 1000);
+    function adjustSceneFps() {
+        FPS = engine.getFps();
+        scene.getPhysicsEngine().setTimeStep(1 / FPS);
+    }
 };
 
 let createScene = function() {
 
     scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.AmmoJSPlugin());
-    scene.getPhysicsEngine().setTimeStep(1 / 10);
+    scene.getPhysicsEngine().setTimeStep(1 / FPS);
 
     let camera = new BABYLON.ArcRotateCamera("Camera", -2.2, 1.0, 500, BABYLON.Vector3.Zero(), scene);
+    camera.setPosition(new BABYLON.Vector3(0, 100 * PHYSICS_SCALE, -300 * PHYSICS_SCALE));
     camera.attachControl(canvas);
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
     new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0.0, -1.0, 0.5), scene);
@@ -93,8 +102,8 @@ let createScene = function() {
     t.uScale = t.vScale = 2;
     mat.diffuseTexture = t;
     mat.specularColor = BABYLON.Color3.Black();
-    let g = BABYLON.Mesh.CreateBox("ground", 400, scene);
-    g.position.y = -20;
+    let g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
+    g.position.y = -20 * PHYSICS_SCALE;
     g.scaling.y = 0.01;
     g.material = mat;
     g.physicsImpostor = new BABYLON.PhysicsImpostor(g, BABYLON.PhysicsImpostor.BoxImpostor, {
@@ -115,7 +124,7 @@ let createScene = function() {
 
     let objects = [];
     let getPosition = function(y) {
-        return new BABYLON.Vector3(randomNumber(-25, 25), randomNumber(0, 100) + y, randomNumber(-25, 25));
+        return new BABYLON.Vector3(randomNumber(-25, 25) * PHYSICS_SCALE, (randomNumber(0, 100) + y) * PHYSICS_SCALE, randomNumber(-25, 25) * PHYSICS_SCALE);
     };
 
     const DOMINO_SIZE = 15;
@@ -123,10 +132,10 @@ let createScene = function() {
     for (let y = 0; y < 16; y++) {
         for (let x = 0; x < 16; x++) {
             pos = x + (15 - y) * 16;
-            let domino = BABYLON.Mesh.CreateBox("Domino" + String(pos), DOMINO_SIZE, scene);
-            x1 = -100 + x * DOMINO_SIZE * 1.0;
-            y1 = -10;
-            z1 = -150 + y * DOMINO_SIZE * 1.2;
+            let domino = BABYLON.Mesh.CreateBox("Domino" + String(pos), DOMINO_SIZE * PHYSICS_SCALE, scene);
+            x1 = (-100 + x * DOMINO_SIZE * 1.0) * PHYSICS_SCALE;
+            y1 = (-10) * PHYSICS_SCALE;
+            z1 = (-150 + y * DOMINO_SIZE * 1.2) * PHYSICS_SCALE;
             domino.position = new BABYLON.Vector3(x1, y1, z1);
             domino.scaling = new BABYLON.Vector3(0.1, 1.0, 1.0);
             let materialDomino = new BABYLON.StandardMaterial("domino", scene);
@@ -140,10 +149,10 @@ let createScene = function() {
     }
     const BALL_SIZE = 15;
     for (let y = 0; y < 16; y++) {
-        let ball = BABYLON.Mesh.CreateSphere("ball" + String(y), 16, BALL_SIZE, scene);
-        x1 = -105;
-        y1 = 10 + Math.random();
-        z1 = -150 + y * BALL_SIZE * 1.2;
+        let ball = BABYLON.Mesh.CreateSphere("ball" + String(y), 16, BALL_SIZE * PHYSICS_SCALE, scene);
+        x1 = -105 * PHYSICS_SCALE;
+        y1 = (10 + Math.random()) * PHYSICS_SCALE;
+        z1 = (-150 + y * BALL_SIZE * 1.2) * PHYSICS_SCALE;
         ball.position = new BABYLON.Vector3(x1, y1, z1);
         ball.rotation.x = 0.1;
         ball.rotation.y = 0.1;
@@ -159,7 +168,7 @@ let createScene = function() {
     }
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
-            if (obj.position.y < -100) {
+            if (obj.position.y < -100 * PHYSICS_SCALE) {
                 obj.position = getPosition(200);
                 obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
             }

@@ -3,6 +3,7 @@ let scene;
 let canvas;
 // to go quicker
 let v3 = BABYLON.Vector3;
+let FPS = 60;    // default is 60 FPS
 
 document.addEventListener("DOMContentLoaded", function () {
     onload();
@@ -22,15 +23,21 @@ let onload = function () {
 
     engine.runRenderLoop(function () {
         scene.render();
-        scene.activeCamera.alpha += 0.01;
+        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
+
+    setTimeout(adjustSceneFps, 1000);
+    function adjustSceneFps() {
+        FPS = engine.getFps();
+        scene.getPhysicsEngine().setTimeStep(1 / FPS);
+    }
 };
 
 let createScene = function() {
 
     scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.CannonJSPlugin());
-    scene.getPhysicsEngine().setTimeStep(1 / 10);
+    scene.getPhysicsEngine().setTimeStep(1 / FPS);
 
     //let camera = new BABYLON.ArcRotateCamera("Camera", -2.2, 1.0, 500, BABYLON.Vector3.Zero(), scene);
     let camera = new BABYLON.ArcRotateCamera("Camera", 0.86, 1.37, 250, BABYLON.Vector3.Zero(), scene);
@@ -132,6 +139,4 @@ let createScene = function() {
             }
         });
     });
-/*    
-*/
 };
