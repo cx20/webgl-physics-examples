@@ -2,7 +2,7 @@
 let scene;
 let canvas;
 let FPS = 60;    // default is 60 FPS
-let PHYSICS_SCALE = 1/10;
+let PHYSICS_SCALE = 1/100;
 
 document.addEventListener("DOMContentLoaded", function () {
     onload();
@@ -22,14 +22,7 @@ let onload = function () {
 
     engine.runRenderLoop(function () {
         scene.render();
-        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
-
-    setTimeout(adjustSceneFps, 1000);
-    function adjustSceneFps() {
-        FPS = engine.getFps();
-        scene.getPhysicsEngine().setTimeStep(1 / FPS);
-    }
 };
 
 let createScene = function() {
@@ -39,6 +32,7 @@ let createScene = function() {
     scene.getPhysicsEngine().setTimeStep(1 / FPS);
 
     let camera = new BABYLON.ArcRotateCamera("Camera", 0.86, 1.37, 250, BABYLON.Vector3.Zero(), scene);
+    camera.minZ /= 100; // TODO: If near is 1, the model is missing, so adjusted
     camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -200 * PHYSICS_SCALE));
     camera.attachControl(canvas, true);
 
@@ -144,7 +138,6 @@ let createScene = function() {
 
         y += 20 * PHYSICS_SCALE;
     }
-
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
             if (obj.position.y < -100 * PHYSICS_SCALE) {
@@ -153,8 +146,8 @@ let createScene = function() {
                 obj.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
-        //scene.activeCamera.alpha += 0.005;
+        FPS = engine.getFps();
+        scene.getPhysicsEngine().setTimeStep(1 / FPS);
         scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
-
 };
