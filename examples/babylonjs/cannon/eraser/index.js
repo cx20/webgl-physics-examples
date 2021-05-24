@@ -4,6 +4,7 @@ let canvas;
 // to go quicker
 let v3 = BABYLON.Vector3;
 let FPS = 60;    // default is 60 FPS
+let PHYSICS_SCALE = 1/10;
 
 document.addEventListener("DOMContentLoaded", function () {
     onload();
@@ -23,14 +24,7 @@ let onload = function () {
 
     engine.runRenderLoop(function () {
         scene.render();
-        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
-
-    setTimeout(adjustSceneFps, 1000);
-    function adjustSceneFps() {
-        FPS = engine.getFps();
-        scene.getPhysicsEngine().setTimeStep(1 / FPS);
-    }
 };
 
 let createScene = function() {
@@ -39,16 +33,11 @@ let createScene = function() {
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.CannonJSPlugin());
     scene.getPhysicsEngine().setTimeStep(1 / FPS);
 
-    //let camera = new BABYLON.ArcRotateCamera("Camera", -2.2, 1.0, 500, BABYLON.Vector3.Zero(), scene);
-    let camera = new BABYLON.ArcRotateCamera("Camera", 0.86, 1.37, 250, BABYLON.Vector3.Zero(), scene);
+    let camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
+    camera.minZ /= 100; // TODO: If near is 1, the model is missing, so adjusted
+    camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -200 * PHYSICS_SCALE));
     camera.attachControl(canvas);
-    camera.maxZ = 5000;
-    camera.lowerRadiusLimit = 120;
-    camera.upperRadiusLimit = 430;
-    camera.lowerBetaLimit =0.75;
-    camera.upperBetaLimit =1.58 ;
 
-    camera.attachControl(canvas);
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
     new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0.0, -1.0, 0.5), scene);
 
@@ -58,8 +47,8 @@ let createScene = function() {
     t.uScale = t.vScale = 2;
     mat.diffuseTexture = t;
     mat.specularColor = BABYLON.Color3.Black();
-    let g = BABYLON.Mesh.CreateBox("ground", 400, scene);
-    g.position.y = -20;
+    let g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
+    g.position.y = -20 * PHYSICS_SCALE;
     g.scaling.y = 0.01;
     g.material = mat;
     g.physicsImpostor = new BABYLON.PhysicsImpostor(g, BABYLON.PhysicsImpostor.BoxImpostor, {
@@ -80,14 +69,14 @@ let createScene = function() {
 
     let objects = [];
     let getPosition = function(y) {
-        return new BABYLON.Vector3(randomNumber(-25, 25), randomNumber(0, 100) + y, randomNumber(-25, 25));
+        return new BABYLON.Vector3(randomNumber(-25, 25) * PHYSICS_SCALE, (randomNumber(0, 100) + y) * PHYSICS_SCALE, randomNumber(-25, 25) * PHYSICS_SCALE);
     };
     let max = 300;
 
     for ( let i = 0; i < 20; i++ ) {
-        let stair = BABYLON.Mesh.CreateBox("stair", 100, scene);
-        stair.position.x = i * -10;
-        stair.position.y = i * 5 - 10;
+        let stair = BABYLON.Mesh.CreateBox("stair", 100 * PHYSICS_SCALE, scene);
+        stair.position.x = (i * -10) * PHYSICS_SCALE;
+        stair.position.y = (i * 5 - 10) * PHYSICS_SCALE;
         stair.scaling.x = 0.1;
         stair.scaling.y = 0.1;
         //stair.setPhysicsState({ impostor: BABYLON.PhysicsEngine.BoxImpostor, move:false, mass: 0, friction: 1.0, restitution: 1.0 });
@@ -114,12 +103,12 @@ let createScene = function() {
     for (let i = 0; i < max; i++) {
 
         let scale = 1;
-        let s = BABYLON.Mesh.CreateBox("s", 15, scene);
+        let s = BABYLON.Mesh.CreateBox("s", 15 * PHYSICS_SCALE, scene);
         // 消しゴムのサイズとなるよう調整
         s.scaling.x = 1.0;
         s.scaling.y = 0.2;
         s.scaling.z = 0.5;
-        s.position = new v3(randomNumber(-25,25) - 120, randomNumber(0, 100) + 200, randomNumber(-50, 50));
+        s.position = new v3((randomNumber(-25,25) - 120) * PHYSICS_SCALE, (randomNumber(0, 100) + 200) * PHYSICS_SCALE, (randomNumber(-50, 50)) * PHYSICS_SCALE);
         s.material = matEraser;
         //s.setPhysicsState({impostor:BABYLON.PhysicsEngine.BoxImpostor, mass:1, friction:0.4, restitution:0.2});
         s.physicsImpostor = new BABYLON.PhysicsImpostor(s, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1, friction: 0.4, restitution: 0.2 }, scene);
@@ -133,10 +122,13 @@ let createScene = function() {
 
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
-            if (obj.position.y < -100) {
+            if (obj.position.y < -100 * PHYSICS_SCALE) {
                 obj.position = getPosition(200);
                 obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
+        FPS = engine.getFps();
+        scene.getPhysicsEngine().setTimeStep(1 / FPS);
+        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
 };

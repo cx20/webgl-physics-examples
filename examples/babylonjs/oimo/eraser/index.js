@@ -24,14 +24,7 @@ let onload = function () {
 
     engine.runRenderLoop(function () {
         scene.render();
-        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
-
-    setTimeout(adjustSceneFps, 1000);
-    function adjustSceneFps() {
-        FPS = engine.getFps();
-        scene.getPhysicsEngine().setTimeStep(1 / FPS);
-    }
 };
 
 let createScene = function() {
@@ -41,6 +34,7 @@ let createScene = function() {
     scene.getPhysicsEngine().setTimeStep(1 / FPS);
 
     let camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
+    camera.minZ /= 100; // TODO: If near is 1, the model is missing, so adjusted
     camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -200 * PHYSICS_SCALE));
     camera.attachControl(canvas);
 
@@ -75,14 +69,14 @@ let createScene = function() {
 
     let objects = [];
     let getPosition = function(y) {
-        return new BABYLON.Vector3(randomNumber(-25, 25), randomNumber(0, 100) + y, randomNumber(-25, 25));
+        return new BABYLON.Vector3(randomNumber(-25, 25) * PHYSICS_SCALE, (randomNumber(0, 100) + y) * PHYSICS_SCALE, randomNumber(-25, 25) * PHYSICS_SCALE);
     };
     let max = 300;
 
     for ( let i = 0; i < 20; i++ ) {
         let stair = BABYLON.Mesh.CreateBox("stair", 100 * PHYSICS_SCALE, scene);
-        stair.position.x = i * -10 * PHYSICS_SCALE;
-        stair.position.y = i * 5 * PHYSICS_SCALE - 10 * PHYSICS_SCALE;
+        stair.position.x = (i * -10) * PHYSICS_SCALE;
+        stair.position.y = (i * 5 - 10) * PHYSICS_SCALE;
         stair.scaling.x = 0.1;
         stair.scaling.y = 0.1;
         //stair.setPhysicsState({ impostor: BABYLON.PhysicsEngine.BoxImpostor, move:false, mass: 0, friction: 1.0, restitution: 1.0 });
@@ -109,11 +103,11 @@ let createScene = function() {
     for (let i = 0; i < max; i++) {
 
         let scale = 1;
-        let s = BABYLON.Mesh.CreateBox("s", 15, scene);
+        let s = BABYLON.Mesh.CreateBox("s", 15 * PHYSICS_SCALE, scene);
         // 消しゴムのサイズとなるよう調整
-        s.scaling.x = 1.0 * PHYSICS_SCALE;
-        s.scaling.y = 0.2 * PHYSICS_SCALE;
-        s.scaling.z = 0.5 * PHYSICS_SCALE;
+        s.scaling.x = 1.0;
+        s.scaling.y = 0.2;
+        s.scaling.z = 0.5;
         s.position = new v3((randomNumber(-25,25) - 120) * PHYSICS_SCALE, (randomNumber(0, 100) + 200) * PHYSICS_SCALE, (randomNumber(-50, 50)) * PHYSICS_SCALE);
         s.material = matEraser;
         //s.setPhysicsState({impostor:BABYLON.PhysicsEngine.BoxImpostor, mass:1, friction:0.4, restitution:0.2});
@@ -129,9 +123,12 @@ let createScene = function() {
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
             if (obj.position.y < -100 * PHYSICS_SCALE) {
-                obj.position = getPosition(200 * PHYSICS_SCALE);
+                obj.position = getPosition(200);
                 obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
+        FPS = engine.getFps();
+        scene.getPhysicsEngine().setTimeStep(1 / FPS);
+        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
 };
