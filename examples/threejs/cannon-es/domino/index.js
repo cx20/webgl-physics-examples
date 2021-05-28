@@ -63,6 +63,71 @@ let N = 256;
 let world, camera, scene, renderer, rendererElement;
 let controls;
 
+//////////////////////////////////////////////
+//./cannon.js-0.4.3/src/math/Vec3.js
+//////////////////////////////////////////////
+/**
+ * @method tangents
+ * @memberof CANNON.Vec3
+ * @brief Compute two artificial tangents to the vector
+ * @param CANNON.Vec3 t1 Vector object to save the first tangent in
+ * @param CANNON.Vec3 t2 Vector object to save the second tangent in
+ */
+/*
+CANNON.Vec3.prototype.tangents = function(t1, t2) {
+    var norm = this.norm();
+    if (norm > 0.0) {
+        var n = new CANNON.Vec3(this.x / norm,
+            this.y / norm,
+            this.z / norm);
+        if (n.x < 0.9) {
+            var rand = Math.random();
+            n.cross(new CANNON.Vec3(rand, 0.0000001, 0).unit(), t1);
+        } else
+            n.cross(new CANNON.Vec3(0.0000001, rand, 0).unit(), t1);
+        n.cross(t1, t2);
+    } else {
+        // The normal length is zero, make something up
+        t1.set(1, 0, 0).normalize();
+        t2.set(0, 1, 0).normalize();
+    }
+};
+*/
+
+//////////////////////////////////////////////
+//./cannon.js-0.6.2/src/math/Vec3.js + modified
+//////////////////////////////////////////////
+/**
+ * @method tangents
+ * @memberof CANNON.Vec3
+ * @brief Compute two artificial tangents to the vector
+ * @param CANNON.Vec3 t1 Vector object to save the first tangent in
+ * @param CANNON.Vec3 t2 Vector object to save the second tangent in
+ */
+var Vec3_tangents_n = new CANNON.Vec3();
+var Vec3_tangents_randVec = new CANNON.Vec3();
+CANNON.Vec3.prototype.tangents = function(t1, t2) {
+    const norm = this.length();
+    if (norm > 0) {
+        const n = Vec3_tangents_n;
+        const inorm = 1 / norm;
+        n.set(this.x * inorm, this.y * inorm, this.z * inorm);
+        const randVec = Vec3_tangents_randVec;
+        if (Math.abs(n.x) < 0.9) {
+            randVec.set(1, 0, 0);
+            n.cross(randVec, t1);
+        } else {
+            //randVec.set(0, 1, 0);
+            randVec.set(0, 0, 0); // TODO: This is a monkey patch to improve performance. Changed from 1 to 0
+            n.cross(randVec, t1);
+        }
+        n.cross(t1, t2);
+    } else {
+        t1.set(1, 0, 0);
+        t2.set(0, 1, 0);
+    }
+}
+
 function init() {
     // Stats
     let parentElement = document.body;
@@ -93,9 +158,7 @@ function init() {
 
     controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
-
 }
-
 
 // initialize lights
 function initLights() {
