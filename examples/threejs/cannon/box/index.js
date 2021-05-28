@@ -142,7 +142,7 @@ function createBoxes() {
     const BOX_SIZE = 1;
     for (let x = 0; x < 16; x++) {
         for (let y = 0; y < 16; y++) {
-            i = x + (15 - y) * 16;
+            let i = x + (15 - y) * 16;
             let z = 0;
             let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
             let y1 = 0 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;

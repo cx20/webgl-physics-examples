@@ -3,6 +3,7 @@ let camera, scene, renderer;
 let meshGround;
 let meshCube;
 let world;
+let shape;
 let body;
 let controls;
 
