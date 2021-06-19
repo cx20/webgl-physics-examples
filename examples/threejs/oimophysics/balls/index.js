@@ -9,6 +9,7 @@ let matSpheres = [];
 let buffgeoSphere, buffgeoBox;
 const ToRad = Math.PI / 180;
 const ToDeg = 180 / Math.PI;
+const FPS = 240;
 
 const dataSet = [
     {imageFile:"../../../../assets/textures/Basketball.jpg", scale:1.0}, // Basketball.jpg
@@ -202,10 +203,35 @@ function updateOimoPhysics() {
     }
 }
 
+const UPDATE_LOAD_COEFF = 0.5;
+
+let targetInterval = 1000 / 60;
+let prevTime = Date.now() - targetInterval;
+
 function loop() {
-    updateOimoPhysics();
-    renderer.render(scene, camera);
-    controls.update();
+    let currentTime = Date.now();
+    let updated = false;
+    while (currentTime - prevTime > targetInterval * 0.5) {
+    	updateOimoPhysics();
+
+        updated = true;
+        prevTime += targetInterval;
+        const now = Date.now();
+        const updateTime = now - currentTime;
+        if (updateTime > targetInterval * UPDATE_LOAD_COEFF) {
+            // overloaded
+            if (prevTime < now - targetInterval) {
+                // do not accumulate too much
+                prevTime = now - targetInterval;
+            }
+            break;
+        }
+    }
+    if (updated) {
+	    renderer.render(scene, camera);
+	    controls.update();
+    }
+    
     requestAnimationFrame(loop);
 }
 
