@@ -1,4 +1,6 @@
-﻿const w = 1.0;
+﻿import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
+
+const w = 1.0;
 const h = 0.2;
 const d = 0.5;
 let positions = [ 
@@ -92,11 +94,7 @@ let options = {
     uvs: textureCoords
 };
 
-if (wasmSupported()) {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.wasm', init);
-} else {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.js', '', init);
-}
+loadWasmModuleAsync('Ammo', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm', init);
 
 function init() {
     let canvas = document.getElementById("c");

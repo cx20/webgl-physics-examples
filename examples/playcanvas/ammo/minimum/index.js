@@ -1,8 +1,6 @@
-﻿if (wasmSupported()) {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.wasm', init);
-} else {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.js', '', init);
-}
+﻿import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
+
+loadWasmModuleAsync('Ammo', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm', init);
 
 function init() {
     let canvas = document.getElementById("c");

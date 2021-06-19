@@ -1,4 +1,6 @@
-﻿let DOT_SIZE = 16;
+﻿import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
+
+let DOT_SIZE = 16;
 let X_START_POS = -7;
 let Y_START_POS =  0;
 let Z_START_POS = -7;
@@ -39,11 +41,7 @@ let dataSet = [
 
 
 // ***********    Initialize app   *******************
-if (wasmSupported()) {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.js', 'https://playcanvas.github.io/examples/lib/ammo/ammo.wasm.wasm', init);
-} else {
-    loadWasmModuleAsync('Ammo', 'https://playcanvas.github.io/examples/lib/ammo/ammo.js', '', init);
-}
+loadWasmModuleAsync('Ammo', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm', init);
 
 function init() {
     // create a few materials for our objects
