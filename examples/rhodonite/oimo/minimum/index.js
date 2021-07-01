@@ -156,8 +156,11 @@ function readyBasicVerticesData() {
     return primitive;
 }
 
-const promise = Rn.ModuleManager.getInstance().loadModule('webgl');
-promise.then(function() {
+const load = async function () {
+    Rn.Config.maxCameraNumber = 20;
+    await Rn.ModuleManager.getInstance().loadModule('webgl');
+    await Rn.ModuleManager.getInstance().loadModule('pbr');
+
     initOimo();
 
     const system = Rn.System.getInstance();
@@ -267,4 +270,6 @@ promise.then(function() {
 
     draw();
 
-});
+}
+
+document.body.onload = load;
