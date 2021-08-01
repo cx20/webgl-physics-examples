@@ -4,7 +4,7 @@
 // See: https://github.com/mrdoob/three.js/wiki/Migration-Guide#127--128
 import * as THREE from 'https://cdn.skypack.dev/three@0.130.0/build/three.module.js';
 import { OrbitControls } from 'https://cdn.skypack.dev/three@0.130.0/examples/jsm/controls/OrbitControls.js';
-import * as CANNON from 'https://cdn.skypack.dev/cannon-es@0.17.1/dist/cannon-es.js';
+import * as CANNON from 'https://cdn.skypack.dev/cannon-es@0.18.0/dist/cannon-es.js';
 
 // three var
 let camera, scene, light, renderer, container, content;
