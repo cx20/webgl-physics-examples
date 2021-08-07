@@ -2,8 +2,8 @@
 // ES6 modules in examples/jsm now import using the bare specifier three.
 // This change breaks working with modules in cdns such as https://www.jsdelivr.com/ and https://unpkg.com/. Please use https://www.skypack.dev/ instead.
 // See: https://github.com/mrdoob/three.js/wiki/Migration-Guide#127--128
-import * as THREE from 'https://cdn.skypack.dev/three@0.130.0/build/three.module.js';
-import { OrbitControls } from 'https://cdn.skypack.dev/three@0.130.0/examples/jsm/controls/OrbitControls.js';
+import * as THREE from 'https://cdn.skypack.dev/three@0.131.3/build/three.module.js';
+import { OrbitControls } from 'https://cdn.skypack.dev/three@0.131.3/examples/jsm/controls/OrbitControls.js';
 import * as CANNON from 'https://cdn.skypack.dev/cannon-es@0.18.0/dist/cannon-es.js';
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
