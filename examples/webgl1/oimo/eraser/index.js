@@ -1,3 +1,5 @@
+const SCALE = 0.01;
+
 let c = document.getElementById("c");
 let gl = c.getContext("experimental-webgl");
 gl.clearColor(0.7, 0.7, 0.7, 1.0);
@@ -239,7 +241,7 @@ let data2buf = function () {
 };
 data2buf();
 
-setInterval(function () {
+function draw() {
     world.step();
     for (let i = 0; i < max; i++) {
         let pos  = bodys[i].getPosition();
@@ -249,7 +251,15 @@ setInterval(function () {
         }
     }
     data2buf();
-}, 1000 / 60);
+}
+
+function animate() {
+    draw();
+    requestAnimationFrame(animate);
+}
+
+animate();
+
 
 (function () {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

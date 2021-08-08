@@ -23,15 +23,17 @@ let bodys = null;
 let fps = [0,0,0,0];
 let type=1;
 
+const SCALE = 0.01;
+
 init();
 loop();
 
 function init() {
     
     camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.x = 0;
-    camera.position.y = 20;
-    camera.position.z = 500;
+    camera.position.x = 0 * SCALE;
+    camera.position.y = 20 * SCALE;
+    camera.position.z = 500 * SCALE;
     
     scene = new THREE.Scene();
     
@@ -169,27 +171,27 @@ function populate(n) {
     //let ground = new OIMO.Body({size:[400, 40, 400], pos:[0,-20,0], world:world, config:config});
     let ground = world.add({
         type: "box",
-        size: [400, 40, 400],
-        pos: [0, -20, 0],
+        size: [400 * SCALE, 40 * SCALE, 400 * SCALE],
+        pos: [0 * SCALE, -20 * SCALE, 0 * SCALE],
         rot: [0, 0, 0],
         move: false,
         density: 1,
         friction: 0.5,
         restitution: 0.1,
     });
-    addStaticBox([400, 40, 400], [0,-20,0], [0,0,0]);
+    addStaticBox([400 * SCALE, 40 * SCALE, 400 * SCALE], [0 * SCALE,-20 * SCALE,0 * SCALE], [0,0,0]);
     
     let ground2 = world.add({
         type: "box",
-        size: [200, 30, 390],
-        pos: [130, 40, 0],
+        size: [200 * SCALE, 30 * SCALE, 390 * SCALE],
+        pos: [130 * SCALE, 40 * SCALE, 0 * SCALE],
         rot: [0, 0, 32],
         move: false,
         density: 1,
         friction: 0.5,
         restitution: 0.1,
     });
-    addStaticBox([200, 30, 390], [130,40,0], [0,0,32]);
+    addStaticBox([200 * SCALE, 30 * SCALE, 390 * SCALE], [130 * SCALE,40 * SCALE,0 * SCALE], [0,0,32]);
     
     // now add object
     let x, y, z, w, h, d;
@@ -210,15 +212,15 @@ function populate(n) {
             config[3] = group3;
 		    bodys[i] = world.add({
 		        type: "box",
-		        size: [w, h, d],
-		        pos: [x, y, z],
+		        size: [w * SCALE, h * SCALE, d * SCALE],
+		        pos: [x * SCALE, y * SCALE, z * SCALE],
 		        move: true,
 		        density: 1,
 		        friction: 0.5,
 		        restitution: 0.1,
 		    });
             meshs[i] = new THREE.Mesh( buffgeoMono, matMono );
-            meshs[i].scale.set( w, h, d );
+            meshs[i].scale.set( w * SCALE, h * SCALE, d * SCALE );
         }
         meshs[i].castShadow = true;
         meshs[i].receiveShadow = true;
@@ -255,11 +257,11 @@ function updateOimoPhysics() {
             if(mesh.material.name === 'box') mesh.material = matBox; 
             
             // reset position
-            if(mesh.position.y<-100){
+            if(mesh.position.y * SCALE < -100 * SCALE){
                 x = 150;
                 z = -100 + Math.random()*200;
                 y = 100 + Math.random()*1000;
-                body.resetPosition(x,y,z);
+                body.resetPosition(x * SCALE,y * SCALE,z * SCALE);
             }
         }
     }
