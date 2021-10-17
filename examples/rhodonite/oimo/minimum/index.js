@@ -253,7 +253,8 @@ const load = async function () {
         entities.forEach(function (entity) {
             if ( entity.getTagValue("type") == "cube" ) {
                 entity.getTransform().translate = new Rn.Vector3(p.x, p.y, p.z);
-                entity.getTransform().quaternion = new Rn.Vector4(q.x, q.y, q.z, q.w);
+                //entity.getTransform().quaternion = new Rn.Vector4(q.x, q.y, q.z, q.w);
+                entity.getTransform().quaternion = Rn.Vector4.fromCopyArray4([q.x, q.y, q.z, q.w]);
             }
         });
     }
