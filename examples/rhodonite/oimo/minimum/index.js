@@ -198,7 +198,7 @@ const load = async function () {
     const meshComponent1 = entity1.getComponent(Rn.MeshComponent);
 
     meshComponent1.setMesh(mesh1);
-    entity1.getTransform().scale = new Rn.Vector3(200, 2, 200);
+    entity1.getTransform().scale = Rn.Vector3.fromCopyArray([200, 2, 200]);
     entity1.getTransform().toUpdateAllTransform = false;
 
     // Cube
@@ -211,7 +211,7 @@ const load = async function () {
     const meshComponent2 = entity2.getComponent(Rn.MeshComponent);
 
     meshComponent2.setMesh(mesh2);
-    entity2.getTransform().scale = new Rn.Vector3(50, 50, 50);
+    entity2.getTransform().scale = Rn.Vector3.fromCopyArray([50, 50, 50]);
     entity2.getTransform().toUpdateAllTransform = false;
 
     const startTime = Date.now();
@@ -226,7 +226,7 @@ const load = async function () {
     cameraComponent.setFovyAndChangeFocalLength(45);
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
     const cameraEntity = cameraComponent.entity;
-    cameraEntity.getTransform().translate = new Rn.Vector3(0, 50, 200);
+    cameraEntity.getTransform().translate = Rn.Vector3.fromCopyArray([0, 50, 200]);
 
     // renderPass
     const renderPass = new Rn.RenderPass();
@@ -252,8 +252,7 @@ const load = async function () {
 
         entities.forEach(function (entity) {
             if ( entity.getTagValue("type") == "cube" ) {
-                entity.getTransform().translate = new Rn.Vector3(p.x, p.y, p.z);
-                //entity.getTransform().quaternion = new Rn.Vector4(q.x, q.y, q.z, q.w);
+                entity.getTransform().translate = Rn.Vector3.fromCopyArray([p.x, p.y, p.z]);
                 entity.getTransform().quaternion = Rn.Vector4.fromCopyArray4([q.x, q.y, q.z, q.w]);
             }
         });
