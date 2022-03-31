@@ -1,9 +1,21 @@
-var createScene = function(engine) {
-    var scene = new BABYLON.Scene(engine);
-    var mesh;
+let engine;
+let scene;
+let canvas;
 
-    var loader = BABYLON.SceneLoader.Load("https://rawcdn.githack.com/cx20/gltf-test/1f6515ce/sampleModels/Duck/glTF/", "Duck.gltf", engine, function (newScene) {
-        var gl = engine._gl;
+async function init() {
+    canvas = document.querySelector("#c");
+    engine = new BABYLON.Engine(canvas, true);
+    await Ammo();
+
+    createScene();
+}
+
+let createScene = function() {
+    let scene = new BABYLON.Scene(engine);
+    let mesh;
+
+    let loader = BABYLON.SceneLoader.Load("https://rawcdn.githack.com/cx20/gltf-test/1f6515ce/sampleModels/Duck/glTF/", "Duck.gltf", engine, function (newScene) {
+        let gl = engine._gl;
 
         scene = newScene;
         scene.enablePhysics(new BABYLON.Vector3(0,-9.8,0), new BABYLON.AmmoJSPlugin());
@@ -11,9 +23,9 @@ var createScene = function(engine) {
         
         scene.forceShowBoundingBoxes = true;
 
-        var material = new BABYLON.StandardMaterial("material", scene);
+        let material = new BABYLON.StandardMaterial("material", scene);
         material.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-        var ground = new BABYLON.Mesh.CreateBox('ground', 200.0, scene);
+        let ground = new BABYLON.Mesh.CreateBox('ground', 200.0, scene);
         ground.position.y = -20;
         ground.scaling.y = 0.01;
         ground.material = material;
@@ -26,11 +38,11 @@ var createScene = function(engine) {
         //mesh.rotation.z = Math.PI * 10/180;
         mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.BoxImpostor, {mass: 1, friction: 0.0, restitution: 1.0}, scene);
 
-        var camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
+        let camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
         camera.setPosition(new BABYLON.Vector3(0, 20, -100));
         camera.attachControl(canvas, true);
 
-        var light1 = new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0, 0, 1), scene);
+        let light1 = new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0, 0, 1), scene);
         light1.groundColor = new BABYLON.Color3(1, 0, 0);
         light1.position = new BABYLON.Vector3(20, 40, 20);
 
@@ -45,7 +57,7 @@ var createScene = function(engine) {
         
         //When click event is raised
         window.addEventListener("click", function () {
-            var pickResult = scene.pick(scene.pointerX, scene.pointerY);
+            let pickResult = scene.pick(scene.pointerX, scene.pointerY);
             mesh.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,10,0));
         })
     });
@@ -53,6 +65,4 @@ var createScene = function(engine) {
     return scene;
 }
 
-var canvas = document.querySelector("#c");
-var engine = new BABYLON.Engine(canvas, true);
-var scene = createScene(engine);
+init();
