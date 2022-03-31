@@ -56,17 +56,8 @@ let canvas;
 let FPS = 60;    // default is 60 FPS
 let PHYSICS_SCALE = 1/10;
 
-document.addEventListener("DOMContentLoaded", function () {
-    onload();
-}, false);
+async function init() {
 
-window.addEventListener("resize", function () {
-    if (engine) {
-        engine.resize();
-    }
-},false);
-
-let onload = function () {
     canvas = document.querySelector("#c");
     engine = new BABYLON.Engine(canvas, true);
 
@@ -174,6 +165,6 @@ let createScene = function() {
             }
         });
     });
-/*    
-*/
 };
+
+init();

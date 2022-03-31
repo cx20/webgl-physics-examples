@@ -1,4 +1,14 @@
-var createScene = function(engine) {
+let engine;
+let scene;
+let canvas;
+
+async function init() {
+    canvas = document.querySelector("#c");
+    engine = new BABYLON.Engine(canvas, true);
+    createScene();
+}
+
+var createScene = function() {
     var scene = new BABYLON.Scene(engine);
     var mesh;
 
@@ -53,6 +63,4 @@ var createScene = function(engine) {
     return scene;
 }
 
-var canvas = document.querySelector("#c");
-var engine = new BABYLON.Engine(canvas, true);
-var scene = createScene(engine);
+init();

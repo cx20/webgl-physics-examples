@@ -6,17 +6,7 @@ let v3 = BABYLON.Vector3;
 let FPS = 60;    // default is 60 FPS
 let PHYSICS_SCALE = 1/10;
 
-document.addEventListener("DOMContentLoaded", function () {
-    onload();
-}, false);
-
-window.addEventListener("resize", function () {
-    if (engine) {
-        engine.resize();
-    }
-},false);
-
-let onload = function () {
+async function init() {
     canvas = document.querySelector("#c");
     engine = new BABYLON.Engine(canvas, true);
 
@@ -132,3 +122,5 @@ let createScene = function() {
         scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
     });
 };
+
+init();
