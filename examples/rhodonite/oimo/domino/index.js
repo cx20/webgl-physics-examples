@@ -156,6 +156,21 @@ const load = async function () {
     lightComponent.intensity = Rn.Vector3.fromCopyArray([1, 1, 1]);
     lightEntity.translate = Rn.Vector3.fromCopyArray([100, 0, 100]);
 
+    // Lights
+    const lightEntity1 = Rn.EntityHelper.createLightEntity();
+    const lightComponent1 = lightEntity1.getLight();
+    lightComponent1.type = Rn.LightType.Directional;
+    lightEntity1.translate = Rn.Vector3.fromCopyArray([1.0, 1.0, 100000.0]);
+    lightEntity1.rotate = Rn.Vector3.fromCopyArray([-Math.PI / 2, -Math.PI / 4, Math.PI / 4]);
+
+    const lightEntity2 = Rn.EntityHelper.createLightEntity();
+    const lightComponent2 = lightEntity2.getLight();
+    lightComponent1.type = Rn.LightType.Directional;
+    lightEntity2.translate = Rn.Vector3.fromCopyArray([1.0, 1.0, 100000.0]);
+
+    lightEntity1.intensity = Rn.Vector3.fromCopyArray([1, 1, 1]);
+    lightEntity2.intensity = Rn.Vector3.fromCopyArray([1, 1, 1]);
+
     function updatePhysics() {
         world.step();
         let i = bodys.length;
@@ -206,19 +221,12 @@ function populate() {
                 restitution: 0.1,
             });
 
-
-            let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial();
-            //let modelMaterial = Rn.MaterialHelper.createClassicUberMaterial();
-/*
-            modelMaterial.setParameter(
-                Rn.ShaderSemantics.DiffuseColorFactor,
-                Rn.Vector4.fromCopyArray4([c.r / 0xff, c.g / 0xff, c.b / 0xff, 1])
-            );
-*/
+            let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial({isLighting: true});
             modelMaterial.setParameter(
                 Rn.ShaderSemantics.BaseColorFactor,
                 Rn.Vector4.fromCopyArray4([c.r / 0xff, c.g / 0xff, c.b / 0xff, 1])
             );
+
             const primitive = new Rn.Cube();
             primitive.generate({ 
                 widthVector: Rn.Vector3.fromCopy3(0.5, 0.5, 0.5),
@@ -258,21 +266,12 @@ function populate() {
             restitution: 0.1,
         });
 
-/*
-        let modelMaterial = Rn.MaterialHelper.createClassicUberMaterial();
+        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial({isLighting: true});
         modelMaterial.setParameter(
-            Rn.ShaderSemantics.DiffuseColorFactor,
+            Rn.ShaderSemantics.BaseColorFactor,
             Rn.Vector4.fromCopyArray4([1, 0, 0, 1])
         );
-*/
-        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial();
-        //let modelMaterial = Rn.MaterialHelper.createClassicUberMaterial();
-/*
-        modelMaterial.setParameter(
-            Rn.ShaderSemantics.DiffuseColorFactor,
-            Rn.Vector4.fromCopyArray4([1, 0, 0, 1])
-        );
-*/
+
         modelMaterial.setParameter(
             Rn.ShaderSemantics.BaseColorFactor,
             Rn.Vector4.fromCopyArray4([1, 0, 0, 1])
