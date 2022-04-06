@@ -3,7 +3,7 @@ let groundBody;
 let body;
 let bodys = [];
 let entities = [];
-const SCALE = 1/100;
+const SCALE = 1/10;
 const DOT_SIZE = 8;
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
@@ -140,7 +140,7 @@ const load = async function () {
    
     // camera
     const cameraEntity = Rn.EntityHelper.createCameraControllerEntity();
-    cameraEntity.translate = Rn.Vector3.fromCopyArray([0, 1.0, 2]);
+    cameraEntity.translate = Rn.Vector3.fromCopyArray([0 * SCALE, 100.0 * SCALE, 200 * SCALE]);
     cameraEntity.rotate = Rn.Vector3.fromCopyArray([-0.5, 0.0, 0.0]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
@@ -148,29 +148,17 @@ const load = async function () {
     cameraComponent.setFovyAndChangeFocalLength(45);
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
-    // TODO: Light is not applied correctly
-    // Lights
-    const lightEntity = Rn.EntityHelper.createLightEntity();
-    const lightComponent = lightEntity.getLight();
-    lightComponent.type = Rn.LightType.Point;
-    lightComponent.intensity = Rn.Vector3.fromCopyArray([1, 1, 1]);
-    lightEntity.translate = Rn.Vector3.fromCopyArray([100, 0, 100]);
-
     // Lights
     const lightEntity1 = Rn.EntityHelper.createLightEntity();
     const lightComponent1 = lightEntity1.getLight();
     lightComponent1.type = Rn.LightType.Directional;
-    lightEntity1.translate = Rn.Vector3.fromCopyArray([1.0, 1.0, 100000.0]);
     lightEntity1.rotate = Rn.Vector3.fromCopyArray([-Math.PI / 2, -Math.PI / 4, Math.PI / 4]);
 
     const lightEntity2 = Rn.EntityHelper.createLightEntity();
     const lightComponent2 = lightEntity2.getLight();
-    lightComponent1.type = Rn.LightType.Directional;
-    lightEntity2.translate = Rn.Vector3.fromCopyArray([1.0, 1.0, 100000.0]);
-
-    lightEntity1.intensity = Rn.Vector3.fromCopyArray([1, 1, 1]);
-    lightEntity2.intensity = Rn.Vector3.fromCopyArray([1, 1, 1]);
-
+    lightComponent2.type = Rn.LightType.Directional;
+    lightEntity2.rotate = Rn.Vector3.fromCopyArray([Math.PI / 2, Math.PI / 4, -Math.PI / 4]);
+  
     function updatePhysics() {
         world.step();
         let i = bodys.length;
