@@ -2,28 +2,28 @@
 let scene;
 let canvas;
 // to go quicker
-let v3 = BABYLON.Vector3;
-let FPS = 60;    // default is 60 FPS
-let PHYSICS_SCALE = 1/10;
+const v3 = BABYLON.Vector3;
+const PHYSICS_SCALE = 1/10;
 
 async function init() {
+
     canvas = document.querySelector("#c");
     engine = new BABYLON.Engine(canvas, true);
 
-    createScene();
+    scene = createScene();
 
     engine.runRenderLoop(function () {
         scene.render();
     });
 };
 
-let createScene = function() {
+const createScene = function() {
 
     scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.OimoJSPlugin());
-    scene.getPhysicsEngine().setTimeStep(1 / FPS);
+    scene.getPhysicsEngine().setTimeStep(scene.getAnimationRatio());
 
-    let camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
+    const camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
     camera.minZ /= 100; // TODO: If near is 1, the model is missing, so adjusted
     camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -200 * PHYSICS_SCALE));
     camera.attachControl(canvas);
@@ -31,13 +31,13 @@ let createScene = function() {
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
     new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0.0, -1.0, 0.5), scene);
 
-    let mat = new BABYLON.StandardMaterial("ground", scene);
-    let t = new BABYLON.Texture("../../../../assets/textures/grass.jpg", scene); // grass.jpg
+    const mat = new BABYLON.StandardMaterial("ground", scene);
+    const t = new BABYLON.Texture("../../../../assets/textures/grass.jpg", scene); // grass.jpg
 
     t.uScale = t.vScale = 2;
     mat.diffuseTexture = t;
     mat.specularColor = BABYLON.Color3.Black();
-    let g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
+    const g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
     g.position.y = -20 * PHYSICS_SCALE;
     g.scaling.y = 0.01;
     g.material = mat;
@@ -49,22 +49,22 @@ let createScene = function() {
     }, scene);
 
     // Get a random number between two limits
-    let randomNumber = function(min, max) {
+    const randomNumber = function(min, max) {
         if (min == max) {
             return (min);
         }
-        let random = Math.random();
+        const random = Math.random();
         return ((random * (max - min)) + min);
     };
 
-    let objects = [];
-    let getPosition = function(y) {
+    const objects = [];
+    const getPosition = function(y) {
         return new BABYLON.Vector3(randomNumber(-25, 25) * PHYSICS_SCALE, (randomNumber(0, 100) + y) * PHYSICS_SCALE, randomNumber(-25, 25) * PHYSICS_SCALE);
     };
-    let max = 300;
+    const max = 300;
 
-    for ( let i = 0; i < 20; i++ ) {
-        let stair = BABYLON.Mesh.CreateBox("stair", 100 * PHYSICS_SCALE, scene);
+    for (let i = 0; i < 20; i++) {
+        const stair = BABYLON.Mesh.CreateBox("stair", 100 * PHYSICS_SCALE, scene);
         stair.position.x = (i * -10) * PHYSICS_SCALE;
         stair.position.y = (i * 5 - 10) * PHYSICS_SCALE;
         stair.scaling.x = 0.1;
@@ -73,7 +73,7 @@ let createScene = function() {
         stair.physicsImpostor = new BABYLON.PhysicsImpostor(stair, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 1.0, restitution: 1.0 }, scene);
     }
 
-    let matEraser = new BABYLON.StandardMaterial("material", scene);
+    const matEraser = new BABYLON.StandardMaterial("material", scene);
     matEraser.reflectionTexture = new BABYLON.CubeTexture(
         "../../../../assets/textures/eraser_002/",
         scene,
@@ -92,8 +92,8 @@ let createScene = function() {
     // Creates
     for (let i = 0; i < max; i++) {
 
-        let scale = 1;
-        let s = BABYLON.Mesh.CreateBox("s", 15 * PHYSICS_SCALE, scene);
+        const scale = 1;
+        const s = BABYLON.Mesh.CreateBox("s", 15 * PHYSICS_SCALE, scene);
         // 消しゴムのサイズとなるよう調整
         s.scaling.x = 1.0;
         s.scaling.y = 0.2;
@@ -117,10 +117,10 @@ let createScene = function() {
                 obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
-        FPS = engine.getFps();
-        scene.getPhysicsEngine().setTimeStep(1 / FPS);
-        scene.activeCamera.alpha += (2 * Math.PI)/(FPS * 10);
+        scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();
     });
+
+    return scene;
 };
 
 init();
