@@ -89,7 +89,7 @@ Examples of WebGL Physics Library.
 
 ## Falling Marbles examples (Using glTF)
 
-![](assets/screenshot/marbles.png)
+![](assets/screenshot/marbles.jpg)
 
 |Library                                                      |[ammo.js](https://github.com/kripken/ammo.js/)                                          |[Cannon.js](https://github.com/schteppe/cannon.js)                                        |[cannon-es](https://github.com/pmndrs/cannon-es)                                          |[Oimo.js](https://github.com/lo-th/Oimo.js/)                                            |[OimoPhysics](https://github.com/saharan/OimoPhysics)                                         |
 |:------------------------------------------------------------|:---------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------|
