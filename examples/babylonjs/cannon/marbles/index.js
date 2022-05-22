@@ -20,13 +20,19 @@ const createScene = function() {
     const scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.CannonJSPlugin());
 
-    const camera = new BABYLON.ArcRotateCamera("camera", 0, 1, 50, BABYLON.Vector3.Zero(), scene);
+    const camera = new BABYLON.ArcRotateCamera("camera", 0, Math.PI/180 * 60, 30, BABYLON.Vector3.Zero(), scene);
     camera.setTarget(BABYLON.Vector3.Zero());
     camera.attachControl(canvas, true);
 
     const cubeTexture = new BABYLON.CubeTexture(BASE_URL + "/textures/env/papermillSpecularHDR.env", scene);
     const currentSkybox = scene.createDefaultSkybox(cubeTexture, true);
-    const light0 = new BABYLON.HemisphericLight("light0", new BABYLON.Vector3(1, 1, 0), scene); 
+    const light1 = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(1, 1, 0), scene); 
+
+    const light2 = new BABYLON.DirectionalLight("light2", new BABYLON.Vector3(0, 1, 0), scene);
+    light2.position = new BABYLON.Vector3(4, 4, 0);
+    light2.setDirectionToTarget(BABYLON.Vector3.Zero());
+    light2.intensity = 3;
+    const shadow = new BABYLON.ShadowGenerator(1024, light2);
 
     const matGround = new BABYLON.PBRMetallicRoughnessMaterial("ground", scene);
     const texture = new BABYLON.Texture("../../../../assets/textures/grass.jpg", scene);
@@ -38,6 +44,8 @@ const createScene = function() {
     ground.scaling.y = 0.01;
     ground.material = matGround;
     ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 0.4, restitution: 0.2 }, scene);
+    
+    ground.receiveShadows = true;
 
     let labels = [];
     let meshes = [];
@@ -52,6 +60,7 @@ const createScene = function() {
 
             meshes = result.meshes.filter(mesh => {
                 if(mesh.name.indexOf('Sphere')!== -1) {
+                    shadow.addShadowCaster(mesh, true);
                     return mesh;
                 }
             });
@@ -70,7 +79,7 @@ const createScene = function() {
         };
 
         const getNextPosition = (y) => {
-            return new BABYLON.Vector3((randomNumber(-25,25) * PHYSICS_SCALE), (randomNumber(0, 100) + y) * PHYSICS_SCALE, (randomNumber(-25, 25) * PHYSICS_SCALE));
+            return new BABYLON.Vector3((randomNumber(-100,100) * PHYSICS_SCALE), (randomNumber(0, 200) + y) * PHYSICS_SCALE, (randomNumber(-100, 100) * PHYSICS_SCALE));
         };
 
         meshes.forEach((mesh) => {
