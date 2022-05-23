@@ -44,7 +44,7 @@ const createScene = function() {
     ground.position.y = -15 * PHYSICS_SCALE;
     ground.scaling.y = 0.01;
     ground.material = matGround;
-    ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 0.4, restitution: 0.2 }, scene);
+    ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 0.4, restitution: 0.3 }, scene);
     
     ground.receiveShadows = true;
 
@@ -62,6 +62,8 @@ const createScene = function() {
             meshes = result.meshes.filter(mesh => {
                 if(mesh.name.indexOf('Sphere')!== -1) {
                     shadow.addShadowCaster(mesh, true);
+                    mesh.position.x += Math.random();
+                    mesh.position.z += Math.random();
                     return mesh;
                 }
             });
@@ -85,7 +87,7 @@ const createScene = function() {
 
         meshes.forEach((mesh) => {
             mesh.parent = null;
-            mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.SphereImpostor, { mass: 1, friction:0.4, restitution:0.8 }, scene);
+            mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.SphereImpostor, { mass: 1, friction:0.2, restitution:0.3 }, scene);
         });
 
         scene.onBeforeRenderObservable.add(() => {
