@@ -24,6 +24,16 @@ const createScene = function() {
     camera.setTarget(BABYLON.Vector3.Zero());
     camera.attachControl(canvas, true);
 
+    const camera1 = camera;
+    const camera2 = new BABYLON.ArcRotateCamera("camera", 0, 1, 10, BABYLON.Vector3.Zero(), scene);
+    const camera3 = new BABYLON.ArcRotateCamera("camera", 0, 1, 10, BABYLON.Vector3.Zero(), scene);
+    camera1.viewport = new BABYLON.Viewport(0.4, 0.0, 0.6, 1.0);
+    camera2.viewport = new BABYLON.Viewport(0.0, 0.0, 0.4, 0.5);
+    camera3.viewport = new BABYLON.Viewport(0.0, 0.5, 0.4, 0.5);
+    scene.activeCameras.push(camera1);
+    scene.activeCameras.push(camera2);
+    scene.activeCameras.push(camera3);
+
     const cubeTexture = new BABYLON.CubeTexture(BASE_URL + "/textures/env/papermillSpecularHDR.env", scene);
     const currentSkybox = scene.createDefaultSkybox(cubeTexture, true);
     const light1 = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(1, 1, 0), scene); 
@@ -43,8 +53,7 @@ const createScene = function() {
     ground.position.y = -15 * PHYSICS_SCALE;
     ground.scaling.y = 0.01;
     ground.material = matGround;
-    ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 0.4, restitution: 0.3 }, scene);
-    
+    ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 0.2, restitution: 0.3 }, scene);
     ground.receiveShadows = true;
 
     let labels = [];
@@ -86,8 +95,12 @@ const createScene = function() {
 
         meshes.forEach((mesh) => {
             mesh.parent = null;
-            mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.SphereImpostor, { mass: 1, friction:0.2, restitution:0.3 }, scene);
+            mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.SphereImpostor, { mass: 1, friction:0.1, restitution:0.3 }, scene);
         });
+
+        const cameraTarget = meshes[0];
+        cameraTarget.showBoundingBox = true;
+        camera2.parent = cameraTarget;
 
         scene.onBeforeRenderObservable.add(() => {
             meshes.forEach((mesh) => {
@@ -97,8 +110,9 @@ const createScene = function() {
                     mesh.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0,0,0));
                 }
             });
-            scene.activeCamera.alpha -= 0.005 * scene.getAnimationRatio();
-        });
+            camera1.alpha -= 0.005 * scene.getAnimationRatio();
+            camera3.setPosition(cameraTarget.position);
+         });
     });
 
     return scene;
