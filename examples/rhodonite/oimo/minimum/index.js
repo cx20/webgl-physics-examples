@@ -48,16 +48,16 @@ function readyCubeVerticesData() {
 }
 
 const load = async function () {
-    Rn.Config.maxCameraNumber = 20;
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
-
-    initOimo();
-
     const system = Rn.System.getInstance();
     const c = document.getElementById('world');
-    const gl = system.setProcessApproachAndCanvas(Rn.ProcessApproach.FastestWebGL1, c);
-    gl.enable(gl.DEPTH_TEST);
+    const gl = await Rn.System.init({
+      approach: Rn.ProcessApproach.FastestWebGL2,
+      canvas: c,
+    });
+    
+    initOimo();
 
     resizeCanvas();
     
@@ -109,6 +109,17 @@ const load = async function () {
     cameraComponent.setFovyAndChangeFocalLength(45);
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
     
+    // renderPass
+    const renderPass = new Rn.RenderPass();
+    renderPass.cameraComponent = cameraComponent;
+    renderPass.toClearColorBuffer = true;
+    renderPass.clearColor = Rn.Vector4.fromCopyArray4([0, 0, 0, 1]);
+    renderPass.addEntities(entities);
+
+    // expression
+    const expression = new Rn.Expression();
+    expression.addRenderPasses([renderPass]);
+    
     function updatePhysics() {
         world.step();
         let p = body.getPosition();
@@ -125,9 +136,8 @@ const load = async function () {
     const draw = function(time) {
         updatePhysics();
 
-        gl.disable(gl.CULL_FACE); // TODO:
-        system.processAuto();
-
+        Rn.System.process([expression]);
+        
         requestAnimationFrame(draw);
     }
 
