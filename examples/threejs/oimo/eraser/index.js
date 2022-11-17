@@ -15,6 +15,7 @@ let ToRad = Math.PI / 180;
 let ToDeg = 180 / Math.PI;
 let rotTest;
 let controls;
+let materials = [];
 
 //oimo var
 let world = null;
@@ -53,17 +54,30 @@ function init() {
     buffgeoMono = new THREE.BoxGeometry( 1, 1, 1 );
     buffgeoCylinder = new THREE.CylinderGeometry( 0.5, 0.5, 1, 6 );
     
-    let materials = [
-       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_right.png')}),
-       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_left.png')}),
-       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_top.png')}),
-       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_bottom.png')}),
-       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_front.png')}),
-       new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/eraser_003/eraser_back.png')})
+    let loader = new THREE.TextureLoader();
+
+    materials = [
+       new THREE.MeshLambertMaterial({map: loader.load('../../../../assets/textures/eraser_003/eraser_right.png')}),
+       new THREE.MeshLambertMaterial({map: loader.load('../../../../assets/textures/eraser_003/eraser_left.png')}),
+       new THREE.MeshLambertMaterial({map: loader.load('../../../../assets/textures/eraser_003/eraser_top.png')}),
+       new THREE.MeshLambertMaterial({map: loader.load('../../../../assets/textures/eraser_003/eraser_bottom.png')}),
+       new THREE.MeshLambertMaterial({map: loader.load('../../../../assets/textures/eraser_003/eraser_front.png')}),
+       new THREE.MeshLambertMaterial({map: loader.load('../../../../assets/textures/eraser_003/eraser_back.png')})
     ];
+
+    buffgeoMono.groups = [];
+    var triangles = 2;
+    var vertices = triangles * 3;
+    for (var n = 0; n < 6; n++) {
+        buffgeoMono.groups.push({
+            start: n * vertices,
+            count: vertices,
+            materialIndex: n
+        });
+    }
     
     matBox = new THREE.MeshLambertMaterial( {  map: basicTexture(0), name:'box' } );
-    matMono = new THREE.MeshFaceMaterial( materials );
+    //matMono = new THREE.MeshFaceMaterial( materials );
     matGround = new THREE.MeshLambertMaterial( { color: 0x3D4143 } );
     matGroundTrans = new THREE.MeshLambertMaterial( { color: 0x3D4143, transparent:true, opacity:0.6 } );
     
@@ -219,7 +233,8 @@ function populate(n) {
 		        friction: 0.5,
 		        restitution: 0.1,
 		    });
-            meshs[i] = new THREE.Mesh( buffgeoMono, matMono );
+            //meshs[i] = new THREE.Mesh( buffgeoMono, matMono );
+            meshs[i] = new THREE.Mesh( buffgeoMono, materials );
             meshs[i].scale.set( w * SCALE, h * SCALE, d * SCALE );
         }
         meshs[i].castShadow = true;
