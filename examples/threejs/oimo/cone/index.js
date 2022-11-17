@@ -49,9 +49,12 @@ function init() {
     buffgeoSphere = new THREE.SphereGeometry( 1, 20, 10 );
     buffgeoBox = new THREE.BoxGeometry( 1, 1, 1 );
     buffgeoCylinder = new THREE.CylinderGeometry( 0.5/5, 0.5, 1, 6*5 );
-    
+
+    let loader = new THREE.TextureLoader();
+    let texture = loader.load('../../../../assets/textures/carrot.jpg');
+
     matBox = new THREE.MeshLambertMaterial( {  map: basicTexture(0), name:'box' } );
-    matMono = new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture('../../../../assets/textures/carrot.jpg')});
+    matMono = new THREE.MeshLambertMaterial({map: texture});
     matGround = new THREE.MeshLambertMaterial( { color: 0x3D4143 } );
     matGroundTrans = new THREE.MeshLambertMaterial( { color: 0x3D4143, transparent:true, opacity:0.6 } );
     
