@@ -50,11 +50,10 @@ function readyCubeVerticesData() {
 const load = async function () {
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
-    const system = Rn.System.getInstance();
     const c = document.getElementById('world');
     const gl = await Rn.System.init({
-      approach: Rn.ProcessApproach.FastestWebGL2,
-      canvas: c,
+        approach: Rn.ProcessApproach.DataTexture,
+        canvas: c
     });
     
     initOimo();
@@ -84,7 +83,7 @@ const load = async function () {
     const meshComponent1 = entity1.getMesh();
 
     meshComponent1.setMesh(mesh1);
-    entity1.scale = Rn.Vector3.fromCopyArray([200, 2, 200]);
+    entity1.localScale = Rn.Vector3.fromCopyArray([200, 2, 200]);
 
     // Cube
     const mesh2 = new Rn.Mesh();
@@ -96,13 +95,13 @@ const load = async function () {
     const meshComponent2 = entity2.getMesh();
 
     meshComponent2.setMesh(mesh2);
-    entity2.scale = Rn.Vector3.fromCopyArray([50, 50, 50]);
+    entity2.localScale = Rn.Vector3.fromCopyArray([50, 50, 50]);
 
     const startTime = Date.now();
    
     // camera
     const cameraEntity = Rn.EntityHelper.createCameraControllerEntity();
-    cameraEntity.translate = Rn.Vector3.fromCopyArray([0, 50, 200]);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0, 50, 200]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
     cameraComponent.zFar = 1000;
@@ -127,8 +126,8 @@ const load = async function () {
 
         entities.forEach(function (entity) {
             if ( entity.getTagValue("type") == "cube" ) {
-                entity.translate = Rn.Vector3.fromCopyArray([p.x, p.y, p.z]);
-                entity.quaternion = Rn.Vector4.fromCopyArray4([q.x, q.y, q.z, q.w]);
+                entity.localPosition = Rn.Vector3.fromCopyArray([p.x, p.y, p.z]);
+                entity.localRotation = Rn.Vector4.fromCopyArray4([q.x, q.y, q.z, q.w]);
             }
         });
     }
