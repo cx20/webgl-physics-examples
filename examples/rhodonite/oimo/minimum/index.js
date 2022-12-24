@@ -35,18 +35,6 @@ function initOimo() {
     });
 }
 
-function readyCubeVerticesData() {
-    let modelMaterial = Rn.MaterialHelper.createClassicUberMaterial();
-    const primitive = new Rn.Cube();
-    primitive.generate({ widthVector: Rn.Vector3.fromCopy3(0.5, 0.5, 0.5) });
-
-    const texture = new Rn.Texture();
-    texture.generateTextureFromUri('../../../../assets/textures/frog.jpg');
-    primitive.material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
-
-    return primitive;
-}
-
 const load = async function () {
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
@@ -70,32 +58,24 @@ const load = async function () {
         gl.viewport(0, 0, c.width, c.height);
     }
     
-    const primitive = readyCubeVerticesData();
-
     const entities = [];
+
+    const texture = new Rn.Texture();
+    texture.generateTextureFromUri('../../../../assets/textures/frog.jpg');
+
     // Ground
-    const mesh1 = new Rn.Mesh();
-    mesh1.addPrimitive(primitive);
-    const entity1 = Rn.EntityHelper.createMeshEntity();
+    const entity1 = Rn.MeshHelper.createCube();
     entity1.tryToSetTag({tag:"type", value:"ground"});
-
+    entity1.localScale = Rn.Vector3.fromCopyArray([200/2, 2/2, 200/2]);
+    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
     entities.push(entity1);
-    const meshComponent1 = entity1.getMesh();
-
-    meshComponent1.setMesh(mesh1);
-    entity1.localScale = Rn.Vector3.fromCopyArray([200, 2, 200]);
 
     // Cube
-    const mesh2 = new Rn.Mesh();
-    mesh2.addPrimitive(primitive);
-    const entity2 = Rn.EntityHelper.createMeshEntity();
+    const entity2 = Rn.MeshHelper.createCube();
     entity2.tryToSetTag({tag:"type", value:"cube"});
-
+    entity2.localScale = Rn.Vector3.fromCopyArray([50/2, 50/2, 50/2]);
+    entity2.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
     entities.push(entity2);
-    const meshComponent2 = entity2.getMesh();
-
-    meshComponent2.setMesh(mesh2);
-    entity2.localScale = Rn.Vector3.fromCopyArray([50, 50, 50]);
 
     const startTime = Date.now();
    
