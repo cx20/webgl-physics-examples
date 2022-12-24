@@ -101,9 +101,11 @@ const load = async function () {
 
     initOimo();
 
-    const system = Rn.System.getInstance();
     const c = document.getElementById('world');
-    const gl = system.setProcessApproachAndCanvas(Rn.ProcessApproach.FastestWebGL1, c);
+    const gl = await Rn.System.init({
+        approach: Rn.ProcessApproach.DataTexture,
+        canvas: c
+    });
     gl.enable(gl.DEPTH_TEST);
 
     resizeCanvas();
@@ -132,7 +134,7 @@ const load = async function () {
     const meshComponent1 = entity1.getMesh();
 
     meshComponent1.setMesh(mesh1);
-    entity1.scale = Rn.Vector3.fromCopyArray([200*SCALE, 2*SCALE, 200*SCALE]);
+    entity1.localScale = Rn.Vector3.fromCopyArray([200*SCALE, 2*SCALE, 200*SCALE]);
     
     populate();
 
@@ -140,8 +142,8 @@ const load = async function () {
    
     // camera
     const cameraEntity = Rn.EntityHelper.createCameraControllerEntity();
-    cameraEntity.translate = Rn.Vector3.fromCopyArray([0 * SCALE, 100.0 * SCALE, 200 * SCALE]);
-    cameraEntity.rotate = Rn.Vector3.fromCopyArray([-0.5, 0.0, 0.0]);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * SCALE, 100.0 * SCALE, 200 * SCALE]);
+    cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.5, 0.0, 0.0]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
     cameraComponent.zFar = 1000;
@@ -152,12 +154,12 @@ const load = async function () {
     const lightEntity1 = Rn.EntityHelper.createLightEntity();
     const lightComponent1 = lightEntity1.getLight();
     lightComponent1.type = Rn.LightType.Directional;
-    lightEntity1.rotate = Rn.Vector3.fromCopyArray([-Math.PI / 2, -Math.PI / 4, Math.PI / 4]);
+    lightEntity1.localEulerAngles = Rn.Vector3.fromCopyArray([-Math.PI / 2, -Math.PI / 4, Math.PI / 4]);
 
     const lightEntity2 = Rn.EntityHelper.createLightEntity();
     const lightComponent2 = lightEntity2.getLight();
     lightComponent2.type = Rn.LightType.Directional;
-    lightEntity2.rotate = Rn.Vector3.fromCopyArray([Math.PI / 2, Math.PI / 4, -Math.PI / 4]);
+    lightEntity2.localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 2, Math.PI / 4, -Math.PI / 4]);
   
     function updatePhysics() {
         world.step();
@@ -167,8 +169,8 @@ const load = async function () {
             let entity = entities[i];
             let p = body.getPosition();
             let q = body.getQuaternion();
-            entity.translate = Rn.Vector3.fromCopyArray([p.x, p.y, p.z]);
-            entity.quaternion = Rn.Vector4.fromCopyArray4([q.x, q.y, q.z, q.w]);
+            entity.localPosition = Rn.Vector3.fromCopyArray([p.x, p.y, p.z]);
+            entity.localRotation = Rn.Vector4.fromCopyArray4([q.x, q.y, q.z, q.w]);
         }
     }
 
@@ -176,7 +178,7 @@ const load = async function () {
         updatePhysics();
 
         gl.disable(gl.CULL_FACE); // TODO:
-        system.processAuto();
+		Rn.System.processAuto();
 
         requestAnimationFrame(draw);
     }
@@ -229,7 +231,7 @@ function populate() {
             const meshComponent = entity.getMesh();
 
             meshComponent.setMesh(mesh);
-            entity.scale = Rn.Vector3.fromCopyArray([w*SCALE, h*SCALE, d*SCALE]);
+            entity.localScale = Rn.Vector3.fromCopyArray([w*SCALE, h*SCALE, d*SCALE]);
 
         }
     }
@@ -279,7 +281,7 @@ function populate() {
         const meshComponent = entity.getMesh();
 
         meshComponent.setMesh(mesh);
-        entity.scale = Rn.Vector3.fromCopyArray([w*SCALE, h*SCALE, d*SCALE]);
+        entity.localScale = Rn.Vector3.fromCopyArray([w*SCALE, h*SCALE, d*SCALE]);
     }
 }
 
