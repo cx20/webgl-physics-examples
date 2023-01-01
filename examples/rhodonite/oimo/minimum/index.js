@@ -1,3 +1,5 @@
+import Rn from 'rhodonite';
+
 let world;
 let groundBody;
 let body;

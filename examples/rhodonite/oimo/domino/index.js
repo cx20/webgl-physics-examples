@@ -1,3 +1,5 @@
+import Rn from 'rhodonite';
+
 let world;
 let groundBody;
 let body;
@@ -194,9 +196,9 @@ function populate() {
     let d = DOT_SIZE;
 
     let i;
-    let y;
-    for ( let z = 0; z < 16; z++ ) {
-        for ( let x = 0; x < 16; x ++ ) {
+    let x, y, z;
+    for ( z = 0; z < 16; z++ ) {
+        for ( x = 0; x < 16; x ++ ) {
             i = x + (z) * 16;
             let c = getRgbColor(dataSet[i]);
             y = 1;
