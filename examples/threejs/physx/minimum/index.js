@@ -31,8 +31,8 @@ function init(PhysX) {
     // create three.js scene
     const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 1000 );
     camera.position.x = 0;
-    camera.position.y = 2.5;
-    camera.position.z = 10;
+    camera.position.y = 5;
+    camera.position.z = 20;
 
     const sceneThree = new THREE.Scene();
     
@@ -45,11 +45,10 @@ function init(PhysX) {
     let materialThree = new THREE.MeshBasicMaterial({map: texture});
     let geometryGround = new THREE.BoxGeometry(20, 1, 20);
     meshGround = new THREE.Mesh(geometryGround, materialThree);
-    //meshGround.position.y = -1.0;
     sceneThree.add(meshGround);
 
     // create three.js mesh
-    let geometryCube = new THREE.BoxGeometry(1, 1, 1);
+    let geometryCube = new THREE.BoxGeometry(5, 5, 5);
     meshCube = new THREE.Mesh(geometryCube, materialThree);
     sceneThree.add(meshCube);
     
@@ -67,12 +66,14 @@ function init(PhysX) {
 
     meshGround.position.x = ground.getGlobalPose().get_p().get_x();
     meshGround.position.y = ground.getGlobalPose().get_p().get_y();
-    meshGround.position.z = ground.getGlobalPose().get_p().get_z();    
+    meshGround.position.z = ground.getGlobalPose().get_p().get_z();
     
-    // create a small dynamic box with size 1x1x1, which will fall on the ground
-    tmpVec.set_x(0); tmpVec.set_y(5); tmpVec.set_z(0);
+    // create a small dynamic box with size 5x5x5, which will fall on the ground
+    tmpVec.set_x(0);
+    tmpVec.set_y(10);
+    tmpVec.set_z(0);
     tmpPose.set_p(tmpVec);
-    let boxGeometry = new PhysX.PxBoxGeometry(0.5, 0.5, 0.5);   // PxBoxGeometry uses half-sizes
+    let boxGeometry = new PhysX.PxBoxGeometry(2.5, 2.5, 2.5);   // PxBoxGeometry uses half-sizes
     let boxShape = physics.createShape(boxGeometry, material, true, shapeFlags);
     let box = physics.createRigidDynamic(tmpPose);
     boxShape.setSimulationFilterData(tmpFilterData);
@@ -110,7 +111,6 @@ function init(PhysX) {
         meshCube.quaternion.w = box.getGlobalPose().get_q().get_w();
 
         renderer.render( sceneThree, camera );
-
     }
 
 /*
