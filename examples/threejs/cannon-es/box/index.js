@@ -1,10 +1,6 @@
-﻿// NOTES : three.js 127 -> 128
-// ES6 modules in examples/jsm now import using the bare specifier three.
-// This change breaks working with modules in cdns such as https://www.jsdelivr.com/ and https://unpkg.com/. Please use https://www.skypack.dev/ instead.
-// See: https://github.com/mrdoob/three.js/wiki/Migration-Guide#127--128
-import * as THREE from 'https://cdn.skypack.dev/three@0.132.2/build/three.module.js';
-import { OrbitControls } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/controls/OrbitControls.js';
-import * as CANNON from 'https://cdn.skypack.dev/cannon-es@0.18.0/dist/cannon-es.js';
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as CANNON from 'cannon';
 
 let loader;
 let texture_grass;
