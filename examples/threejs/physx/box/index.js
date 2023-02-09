@@ -1,3 +1,6 @@
+﻿const SCALE = 1 / 10;
+const deltaT = 60;
+
 let sceneThree;
 let controls;
 let loader;
@@ -79,10 +82,10 @@ class Box {
         let h = this.h;
         let d = this.d;
         let geometry = new THREE.BoxGeometry(w, h, d);
-        let material = new THREE.MeshLambertMaterial({
+        this.materialThree = new THREE.MeshLambertMaterial({
             color: Math.round(this.color)
         });
-        let box = new THREE.Mesh(geometry, material);
+        let box = new THREE.Mesh(geometry, this.materialThree);
         box.position.x = this.x;
         box.position.y = this.y;
         box.position.z = this.z;
@@ -104,9 +107,9 @@ class Box {
 
         // create a small dynamic box with size 5x5x5, which will fall on the ground
         let tmpVec = new PhysX.PxVec3(0, 0, 0);
-        tmpVec.set_x(0);
+        tmpVec.set_x(this.x);
         tmpVec.set_y(this.y);
-        tmpVec.set_z(0);
+        tmpVec.set_z(this.z);
         tmpPose.set_p(tmpVec);
         let boxGeometry = new PhysX.PxBoxGeometry(this.w / 2, this.h / 2, this.d / 2);   // PxBoxGeometry uses half-sizes
         let boxShape = this.physics.createShape(boxGeometry, material, true, shapeFlags);
@@ -149,7 +152,7 @@ class Plane {
 
     initThreeObj() {
         let geometry = new THREE.BoxGeometry(this.w, this.h, this.d);
-        let material = new THREE.MeshLambertMaterial({
+        this.materialThree = new THREE.MeshLambertMaterial({
             color: this.color,
             map: texture_grass
         });
@@ -173,9 +176,16 @@ class Plane {
         let tmpPose = new PhysX.PxTransform(PhysX._emscripten_enum_PxIDENTITYEnum_PxIdentity());
         let tmpFilterData = new PhysX.PxFilterData(1, 1, 0, 0);
 
+        // create a small dynamic box with size 5x5x5, which will fall on the ground
+        let tmpVec = new PhysX.PxVec3(0, 0, 0);
+        tmpVec.set_x(this.x);
+        tmpVec.set_y(this.y);
+        tmpVec.set_z(this.z);
+        tmpPose.set_p(tmpVec);
+
         // create a large static box with size 20x1x20 as ground
         let groundGeometry = new PhysX.PxBoxGeometry(this.w / 2, this.h / 2, this.d / 2);   // PxBoxGeometry uses half-sizes
-        let groundShape = this.physics.createShape(groundGeometry, this.materialThree, true, shapeFlags);
+        let groundShape = this.physics.createShape(groundGeometry, material, true, shapeFlags);
         let ground = this.physics.createRigidStatic(tmpPose);
         groundShape.setSimulationFilterData(tmpFilterData);
         ground.attachShape(groundShape);
@@ -208,12 +218,16 @@ function init(PhysX) {
     // create three.js scene
     const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 1000 );
     camera.position.x = 0;
-    camera.position.y = 5;
-    camera.position.z = 20;
+    camera.position.y = 100 * SCALE;
+    camera.position.z = 150 * SCALE;
 
     const sceneThree = new THREE.Scene();
     
-    let ground = new Plane(0, 0, 0, 20, 1, 20, 0xdddddd, PhysX, physics);
+    let directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+    directionalLight.position.z = 3;
+    sceneThree.add(directionalLight);
+
+    let ground = new Plane(0, -10 * SCALE, 0, 200 * SCALE, 1, 200 * SCALE, 0xdddddd, PhysX, physics);
     sceneThree.add(ground.threeObj);
     scenePhysx.addActor(ground.physxObj);
     
@@ -224,6 +238,28 @@ function init(PhysX) {
     renderer.setAnimationLoop( animation );
     document.body.appendChild( renderer.domElement );
     controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+    function createBoxes(PhysX, physics) {
+        const BOX_SIZE = 5;
+        for (let x = 0; x < 16; x++) {
+            for (let y = 0; y < 16; y++) {
+                i = x + (15 - y) * 16;
+                let z = 0;
+                let x1 = (-7 + x) * BOX_SIZE * SCALE * 1.5 + Math.random() * 0.1;
+                let y1 = (15 - y) * BOX_SIZE * SCALE * 1.2 + Math.random() * 0.1;
+                let z1 = z * BOX_SIZE * SCALE * 1 + Math.random() * 0.1;
+                let color = getRgbColor( dataSet[y * 16 + x] );
+                let w = BOX_SIZE * SCALE;
+                let h = BOX_SIZE * SCALE;
+                let d = BOX_SIZE * SCALE;
+                let box = new Box(x1, y1, z1, w, h, d, color, PhysX, physics);
+                sceneThree.add(box.threeObj);
+                scenePhysx.addActor(box.physxObj);
+                objs.push(box);
+                numObjects++;
+            }
+        }
+    }
 
     function animation( time ) {
 
@@ -238,28 +274,6 @@ function init(PhysX) {
         renderer.render( sceneThree, camera );
     }
 
-}
-
-function createBoxes(PhysX, physics) {
-    const BOX_SIZE = 5;
-    for (let x = 0; x < 16; x++) {
-        for (let y = 0; y < 16; y++) {
-            i = x + (15 - y) * 16;
-            let z = 0;
-            let x1 = (-7 + x) * BOX_SIZE * SCALE * 1.5 + Math.random() * 0.1;
-            let y1 = (15 - y) * BOX_SIZE * SCALE * 1.2 + Math.random() * 0.1;
-            let z1 = z * BOX_SIZE * SCALE * 1 + Math.random() * 0.1;
-            let color = getRgbColor( dataSet[y * 16 + x] );
-            let w = BOX_SIZE * SCALE;
-            let h = BOX_SIZE * SCALE;
-            let d = BOX_SIZE * SCALE;
-            let box = new Box(x1, y1, z1, w, h, d, color, PhysX, physics);
-            scene.add(box.threeObj);
-            world.addRigidBody(box.bulletObj);
-            objs.push(box);
-            numObjects++;
-        }
-    }
 }
 
 
