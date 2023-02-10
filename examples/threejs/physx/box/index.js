@@ -1,14 +1,6 @@
 ﻿const SCALE = 1 / 10;
 const deltaT = 60;
 
-let sceneThree;
-let controls;
-let loader;
-let texture_grass;
-let renderer;
-let objs = [];
-let numObjects = 0;
-
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
@@ -25,7 +17,7 @@ let numObjects = 0;
 // ‥‥■■■〓〓〓〓〓〓〓〓〓■■
 // ‥■■■〓〓〓〓〓〓〓‥‥‥‥‥
 // ‥■‥‥〓〓〓〓‥‥‥‥‥‥‥‥
-let dataSet = [
+const dataSet = [
     "無","無","無","無","無","無","無","無","無","無","無","無","無","肌","肌","肌",
     "無","無","無","無","無","無","赤","赤","赤","赤","赤","無","無","肌","肌","肌",
     "無","無","無","無","無","赤","赤","赤","赤","赤","赤","赤","赤","赤","肌","肌",
@@ -62,19 +54,19 @@ function getRgbColor( c )
 }
 
 class Box {
-    constructor(x, y, z, w, h, d, color, PhysX, physics) {
+    constructor(x, y, z, w, h, d, texture, color) {
         this.x = x;
         this.y = y;
         this.z = z;
         this.w = w;
         this.h = h;
         this.d = d;
+        this.texture = texture;
         this.color = color;
-        this.physics = physics;
         this.threeObj = null;
         this.physxObj = null;
         this.initThreeObj();
-        this.initPhysxObj(PhysX);
+        this.initPhysxObj();
     }
 
     initThreeObj() {
@@ -93,9 +85,9 @@ class Box {
         this.threeObj = box;
     }
 
-    initPhysxObj(PhysX) {
+    initPhysxObj() {
         // create a default material
-        let material = this.physics.createMaterial(0.5, 0.5, 0.5);
+        let material = physics.createMaterial(0.5, 0.5, 0.5);
         // create default simulation shape flags
         let shapeFlags = new PhysX.PxShapeFlags(
              PhysX._emscripten_enum_PxShapeFlagEnum_eSCENE_QUERY_SHAPE() 
@@ -112,8 +104,8 @@ class Box {
         tmpVec.set_z(this.z);
         tmpPose.set_p(tmpVec);
         let boxGeometry = new PhysX.PxBoxGeometry(this.w / 2, this.h / 2, this.d / 2);   // PxBoxGeometry uses half-sizes
-        let boxShape = this.physics.createShape(boxGeometry, material, true, shapeFlags);
-        let box = this.physics.createRigidDynamic(tmpPose);
+        let boxShape = physics.createShape(boxGeometry, material, true, shapeFlags);
+        let box = physics.createRigidDynamic(tmpPose);
         boxShape.setSimulationFilterData(tmpFilterData);
         box.attachShape(boxShape);
         this.physxObj = box;
@@ -133,28 +125,28 @@ class Box {
 
 }
 
-class Plane {
-    constructor(x, y, z, w, h, d, color, PhysX, physics) {
+class Ground {
+    constructor(x, y, z, w, h, d, texture, color) {
         this.x = x;
         this.y = y;
         this.z = z;
         this.w = w;
         this.h = h;
         this.d = d;
+        this.texture = texture;
         this.color = color;
-        this.physics = physics;
         this.threeObj = null;
         this.physxObj = null;
         this.materialThree = null;
         this.initThreeObj();
-        this.initPhysxObj(PhysX);
+        this.initPhysxObj();
     }
 
     initThreeObj() {
         let geometry = new THREE.BoxGeometry(this.w, this.h, this.d);
         this.materialThree = new THREE.MeshLambertMaterial({
             color: this.color,
-            map: texture_grass
+            map: this.texture
         });
         let ground = new THREE.Mesh(geometry, this.materialThree);
         ground.position.x = this.x;
@@ -164,9 +156,9 @@ class Plane {
         this.threeObj = ground;
     }
 
-    initPhysxObj(PhysX) {
+    initPhysxObj() {
         // create a default material
-        let material = this.physics.createMaterial(0.5, 0.5, 0.5);
+        let material = physics.createMaterial(0.5, 0.5, 0.5);
         // create default simulation shape flags
         let shapeFlags = new PhysX.PxShapeFlags(
              PhysX._emscripten_enum_PxShapeFlagEnum_eSCENE_QUERY_SHAPE() 
@@ -185,8 +177,8 @@ class Plane {
 
         // create a large static box with size 20x1x20 as ground
         let groundGeometry = new PhysX.PxBoxGeometry(this.w / 2, this.h / 2, this.d / 2);   // PxBoxGeometry uses half-sizes
-        let groundShape = this.physics.createShape(groundGeometry, material, true, shapeFlags);
-        let ground = this.physics.createRigidStatic(tmpPose);
+        let groundShape = physics.createShape(groundGeometry, material, true, shapeFlags);
+        let ground = physics.createRigidStatic(tmpPose);
         groundShape.setSimulationFilterData(tmpFilterData);
         ground.attachShape(groundShape);
         this.physxObj = ground;
@@ -194,6 +186,7 @@ class Plane {
 }
 
 function init(PhysX) {
+    window.PhysX = PhysX;
     console.log('PhysX loaded');
 
     let version = PhysX.PxTopLevelFunctions.prototype.PHYSICS_VERSION;
@@ -203,7 +196,7 @@ function init(PhysX) {
     console.log('Created PxFoundation');
 
     let tolerances = new PhysX.PxTolerancesScale();
-    let physics = PhysX.PxTopLevelFunctions.prototype.CreatePhysics(version, foundation, tolerances);
+    window.physics = PhysX.PxTopLevelFunctions.prototype.CreatePhysics(version, foundation, tolerances);
     console.log('Created PxPhysics');
     
     // create scene
@@ -227,19 +220,26 @@ function init(PhysX) {
     directionalLight.position.z = 3;
     sceneThree.add(directionalLight);
 
-    let ground = new Plane(0, -10 * SCALE, 0, 200 * SCALE, 1, 200 * SCALE, 0xdddddd, PhysX, physics);
+    const loader = new THREE.TextureLoader();
+    const texture_grass = loader.load('../../../../assets/textures/grass.jpg');
+    texture_grass.wrapS   = texture_grass.wrapT = THREE.RepeatWrapping;
+    texture_grass.repeat.set( 5, 5 );  
+
+    let ground = new Ground(0, -10 * SCALE, 0, 200 * SCALE, 1, 200 * SCALE, texture_grass, 0xdddddd);
     sceneThree.add(ground.threeObj);
     scenePhysx.addActor(ground.physxObj);
     
-    createBoxes(PhysX, physics);
+    let objs = [];
 
-    renderer = new THREE.WebGLRenderer( { antialias: true } );
+    createBoxes();
+
+    const renderer = new THREE.WebGLRenderer( { antialias: true } );
     renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.setAnimationLoop( animation );
     document.body.appendChild( renderer.domElement );
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    const controls = new THREE.OrbitControls( camera, renderer.domElement );
 
-    function createBoxes(PhysX, physics) {
+    function createBoxes() {
         const BOX_SIZE = 5;
         for (let x = 0; x < 16; x++) {
             for (let y = 0; y < 16; y++) {
@@ -252,11 +252,10 @@ function init(PhysX) {
                 let w = BOX_SIZE * SCALE;
                 let h = BOX_SIZE * SCALE;
                 let d = BOX_SIZE * SCALE;
-                let box = new Box(x1, y1, z1, w, h, d, color, PhysX, physics);
+                let box = new Box(x1, y1, z1, w, h, d, null, color);
                 sceneThree.add(box.threeObj);
                 scenePhysx.addActor(box.physxObj);
                 objs.push(box);
-                numObjects++;
             }
         }
     }
@@ -266,7 +265,7 @@ function init(PhysX) {
         scenePhysx.simulate(1.0/60.0);
         scenePhysx.fetchResults(true);
 
-        for (let i = numObjects; i--;) {
+        for (let i = objs.length; i--;) {
             let obj = objs[i];
             obj.move();
         }
@@ -278,12 +277,6 @@ function init(PhysX) {
 
 
 window.addEventListener("load", function() {
-    loader = new THREE.TextureLoader();
-    loader = new THREE.TextureLoader();
-    texture_grass = loader.load('../../../../assets/textures/grass.jpg');
-    texture_grass.wrapS   = texture_grass.wrapT = THREE.RepeatWrapping;
-    texture_grass.repeat.set( 5, 5 );  
-
     PhysX().then(function(PhysX) {
         init(PhysX);
     });

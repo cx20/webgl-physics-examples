@@ -1,22 +1,16 @@
-let sceneThree;
-let controls;
-let loader;
-let texture;
-let renderer;
-
 class Box {
-    constructor(x, y, z, w, h, d, PhysX, physics) {
+    constructor(x, y, z, w, h, d, texture) {
         this.x = x;
         this.y = y;
         this.z = z;
         this.w = w;
         this.h = h;
         this.d = d;
-        this.physics = physics;
         this.threeObj = null;
         this.physxObj = null;
+        this.texture = texture;
         this.initThreeObj();
-        this.initPhysxObj(PhysX);
+        this.initPhysxObj();
     }
 
     initThreeObj() {
@@ -25,7 +19,7 @@ class Box {
         let d = this.d;
         let geometry = new THREE.BoxGeometry(w, h, d);
         let material = new THREE.MeshBasicMaterial({
-            map: texture
+            map: this.texture
         });
         let box = new THREE.Mesh(geometry, material);
         box.position.x = this.x;
@@ -35,9 +29,9 @@ class Box {
         this.threeObj = box;
     }
 
-    initPhysxObj(PhysX) {
+    initPhysxObj() {
         // create a default material
-        let material = this.physics.createMaterial(0.5, 0.5, 0.5);
+        let material = physics.createMaterial(0.5, 0.5, 0.5);
         // create default simulation shape flags
         let shapeFlags = new PhysX.PxShapeFlags(
              PhysX._emscripten_enum_PxShapeFlagEnum_eSCENE_QUERY_SHAPE() 
@@ -54,8 +48,8 @@ class Box {
         tmpVec.set_z(0);
         tmpPose.set_p(tmpVec);
         let boxGeometry = new PhysX.PxBoxGeometry(this.w / 2, this.h / 2, this.d / 2);   // PxBoxGeometry uses half-sizes
-        let boxShape = this.physics.createShape(boxGeometry, material, true, shapeFlags);
-        let box = this.physics.createRigidDynamic(tmpPose);
+        let boxShape = physics.createShape(boxGeometry, material, true, shapeFlags);
+        let box = physics.createRigidDynamic(tmpPose);
         boxShape.setSimulationFilterData(tmpFilterData);
         box.attachShape(boxShape);
         this.physxObj = box;
@@ -75,27 +69,26 @@ class Box {
 
 }
 
-
-class Plane {
-    constructor(x, y, z, w, h, d, PhysX, physics) {
+class Ground {
+    constructor(x, y, z, w, h, d, texture) {
         this.x = x;
         this.y = y;
         this.z = z;
         this.w = w;
         this.h = h;
         this.d = d;
-        this.physics = physics;
         this.threeObj = null;
         this.physxObj = null;
+        this.texture = texture;
         this.materialThree = null;
         this.initThreeObj();
-        this.initPhysxObj(PhysX);
+        this.initPhysxObj();
     }
 
     initThreeObj() {
         let geometry = new THREE.BoxGeometry(this.w, this.h, this.d);
         this.materialThree = new THREE.MeshBasicMaterial({
-            map: texture
+            map: this.texture
         });
         let ground = new THREE.Mesh(geometry, this.materialThree);
         ground.position.x = this.x;
@@ -105,9 +98,9 @@ class Plane {
         this.threeObj = ground;
     }
 
-    initPhysxObj(PhysX) {
+    initPhysxObj() {
         // create a default material
-        let material = this.physics.createMaterial(0.5, 0.5, 0.5);
+        let material = physics.createMaterial(0.5, 0.5, 0.5);
         // create default simulation shape flags
         let shapeFlags = new PhysX.PxShapeFlags(
              PhysX._emscripten_enum_PxShapeFlagEnum_eSCENE_QUERY_SHAPE() 
@@ -119,8 +112,8 @@ class Plane {
 
         // create a large static box with size 20x1x20 as ground
         let groundGeometry = new PhysX.PxBoxGeometry(this.w / 2, this.h / 2, this.d / 2);   // PxBoxGeometry uses half-sizes
-        let groundShape = this.physics.createShape(groundGeometry, this.materialThree, true, shapeFlags);
-        let ground = this.physics.createRigidStatic(tmpPose);
+        let groundShape = physics.createShape(groundGeometry, this.materialThree, true, shapeFlags);
+        let ground = physics.createRigidStatic(tmpPose);
         groundShape.setSimulationFilterData(tmpFilterData);
         ground.attachShape(groundShape);
         this.physxObj = ground;
@@ -129,6 +122,7 @@ class Plane {
 
 
 function init(PhysX) {
+    window.PhysX = PhysX;
     console.log('PhysX loaded');
 
     let version = PhysX.PxTopLevelFunctions.prototype.PHYSICS_VERSION;
@@ -138,7 +132,7 @@ function init(PhysX) {
     console.log('Created PxFoundation');
 
     let tolerances = new PhysX.PxTolerancesScale();
-    let physics = PhysX.PxTopLevelFunctions.prototype.CreatePhysics(version, foundation, tolerances);
+    window.physics = PhysX.PxTopLevelFunctions.prototype.CreatePhysics(version, foundation, tolerances);
     console.log('Created PxPhysics');
     
     // create scene
@@ -157,21 +151,24 @@ function init(PhysX) {
     camera.position.z = 20;
 
     const sceneThree = new THREE.Scene();
+
+    const loader = new THREE.TextureLoader();
+    const texture = loader.load('../../../../assets/textures/frog.jpg');
     
-    let ground = new Plane(0, 0, 0, 20, 1, 20, PhysX, physics);
+    let ground = new Ground(0, 0, 0, 20, 1, 20, texture);
     sceneThree.add(ground.threeObj);
     scenePhysx.addActor(ground.physxObj);
     
-    let box = new Box(0, 10, 0, 5, 5, 5, PhysX, physics);
+    let box = new Box(0, 10, 0, 5, 5, 5, texture);
     sceneThree.add(box.threeObj);
     scenePhysx.addActor(box.physxObj);
     box.move();
 
-    renderer = new THREE.WebGLRenderer( { antialias: true } );
+    const renderer = new THREE.WebGLRenderer( { antialias: true } );
     renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.setAnimationLoop( animation );
     document.body.appendChild( renderer.domElement );
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    const controls = new THREE.OrbitControls( camera, renderer.domElement );
 
     function animation( time ) {
 
@@ -185,11 +182,7 @@ function init(PhysX) {
 
 }
 
-
 window.addEventListener("load", function() {
-    loader = new THREE.TextureLoader();
-    texture = loader.load('../../../../assets/textures/frog.jpg');
-
     PhysX().then(function(PhysX) {
         init(PhysX);
     });
