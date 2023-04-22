@@ -31,18 +31,17 @@ const createScene = function() {
     const material = new BABYLON.StandardMaterial("material", scene);
     material.diffuseTexture = new BABYLON.Texture("../../../../assets/textures/frog.jpg", scene);
     material.emissiveColor = new BABYLON.Color3(1, 1, 1);
-    const ground = new BABYLON.Mesh.CreateBox('ground', 200.0 * PHYSICS_SCALE, scene);
-    ground.position.y = -20 * PHYSICS_SCALE;
-    ground.scaling.y = 0.01;
+    const ground = BABYLON.MeshBuilder.CreateBox('ground', {height:0.1, width:200.0 * PHYSICS_SCALE, depth:200.0 * PHYSICS_SCALE}, scene);
     ground.material = material;
-    const groundAggregate = new BABYLON.PhysicsAggregate(ground, BABYLON.PhysicsShapeType.BOX, {mass: 0, friction: 0.1, restitution: 0.1}, scene);
-
-    const cube = new BABYLON.Mesh.CreateBox('cube', 50 * PHYSICS_SCALE, scene);
+    ground.position.y = -20 * PHYSICS_SCALE;
+    ground.aggregate = new BABYLON.PhysicsAggregate(ground, BABYLON.PhysicsShapeType.BOX, {mass: 0, friction: 0.1, restitution: 0.1}, scene);
+    
+    const cube = BABYLON.MeshBuilder.CreateBox('cube', {size: 50 * PHYSICS_SCALE}, scene);
     cube.material = material;
     cube.position.y = 100 * PHYSICS_SCALE;
+    cube.aggregate = new BABYLON.PhysicsAggregate(cube, BABYLON.PhysicsShapeType.BOX, {mass: 1, friction: 0.2, restitution: 0.5}, scene);
     cube.rotation.x = Math.PI * 10/180;
     cube.rotation.z = Math.PI * 10/180;
-    const cubeAggregate = new BABYLON.PhysicsAggregate(cube, BABYLON.PhysicsShapeType.BOX, {mass: 1, friction: 0.2, restitution: 0.5}, scene);
 
     scene.registerBeforeRender(function() {
         scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();

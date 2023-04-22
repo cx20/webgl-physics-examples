@@ -90,7 +90,7 @@ const createScene = function() {
     g.position.y = -20 * PHYSICS_SCALE;
     g.scaling.y = 0.01;
     g.material = mat;
-    const gAggregate = new BABYLON.PhysicsAggregate(g, BABYLON.PhysicsShapeType.BOX, {
+    g.aggregate = new BABYLON.PhysicsAggregate(g, BABYLON.PhysicsShapeType.BOX, {
         move: false,
         mass: 0,
         friction: 1.0,
@@ -116,17 +116,16 @@ const createScene = function() {
     for (let y = 0; y < 16; y++) {
         for (let x = 0; x < 16; x++) {
             pos = x + (15 - y) * 16;
-            const domino = BABYLON.Mesh.CreateBox("Domino" + String(pos), DOMINO_SIZE * PHYSICS_SCALE, scene);
             x1 = (-100 + x * DOMINO_SIZE * 1.0) * PHYSICS_SCALE;
             y1 = (-10) * PHYSICS_SCALE;
             z1 = (-150 + y * DOMINO_SIZE * 1.2) * PHYSICS_SCALE;
+            const domino = BABYLON.MeshBuilder.CreateBox("Domino" + String(pos), {height:1.8, width: 0.2, depth: 1.5}, scene);
             domino.position = new BABYLON.Vector3(x1, y1, z1);
-            domino.scaling = new BABYLON.Vector3(0.1, 1.0, 1.0);
             const materialDomino = new BABYLON.StandardMaterial("domino", scene);
             rgbColor = getRgbColor(dataSet[pos]);
             materialDomino.diffuseColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
             domino.material = materialDomino;
-            const dominoAggregate = new BABYLON.PhysicsAggregate(domino, BABYLON.PhysicsShapeType.BOX, {
+            domino.aggregate = new BABYLON.PhysicsAggregate(domino, BABYLON.PhysicsShapeType.BOX, {
                 mass: 1
             }, scene);
         }
@@ -146,7 +145,7 @@ const createScene = function() {
         rgbColor = getRgbColor("白");
         materialBall.emissiveColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
         ball.material = materialBall;
-        const ballAggregate = new BABYLON.PhysicsAggregate(ball, BABYLON.PhysicsShapeType.SPHERE, {
+        ball.aggregate = new BABYLON.PhysicsAggregate(ball, BABYLON.PhysicsShapeType.SPHERE, {
             mass: 1
         }, scene);
     }
@@ -154,10 +153,10 @@ const createScene = function() {
         objects.forEach(function(obj) {
             if (obj.position.y < -100 * PHYSICS_SCALE) {
                 obj.position = getPosition(200);
-                obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
+                obj.aggregate.body.setLinearVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
-        scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();
+        scene.activeCamera.alpha += Math.PI * 0.5 / 180.0 * scene.getAnimationRatio();
     });
 
     return scene;

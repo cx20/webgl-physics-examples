@@ -52,7 +52,7 @@ function getRgbColor( c )
 
 let engine;
 let scene;
-let canvas;
+let canvas;const FPS = 60;    // default is 60 FPS
 const PHYSICS_SCALE = 1/10;
 
 async function init() {
@@ -75,7 +75,7 @@ const createScene = function() {
     scene.getPhysicsEngine().setTimeStep(scene.getAnimationRatio());
 
     const camera = new BABYLON.ArcRotateCamera("Camera", -2.2, 1.0, 500, BABYLON.Vector3.Zero(), scene);
-    camera.setPosition(new BABYLON.Vector3(0, 30 * PHYSICS_SCALE, -500 * PHYSICS_SCALE));
+    camera.setPosition(new BABYLON.Vector3(0, 50 * PHYSICS_SCALE, -500 * PHYSICS_SCALE));
     camera.attachControl(canvas);
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
     new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0.0, -1.0, 0.5), scene);
@@ -87,10 +87,10 @@ const createScene = function() {
     mat.diffuseTexture = t;
     mat.specularColor = BABYLON.Color3.Black();
     const g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
-    g.position.y = -20 * PHYSICS_SCALE;
+    g.position.y = -100 * PHYSICS_SCALE;
     g.scaling.y = 0.01;
     g.material = mat;
-    g.aggregate = new BABYLON.PhysicsAggregate(g, BABYLON.PhysicsShapeType.BOX, {
+    gAggregate = new BABYLON.PhysicsAggregate(g, BABYLON.PhysicsShapeType.BOX, {
         move: false,
         mass: 0,
         friction: 1.0,
@@ -111,23 +111,21 @@ const createScene = function() {
         return new BABYLON.Vector3(randomNumber(-25, 25) * PHYSICS_SCALE, (randomNumber(0, 100) + y) * PHYSICS_SCALE, randomNumber(-25, 25) * PHYSICS_SCALE);
     };
 
-    const BALL_SIZE = 15;
+    const BOX_SIZE = 15;
     let i = 0;
     for (let y = 0; y < 16; y++) {
         for (let x = 0; x < 16; x++) {
             i = x + (15 - y) * 16;
-            const s = BABYLON.Mesh.CreateSphere("Sphere" + String(i), 16, BALL_SIZE * PHYSICS_SCALE, scene);
-            const x1 = (-130 + x * BALL_SIZE * 1.2 + Math.random()) * PHYSICS_SCALE;
-            const y1 = (30 + y * BALL_SIZE * 1.2)  * PHYSICS_SCALE;
+            const s = BABYLON.Mesh.CreateBox("Box" + String(i), BOX_SIZE * PHYSICS_SCALE, scene);
+            const x1 = (-130 + x * BOX_SIZE * 1.2 + Math.random()) * PHYSICS_SCALE;
+            const y1 = (30 + y * BOX_SIZE * 1.2) * PHYSICS_SCALE;
             const z1 = (1.0 * Math.random()) * PHYSICS_SCALE;
             s.position = new BABYLON.Vector3(x1, y1, z1);
-            const matSphere = new BABYLON.StandardMaterial("ball", scene);
-            matSphere.diffuseTexture = new BABYLON.Texture("../../../../assets/textures/football.png", scene);
+            const matCube = new BABYLON.StandardMaterial("ball", scene);
             const rgbColor = getRgbColor(dataSet[i]);
-            matSphere.emissiveColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
-            matSphere.diffuseColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
-            s.material = matSphere;
-            s.aggregate = new BABYLON.PhysicsAggregate(s, BABYLON.PhysicsShapeType.SPHERE, { mass: 1, friction: 0.4, restitution: 0.6}, scene);
+            matCube.diffuseColor = new BABYLON.Color3(rgbColor[0], rgbColor[1], rgbColor[2]);
+            s.material = matCube;
+            s.aggregate = new BABYLON.PhysicsAggregate(s, BABYLON.PhysicsShapeType.BOX, { mass: 1, friction: 1.0, restitution: 0.0}, scene);
 
             // SAVE OBJECT
             objects.push(s);
@@ -138,7 +136,7 @@ const createScene = function() {
             if (obj.position.y < -100 * PHYSICS_SCALE) {
                 obj.position = getPosition(200);
                 //obj.aggregate.body.setLinearVelocity(new BABYLON.Vector3(0,0,0));
-				obj.aggregate = new BABYLON.PhysicsAggregate(obj, BABYLON.PhysicsShapeType.SPHERE, { mass: 1, friction: 0.4, restitution: 0.6}, scene);
+                obj.aggregate = new BABYLON.PhysicsAggregate(obj, BABYLON.PhysicsShapeType.BOX, { mass: 1, friction: 1.0, restitution: 0.0}, scene);
             }
         });
         scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();
