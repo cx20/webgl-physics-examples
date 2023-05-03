@@ -112,12 +112,10 @@ const createScene = function() {
                     const body = mesh.aggregate.body;
                     const pos = getNextPosition(200);
 
-                    body.disablePreStep = true;
+                    body.disablePreStep = false;
                     body.transformNode.position.set(pos.x, pos.y, pos.z);
                     body.setLinearVelocity(new BABYLON.Vector3(0,0,0));
                     body.setAngularVelocity(new BABYLON.Vector3(0,0,0));
-
-                    body.disablePreStep = false;
                 }
             });
             camera1.alpha -= 0.005 * scene.getAnimationRatio();
