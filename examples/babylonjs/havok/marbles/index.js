@@ -106,10 +106,18 @@ const createScene = function() {
         scene.onBeforeRenderObservable.add(() => {
             meshes.forEach((mesh) => {
                 if (mesh.position.y < -100 * PHYSICS_SCALE) {
-                    mesh.position = getNextPosition(200);
-                    //mesh.aggregate.body.setLinearVelocity(new BABYLON.Vector3(0,0,0));
-                    //mesh.aggregate.body.setAngularVelocity(new BABYLON.Vector3(0,0,0));
-                    mesh.aggregate = new BABYLON.PhysicsAggregate(mesh, BABYLON.PhysicsShapeType.SPHERE, { mass: 1, friction:0.1, restitution:0.3 }, scene);
+
+                    // https://doc.babylonjs.com/features/featuresDeepDive/physics/perfTips
+
+                    const body = mesh.aggregate.body;
+                    const pos = getNextPosition(200);
+
+                    body.disablePreStep = true;
+                    body.transformNode.position.set(pos.x, pos.y, pos.z);
+                    body.setLinearVelocity(new BABYLON.Vector3(0,0,0));
+                    body.setAngularVelocity(new BABYLON.Vector3(0,0,0));
+
+                    body.disablePreStep = false;
                 }
             });
             camera1.alpha -= 0.005 * scene.getAnimationRatio();

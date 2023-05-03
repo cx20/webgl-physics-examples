@@ -134,9 +134,18 @@ const createScene = function() {
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
             if (obj.position.y < -100 * PHYSICS_SCALE) {
-                obj.position = getPosition(200);
-                //obj.aggregate.body.setLinearVelocity(new BABYLON.Vector3(0,0,0));
-                obj.aggregate = new BABYLON.PhysicsAggregate(obj, BABYLON.PhysicsShapeType.BOX, { mass: 1, friction: 1.0, restitution: 0.0}, scene);
+
+                // https://doc.babylonjs.com/features/featuresDeepDive/physics/perfTips
+
+                const body = obj.aggregate.body;
+                const pos = getPosition(200);
+
+                body.disablePreStep = true;
+                body.transformNode.position.set(pos.x, pos.y, pos.z);
+                body.setLinearVelocity(new BABYLON.Vector3(0,0,0));
+                body.setAngularVelocity(new BABYLON.Vector3(0,0,0));
+
+                body.disablePreStep = false;
             }
         });
         scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();
