@@ -74,6 +74,7 @@ function init() {
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace; // See: https://github.com/mrdoob/three.js/wiki/Migration-Guide#151--152
     renderer.shadowMap.enabled = true;
 
     container = document.getElementById("container");
