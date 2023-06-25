@@ -121,16 +121,16 @@ let normal = new Float32Array([
 
 let textureCoords = new Float32Array([
     // Front face
-    0.5,  0.5, // v0
-    0.75, 0.5, // v1
-    0.75, 1.0, // v2
-    0.5,  1.0, // v3
-    
+    0.75,         0.5, // v0
+    0.5,          0.5, // v1
+    0.5  +0.25/8, 1.0, // v2
+    0.75 -0.25/8, 1.0, // v3
+
     // Back face
-    0.25, 0.5, // v4
-    0.5,  0.5, // v5
-    0.5,  1.0, // v6
-    0.25, 1.0, // v7
+    0.5 ,         0.5, // v5
+    0.25,         0.5, // v4
+    0.25 +0.25/8, 1.0, // v7
+    0.5  -0.25/8, 1.0, // v6
     
     // Top face
     0.75, 0.5, // v2
@@ -172,7 +172,7 @@ let textureCoords = new Float32Array([
     // Left2 Face
     0.75,  0.0, // v3
     1.0,   0.0, // v7
-    1.0,   0.0, // v9
+    1.0,   0.5, // v9
     0.75,  0.5  // v8
 ]);
 
@@ -185,7 +185,7 @@ let indeces = new Int16Array([
     20, 21, 22,   20, 22, 23,  // Left face
     24, 25, 26,                // Front2 face
     27, 28, 29,                // Back2 face
-    30, 31, 32,   30, 32, 33,  // Right2 face
+    30, 33, 31,   33, 32, 31,  // Right2 face
     34, 35, 36,   34, 36, 37   // Left2 face
 ]);
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
