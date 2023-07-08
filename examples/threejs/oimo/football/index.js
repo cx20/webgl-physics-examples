@@ -1,4 +1,7 @@
-﻿let container;
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let container;
 let camera, scene, renderer;
 let meshGround;
 let meshCube;
@@ -107,7 +110,7 @@ function initThree() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 }
 
@@ -132,12 +135,12 @@ function createBall(x, y, z, w, h, d, mass, color) {
         restitution: 0.6,
     });
 
-    geometry = new THREE.SphereGeometry(w/2, 36, 36);
-    material = new THREE.MeshLambertMaterial({
+    let geometry = new THREE.SphereGeometry(w/2, 36, 36);
+    let material = new THREE.MeshLambertMaterial({
         color: Math.round(color),
         map: texture_football
     });
-    mesh = new THREE.Mesh(geometry, material);
+    let mesh = new THREE.Mesh(geometry, material);
     mesh.rigidBody = body;
     scene.add(mesh);
 }
@@ -146,7 +149,7 @@ function createBalls() {
     const BOX_SIZE = 1;
     for (let x = 0; x < 16; x++) {
         for (let y = 0; y < 16; y++) {
-            i = x + (15 - y) * 16;
+            let i = x + (15 - y) * 16;
             let z = 0;
             let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
             let y1 = 0 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;

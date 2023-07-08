@@ -1,4 +1,7 @@
-﻿// ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
 // ‥‥‥‥‥■■■□□■□‥■■■
@@ -84,7 +87,7 @@ function init() {
     createDominos();
     createShapes();
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 
 }

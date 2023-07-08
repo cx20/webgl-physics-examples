@@ -1,4 +1,7 @@
-﻿const SCALE = 1 / 10;
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const SCALE = 1 / 10;
 const deltaT = 60;
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
@@ -237,13 +240,13 @@ function init(PhysX) {
     renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.setAnimationLoop( animation );
     document.body.appendChild( renderer.domElement );
-    const controls = new THREE.OrbitControls( camera, renderer.domElement );
+    const controls = new OrbitControls( camera, renderer.domElement );
 
     function createBoxes() {
         const BOX_SIZE = 5;
         for (let x = 0; x < 16; x++) {
             for (let y = 0; y < 16; y++) {
-                i = x + (15 - y) * 16;
+                let i = x + (15 - y) * 16;
                 let z = 0;
                 let x1 = (-7 + x) * BOX_SIZE * SCALE * 1.5 + Math.random() * 0.1;
                 let y1 = (15 - y) * BOX_SIZE * SCALE * 1.2 + Math.random() * 0.1;

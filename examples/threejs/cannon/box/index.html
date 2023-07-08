@@ -3,13 +3,18 @@
 <head>
   <title>[WIP] three.js + Cannon.js Stacked Boxes Example</title>
   <link rel="stylesheet" type="text/css" href="style.css">
-  <script src="https://cx20.github.io/gltf-test/libs/three.js/r147/build/three.js"></script>
-  <script src="https://cx20.github.io/gltf-test/libs/three.js/r147/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
 </head>
 <body>
-<div id="container"></div>
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://cx20.github.io/gltf-test/libs/three.js/r154/build/three.module.js",
+		"three/addons/": "https://cx20.github.io/gltf-test/libs/three.js/r154/examples/jsm/"
+	}
+}
+</script>
 
-<script src="index.js"></script>
+<script type="module" src="index.js"></script>
 </body>
 </html>

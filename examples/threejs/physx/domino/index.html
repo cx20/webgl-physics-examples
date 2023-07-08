@@ -3,13 +3,19 @@
 <head>
   <title>[WIP] three.js + PhysX.js Domino Example</title>
   <link rel="stylesheet" type="text/css" href="style.css">
-  <script src="https://cx20.github.io/gltf-test/libs/three.js/r147/build/three.js"></script>
-  <script src="https://cx20.github.io/gltf-test/libs/three.js/r147/examples/js/controls/OrbitControls.js"></script>
   <script src="https://rawcdn.githack.com/fabmax/physx-js-webidl/486557a9a90580b502def20e8868cd968b6163b4/dist/physx-js-webidl.js"></script>
 </head>
 <body>
 <div id="container"></div>
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://cx20.github.io/gltf-test/libs/three.js/r154/build/three.module.js",
+		"three/addons/": "https://cx20.github.io/gltf-test/libs/three.js/r154/examples/jsm/"
+	}
+}
+</script>
 
-<script src="index.js"></script>
+<script type="module" src="index.js"></script>
 </body>
 </html>
