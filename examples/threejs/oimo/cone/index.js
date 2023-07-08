@@ -1,3 +1,6 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 // three var
 let camera, scene, light, renderer, container, content;
 let meshs = [];
@@ -62,7 +65,7 @@ function init() {
     renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.autoClear = false;
     
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.userPan = false;
     controls.userPanSpeed = 0.0;
     controls.maxDistance = 5000.0;

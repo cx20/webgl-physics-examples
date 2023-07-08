@@ -1,4 +1,7 @@
-﻿const SCALE = 1 / 20;
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const SCALE = 1 / 20;
 const deltaT = 60;
 
 let scene;
@@ -185,7 +188,7 @@ function init() {
     renderer.setSize(width, height);
     document.body.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 
     rendering();

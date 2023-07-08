@@ -3,13 +3,19 @@
 <head>
   <title>[WIP] three.js + ammo.js Minimum Example</title>
   <link rel="stylesheet" type="text/css" href="style.css">
-  <script src="https://cx20.github.io/gltf-test/libs/three.js/r147/build/three.js"></script>
-  <script src="https://cx20.github.io/gltf-test/libs/three.js/r147/examples/js/controls/OrbitControls.js"></script>
   <script src="https://rawcdn.githack.com/kripken/ammo.js/11b2af2b81529904db70f3bcbedaad60d3b03d48/builds/ammo.js"></script>
 </head>
 <body>
 <div id="container"></div>
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://cx20.github.io/gltf-test/libs/three.js/r154/build/three.module.js",
+		"three/addons/": "https://cx20.github.io/gltf-test/libs/three.js/r154/examples/jsm/"
+	}
+}
+</script>
 
-<script src="index.js"></script>
+<script type="module" src="index.js"></script>
 </body>
 </html>

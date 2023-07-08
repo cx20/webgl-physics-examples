@@ -1,3 +1,6 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 class Box {
     constructor(x, y, z, w, h, d, texture) {
         this.x = x;
@@ -168,7 +171,7 @@ function init(PhysX) {
     renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.setAnimationLoop( animation );
     document.body.appendChild( renderer.domElement );
-    const controls = new THREE.OrbitControls( camera, renderer.domElement );
+    const controls = new OrbitControls( camera, renderer.domElement );
 
     function animation( time ) {
 

@@ -1,4 +1,7 @@
-﻿let container;
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let container;
 let camera, scene, renderer;
 let meshGround;
 let meshCube;
@@ -102,7 +105,7 @@ function initThree() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 }
 
@@ -128,11 +131,11 @@ function createDomino(x, y, z, w, h, d, mass, color) {
         restitution: 0.1,
     });
     // initialize Object3D
-    geometry = new THREE.BoxGeometry(w, h, d);
-    material = new THREE.MeshLambertMaterial({
+    let geometry = new THREE.BoxGeometry(w, h, d);
+    let material = new THREE.MeshLambertMaterial({
         color: Math.round(color)
     });
-    mesh = new THREE.Mesh(geometry, material);
+    let mesh = new THREE.Mesh(geometry, material);
     mesh.rigidBody = body;
     scene.add(mesh);
 }

@@ -1,4 +1,7 @@
-﻿// three var
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// three var
 let camera, scene, light, renderer, container, content;
 let controls;
 
@@ -74,7 +77,7 @@ function init() {
     container = document.getElementById("container");
     container.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 
     initOimoPhysics();

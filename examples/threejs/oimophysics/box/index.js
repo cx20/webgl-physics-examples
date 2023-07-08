@@ -1,4 +1,7 @@
-﻿let container;
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let container;
 let camera, scene, renderer;
 let meshGround;
 let meshCube;
@@ -101,7 +104,7 @@ function initThree() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 }
 
@@ -141,7 +144,7 @@ function createBoxes() {
     const BOX_SIZE = 1;
     for (let x = 0; x < 16; x++) {
         for (let y = 0; y < 16; y++) {
-            i = x + (15 - y) * 16;
+            let i = x + (15 - y) * 16;
             let z = 0;
             let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
             let y1 = -5 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;

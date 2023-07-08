@@ -1,4 +1,6 @@
-'use strict';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 let gltf = null;
 let world, shape, body, ground, timeStep = 1 / 60;
@@ -42,7 +44,7 @@ function loadDuck() {
 
     let texture = new THREE.Texture();
     
-    let objLoader = new THREE.GLTFLoader();
+    let objLoader = new GLTFLoader();
     objLoader.setCrossOrigin( 'anonymous' );
     let url =  'https://rawcdn.githack.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
     objLoader.load(url, function ( data ) {
@@ -142,7 +144,7 @@ function initThree() {
 
     renderer.render(scene, camera);
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
 }
 
 function animate() {

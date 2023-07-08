@@ -1,4 +1,7 @@
-﻿let loader;
+﻿import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let loader;
 let texture_grass;
 let texture_football;
 
@@ -87,7 +90,7 @@ function init() {
 
     createBoxes();
 
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
+    controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 }
 
