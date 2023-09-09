@@ -1,11 +1,7 @@
 import Rn from 'rhodonite';
 
-let world;
-let groundBody;
-let body;
-let bodys = [];
 let entities = [];
-const SCALE = 1/10;
+const PHYSICS_SCALE = 1/10;
 const DOT_SIZE = 8;
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
@@ -60,48 +56,13 @@ function getRgbColor( c )
     return colorHash[ c ];
 }
 
-function initOimo() {
-    world = new OIMO.World({ 
-        timestep: 1/60, 
-        iterations: 8, 
-        broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
-        worldscale: 1, // scale full world 
-        random: true,  // randomize sample
-        info: false,   // calculate statistic or not
-        gravity: [0,-9.8,0] 
-    });
-
-    groundBody = world.add({
-        type: "box",
-        size: [200*SCALE, 2*SCALE, 200*SCALE],
-        pos: [0, 0, 0],
-        rot: [0, 0, 0],
-        move: false,
-        density: 1,
-        friction: 0.5,
-        restitution: 0.1,
-    });
-}
-
-function readyCubeVerticesData() {
-    const primitive = new Rn.Cube();
-    primitive.generate({ 
-        widthVector: Rn.Vector3.fromCopy3(0.5, 0.5, 0.5)
-    });
-
-    const texture = new Rn.Texture();
-    texture.generateTextureFromUri('../../../../assets/textures/grass.jpg');
-    primitive.material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
-
-    return primitive;
-}
-
-const load = async function () {
+const load = async function() {
     Rn.Config.maxCameraNumber = 20;
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
 
-    initOimo();
+    const texture = new Rn.Texture();
+    texture.generateTextureFromUri('../../../../assets/textures/grass.jpg');
 
     const c = document.getElementById('world');
     const gl = await Rn.System.init({
@@ -111,40 +72,42 @@ const load = async function () {
     gl.enable(gl.DEPTH_TEST);
 
     resizeCanvas();
-    
-    window.addEventListener("resize", function(){
+
+    window.addEventListener("resize", function() {
         resizeCanvas();
     });
-    
+
     function resizeCanvas() {
         c.width = window.innerWidth;
         c.height = window.innerHeight;
         gl.viewport(0, 0, c.width, c.height);
     }
-    
-    const primitive = readyCubeVerticesData();
 
-    bodys.push(groundBody);
-
-    // Ground
-    const mesh1 = new Rn.Mesh();
-    mesh1.addPrimitive(primitive);
-    const entity1 = Rn.EntityHelper.createMeshEntity();
-    entity1.tryToSetTag({tag:"type", value:"ground"});
-
+    const entity1 = Rn.MeshHelper.createCube({
+        physics: {
+            use: true,
+            move: false,
+            density: 1,
+            friction: 0.5,
+            restitution: 0.2,
+        },
+    });
+    entity1.tryToSetTag({
+        tag: "type",
+        value: "ground"
+    });
+    entity1.scale = Rn.Vector3.fromCopyArray([200 * PHYSICS_SCALE, 2 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
+    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
     entities.push(entity1);
-    const meshComponent1 = entity1.getMesh();
 
-    meshComponent1.setMesh(mesh1);
-    entity1.localScale = Rn.Vector3.fromCopyArray([200*SCALE, 2*SCALE, 200*SCALE]);
-    
-    populate();
+
+    populate(texture);
 
     const startTime = Date.now();
-   
+
     // camera
     const cameraEntity = Rn.EntityHelper.createCameraControllerEntity();
-    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * SCALE, 100.0 * SCALE, 200 * SCALE]);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 100.0 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
     cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.5, 0.0, 0.0]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
@@ -162,25 +125,9 @@ const load = async function () {
     const lightComponent2 = lightEntity2.getLight();
     lightComponent2.type = Rn.LightType.Directional;
     lightEntity2.localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 2, Math.PI / 4, -Math.PI / 4]);
-  
-    function updatePhysics() {
-        world.step();
-        let i = bodys.length;
-        while (i--) {
-            let body = bodys[i];
-            let entity = entities[i];
-            let p = body.getPosition();
-            let q = body.getQuaternion();
-            entity.localPosition = Rn.Vector3.fromCopyArray([p.x, p.y, p.z]);
-            entity.localRotation = Rn.Vector4.fromCopyArray4([q.x, q.y, q.z, q.w]);
-        }
-    }
 
     const draw = function(time) {
-        updatePhysics();
-
-        gl.disable(gl.CULL_FACE); // TODO:
-		Rn.System.processAuto();
+        Rn.System.processAuto();
 
         requestAnimationFrame(draw);
     }
@@ -189,101 +136,84 @@ const load = async function () {
 
 }
 
-function populate() {
+function populate(texture) {
     let max = 256;
-    let w = DOT_SIZE*0.2;
-    let h = DOT_SIZE*1.5;
+    let w = DOT_SIZE * 0.2;
+    let h = DOT_SIZE * 1.5;
     let d = DOT_SIZE;
 
     let i;
     let x, y, z;
-    for ( z = 0; z < 16; z++ ) {
-        for ( x = 0; x < 16; x ++ ) {
+    for (z = 0; z < 16; z++) {
+        for (x = 0; x < 16; x++) {
             i = x + (z) * 16;
             let c = getRgbColor(dataSet[i]);
             y = 1;
-            bodys[i+1] = world.add({
-                type: "box",
-                size: [w*SCALE, h*SCALE, d*SCALE],
-                pos: [(-8+x)*DOT_SIZE*SCALE, y*DOT_SIZE*SCALE, (-8+z)*DOT_SIZE*1.2*SCALE],
-                rot: [0, 0, 0],
-                move: true,
-                density: 1,
-                friction: 0.5,
-                restitution: 0.1,
-            });
 
-            let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial({isLighting: true});
+            let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial({
+                isLighting: true
+            });
             modelMaterial.setParameter(
                 Rn.ShaderSemantics.BaseColorFactor,
                 Rn.Vector4.fromCopyArray4([c.r / 0xff, c.g / 0xff, c.b / 0xff, 1])
             );
 
-            const primitive = new Rn.Cube();
-            primitive.generate({ 
-                widthVector: Rn.Vector3.fromCopy3(0.5, 0.5, 0.5),
+            const entity = Rn.MeshHelper.createCube({
+                physics: {
+                    use: true,
+                    move: true,
+                    density: 1,
+                    friction: 0.5,
+                    restitution: 0.2,
+                },
                 material: modelMaterial
             });
-
-            const mesh = new Rn.Mesh();
-            mesh.addPrimitive(primitive);
-            const entity = Rn.EntityHelper.createMeshEntity();
-
+            entity.tryToSetTag({
+                tag: "type",
+                value: "domino"
+            });
+            entity.position = Rn.Vector3.fromCopyArray([(-8 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
+            entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
+            entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
             entities.push(entity);
-            const meshComponent = entity.getMesh();
-
-            meshComponent.setMesh(mesh);
-            entity.localScale = Rn.Vector3.fromCopyArray([w*SCALE, h*SCALE, d*SCALE]);
 
         }
     }
 
-    let size = bodys.length;
-    for ( i = 0; i < 16; i++ ) 
-    {
+    for (i = 0; i < 16; i++) {
         w = DOT_SIZE;
         h = DOT_SIZE;
         d = DOT_SIZE;
         x = 0;
         y = 2;
         z = i;
-        bodys[size+i] = world.add({
-            type: "box",
-            size: [w*SCALE, h*SCALE, d*SCALE],
-            pos: [(-8.4+x)*DOT_SIZE*SCALE, y*DOT_SIZE*SCALE, (-8+z)*DOT_SIZE*1.2*SCALE],
-            rot: [0, 0, 0],
-            move: true,
-            density: 1,
-            friction: 0.5,
-            restitution: 0.1,
+        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial({
+            isLighting: true
         });
-
-        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial({isLighting: true});
         modelMaterial.setParameter(
             Rn.ShaderSemantics.BaseColorFactor,
             Rn.Vector4.fromCopyArray4([1, 0, 0, 1])
         );
 
-        modelMaterial.setParameter(
-            Rn.ShaderSemantics.BaseColorFactor,
-            Rn.Vector4.fromCopyArray4([1, 0, 0, 1])
-        );
-
-        const primitive = new Rn.Cube();
-        primitive.generate({ 
-            widthVector: Rn.Vector3.fromCopy3(0.5, 0.5, 0.5),
+        const entity = Rn.MeshHelper.createCube({
+            physics: {
+                use: true,
+                move: true,
+                density: 1,
+                friction: 0.5,
+                restitution: 0.2,
+            },
             material: modelMaterial
         });
-
-        const mesh = new Rn.Mesh();
-        mesh.addPrimitive(primitive);
-        const entity = Rn.EntityHelper.createMeshEntity();
-
+        entity.tryToSetTag({
+            tag: "type",
+            value: "cube"
+        });
+        entity.position = Rn.Vector3.fromCopyArray([(-8.4 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
+        entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
+        entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
         entities.push(entity);
-        const meshComponent = entity.getMesh();
 
-        meshComponent.setMesh(mesh);
-        entity.localScale = Rn.Vector3.fromCopyArray([w*SCALE, h*SCALE, d*SCALE]);
     }
 }
 
