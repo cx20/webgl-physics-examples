@@ -28,7 +28,10 @@ function init() {
     }
     
     function getTexture() {
-        let texture = new pc.gfx.Texture(app.graphicsDevice);
+        let texture = new pc.gfx.Texture(app.graphicsDevice, {
+            width: 256,
+            height: 256
+        });
         let img = new Image();
         img.onload = function() {
             texture.minFilter = pc.gfx.FILTER_LINEAR;

@@ -157,7 +157,10 @@ function init() {
     }
     
     function getTexture(imageFile) {
-        let texture = new pc.gfx.Texture(app.graphicsDevice);
+        let texture = new pc.gfx.Texture(app.graphicsDevice, {
+            width: 512,
+            height: 256
+        });
         let img = new Image();
         img.onload = function() {
             texture.flipY = false;

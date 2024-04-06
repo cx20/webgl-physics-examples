@@ -232,7 +232,10 @@ function init() {
     });
 
     function getTexture(imageFile) {
-        let texture = new pc.gfx.Texture(app.graphicsDevice);
+        let texture = new pc.gfx.Texture(app.graphicsDevice, {
+            width: 512,
+            height: 512
+        });
         let img = new Image();
         img.onload = function() {
             texture.minFilter = pc.gfx.FILTER_LINEAR;
