@@ -61,28 +61,34 @@ const load = async function() {
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
 
-    const texture = new Rn.Texture();
-    texture.generateTextureFromUri('../../../../assets/textures/grass.jpg');
-
     const c = document.getElementById('world');
-    const gl = await Rn.System.init({
-        approach: Rn.ProcessApproach.DataTexture,
-        canvas: c
+
+    await Rn.System.init({
+      approach: Rn.ProcessApproach.DataTexture,
+      canvas: c,
     });
-    gl.enable(gl.DEPTH_TEST);
 
     resizeCanvas();
-
-    window.addEventListener("resize", function() {
+    
+    window.addEventListener("resize", function(){
         resizeCanvas();
     });
 
     function resizeCanvas() {
-        c.width = window.innerWidth;
-        c.height = window.innerHeight;
-        gl.viewport(0, 0, c.width, c.height);
+        Rn.System.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
+    const texture = new Rn.Texture();
+    texture.generateTextureFromUri('../../../../assets/textures/grass.jpg');
+
+    const sampler = new Rn.Sampler({
+      magFilter: Rn.TextureParameter.Linear,
+      minFilter: Rn.TextureParameter.Linear,
+      wrapS: Rn.TextureParameter.ClampToEdge,
+      wrapT: Rn.TextureParameter.ClampToEdge,
+    });
+    sampler.create();
+    
     const entity1 = Rn.MeshHelper.createCube({
         physics: {
             use: true,
@@ -97,11 +103,10 @@ const load = async function() {
         value: "ground"
     });
     entity1.scale = Rn.Vector3.fromCopyArray([200 * PHYSICS_SCALE, 2 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
-    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
+    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
     entities.push(entity1);
 
-
-    populate(texture);
+    populate(texture, sampler);
 
     const startTime = Date.now();
 
@@ -136,7 +141,7 @@ const load = async function() {
 
 }
 
-function populate(texture) {
+function populate(texture, sampler) {
     let max = 256;
     let w = DOT_SIZE * 0.2;
     let h = DOT_SIZE * 1.5;
@@ -174,7 +179,7 @@ function populate(texture) {
             });
             entity.position = Rn.Vector3.fromCopyArray([(-8 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
             entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
-            entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
+            entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
             entities.push(entity);
 
         }
@@ -211,7 +216,7 @@ function populate(texture) {
         });
         entity.position = Rn.Vector3.fromCopyArray([(-8.4 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
         entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
-        entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
+        entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
         entities.push(entity);
 
     }
