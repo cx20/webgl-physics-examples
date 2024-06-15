@@ -6,28 +6,35 @@ const load = async function() {
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
     const c = document.getElementById('world');
-    const gl = await Rn.System.init({
-        approach: Rn.ProcessApproach.DataTexture,
-        canvas: c
+
+    await Rn.System.init({
+      approach: Rn.ProcessApproach.DataTexture,
+      canvas: c,
     });
 
     resizeCanvas();
-
-    window.addEventListener("resize", function() {
+    
+    window.addEventListener("resize", function(){
         resizeCanvas();
     });
 
     function resizeCanvas() {
-        c.width = window.innerWidth;
-        c.height = window.innerHeight;
-        gl.viewport(0, 0, c.width, c.height);
+        Rn.System.resizeCanvas(window.innerWidth, window.innerHeight);
     }
-
+    
     const entities = [];
 
     const texture = new Rn.Texture();
     texture.generateTextureFromUri('../../../../assets/textures/frog.jpg');
 
+    const sampler = new Rn.Sampler({
+      magFilter: Rn.TextureParameter.Linear,
+      minFilter: Rn.TextureParameter.Linear,
+      wrapS: Rn.TextureParameter.ClampToEdge,
+      wrapT: Rn.TextureParameter.ClampToEdge,
+    });
+    sampler.create();
+    
     // Ground
     const entity1 = Rn.MeshHelper.createCube({
         physics: {
@@ -43,7 +50,7 @@ const load = async function() {
         value: "ground"
     });
     entity1.scale = Rn.Vector3.fromCopyArray([200 / 2 * PHYSICS_SCALE, 2 / 2 * PHYSICS_SCALE, 200 / 2 * PHYSICS_SCALE]);
-    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
+    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
     entities.push(entity1);
 
     // Cube
@@ -62,7 +69,7 @@ const load = async function() {
     });
     entity2.position = Rn.Vector3.fromCopyArray([0, 100 * PHYSICS_SCALE, 0]);
     entity2.scale = Rn.Vector3.fromCopyArray([50 / 2 * PHYSICS_SCALE, 50 / 2 * PHYSICS_SCALE, 50 / 2 * PHYSICS_SCALE]);
-    entity2.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture);
+    entity2.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
     entities.push(entity2);
 
     const startTime = Date.now();
