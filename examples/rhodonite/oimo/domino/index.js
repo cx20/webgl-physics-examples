@@ -58,6 +58,9 @@ function getRgbColor( c )
 
 const load = async function() {
     Rn.Config.maxCameraNumber = 20;
+    Rn.Config.dataTextureWidth  = 2 ** 9; // default: 2 ** 11;
+    Rn.Config.dataTextureHeight = 2 ** 9; // default: 2 ** 11;
+
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
 
