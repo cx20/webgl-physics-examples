@@ -1,4 +1,5 @@
-﻿import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
+﻿import * as pc from 'playcanvas';
+import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 const w = 1.0;
 const h = 0.2;
@@ -94,7 +95,11 @@ let options = {
     uvs: textureCoords
 };
 
-loadWasmModuleAsync('Ammo', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm', init);
+loadWasmModuleAsync(
+    'Ammo', 
+    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
+    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm',
+    init);
 
 function init() {
     let canvas = document.getElementById("c");
@@ -128,8 +133,6 @@ function init() {
         app.scene.addModel(model);
     };
 
-    let miniStats = new pcx.MiniStats(app);
-
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
     function createColorMaterial(color) {
@@ -159,11 +162,10 @@ function init() {
     function getTexture(imageFile) {
         let texture = new pc.gfx.Texture(app.graphicsDevice, {
             width: 512,
-            height: 256
+            height: 512
         });
         let img = new Image();
         img.onload = function() {
-            texture.flipY = false;
             texture.minFilter = pc.gfx.FILTER_LINEAR;
             texture.magFilter = pc.gfx.FILTER_LINEAR;
             texture.addressU = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
@@ -174,7 +176,7 @@ function init() {
         img.src = imageFile;
         return texture;
     }
-
+    
     let light = new pc.Entity("light");
     light.addComponent("light", {
         type: "directional",
