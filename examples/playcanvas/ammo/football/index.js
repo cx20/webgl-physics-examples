@@ -1,4 +1,5 @@
-﻿import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
+﻿import * as pc from 'playcanvas';
+import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 let DOT_SIZE = 0.3;
 let X_START_POS = -7;
@@ -40,7 +41,11 @@ let dataSet = [
 ];
 
 // ***********    Initialize app   *******************
-loadWasmModuleAsync('Ammo', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm', init);
+loadWasmModuleAsync(
+    'Ammo', 
+    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
+    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm',
+    init);
 
 function init() {
 
@@ -82,8 +87,8 @@ function init() {
     }
 
     // Fill the available space at full resolution
-    app.setCanvasFillMode(pc.fw.FillMode.FILL_WINDOW);
-    app.setCanvasResolution(pc.fw.ResolutionMode.AUTO);
+    app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
+    app.setCanvasResolution(pc.RESOLUTION_AUTO);
 
     app.context.scene.ambientLight = new pc.Color(1, 1, 1);
 
@@ -244,6 +249,7 @@ function init() {
             texture.addressV = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
             texture.setSource(img);
         };
+        img.crossOrigin = "anonymous";
         img.src = imageFile;
         return texture;
     }

@@ -1,6 +1,11 @@
-﻿import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
+﻿import * as pc from 'playcanvas';
+import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
-loadWasmModuleAsync('Ammo', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js', 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm', init);
+loadWasmModuleAsync(
+    'Ammo', 
+    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
+    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm',
+    init);
 
 function init() {
     let canvas = document.getElementById("c");
@@ -14,8 +19,6 @@ function init() {
     window.addEventListener("resize", function () {
         app.resizeCanvas(canvas.width, canvas.height);
     });
-
-    let miniStats = new pcx.MiniStats(app);
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
