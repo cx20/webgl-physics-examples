@@ -102,6 +102,10 @@ function initThree() {
 
     controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
+
+    setInterval( () => {
+        updatePhysics();
+    }, 1000/60 );
 }
 
 // initialize lights
@@ -162,7 +166,6 @@ function createDominos() {
 function animate() {
     controls.update();
     requestAnimationFrame(animate);
-    updatePhysics();
     render();
 }
 

@@ -9,7 +9,9 @@ let grounds = [];
 let matGround, matGroundTrans;
 let matPocky = [];
 let matKoala;
+let matBox;
 let matMono;
+let buffgeoSphere;
 let buffgeoBox;
 let buffgeoMono;
 let buffgeoCylinder;
@@ -188,6 +190,7 @@ function populate(n) {
     addStaticBox([200, 30, 390], [130,40,0], [0,0,32]);
     
     // now add object
+	let t;
     let x, y, z, w, h, d;
     let i = max;
     

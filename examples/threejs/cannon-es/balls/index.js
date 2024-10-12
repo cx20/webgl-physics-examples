@@ -83,6 +83,10 @@ function init() {
     controls.autoRotate = true;
 
     initCannonPhysics();
+
+    setInterval( () => {
+        updateCannonPhysics();
+    }, 1000/60 );
 }
 
 function addStaticBox(size, position, rotation, spec) {
@@ -194,7 +198,6 @@ function updateCannonPhysics() {
 }
 
 function loop() {
-    updateCannonPhysics();
     renderer.render(scene, camera);
     controls.update();
     requestAnimationFrame(loop);

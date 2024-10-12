@@ -65,7 +65,12 @@ function loadDuck() {
         scene.add(duck);
 
         animate();
-    });
+
+		setInterval( () => {
+			updatePhysics();
+		}, 1000/60 );
+
+	});
 }
 
 function createPlane(w, h) {
@@ -150,7 +155,6 @@ function initThree() {
 function animate() {
     controls.update();
     requestAnimationFrame(animate);
-    updatePhysics();
     render();
 }
 

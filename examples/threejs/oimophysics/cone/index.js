@@ -169,6 +169,10 @@ function initOimoPhysics() {
 
         scene.add(meshs[i]);
     }
+
+    setInterval( () => {
+        updateOimoPhysics();
+    }, 1000/60 );
 }
 
 function updateOimoPhysics() {
@@ -202,7 +206,6 @@ function updateOimoPhysics() {
 }
 
 function loop() {
-    updateOimoPhysics();
     renderer.render(scene, camera);
     controls.update();
     requestAnimationFrame(loop);

@@ -174,6 +174,10 @@ function initOimoPhysics() {
 
         scene.add(meshs[i]);
     }
+
+    setInterval( () => {
+        updateOimoPhysics();
+    }, 1000/60 );
 }
 
 function updateOimoPhysics() {
@@ -206,35 +210,9 @@ function updateOimoPhysics() {
     }
 }
 
-const UPDATE_LOAD_COEFF = 0.5;
-
-let targetInterval = 1000 / 60;
-let prevTime = Date.now() - targetInterval;
-
 function loop() {
-    let currentTime = Date.now();
-    let updated = false;
-    while (currentTime - prevTime > targetInterval * 0.5) {
-    	updateOimoPhysics();
-
-        updated = true;
-        prevTime += targetInterval;
-        const now = Date.now();
-        const updateTime = now - currentTime;
-        if (updateTime > targetInterval * UPDATE_LOAD_COEFF) {
-            // overloaded
-            if (prevTime < now - targetInterval) {
-                // do not accumulate too much
-                prevTime = now - targetInterval;
-            }
-            break;
-        }
-    }
-    if (updated) {
-	    renderer.render(scene, camera);
-	    controls.update();
-    }
-    
+	renderer.render(scene, camera);
+	controls.update();
     requestAnimationFrame(loop);
 }
 

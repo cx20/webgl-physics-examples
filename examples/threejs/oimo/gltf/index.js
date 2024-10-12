@@ -64,6 +64,10 @@ function loadDuck() {
         duck.receiveShadow = true;
         scene.add(duck);
 
+		setInterval( () => {
+			updatePhysics();
+		}, 1000/60 );
+	
         animate();
     });
 }
@@ -156,7 +160,6 @@ function initThree() {
 function animate() {
     controls.update();
     requestAnimationFrame(animate);
-    updatePhysics();
     render();
 }
 
