@@ -87,6 +87,10 @@ function init() {
     controls.autoRotate = true;
 
     initOimoPhysics();
+
+    setInterval( () => {
+        updateOimoPhysics();
+    }, 1000/60 );
 }
 
 function addStaticBox(size, position, rotation, spec) {
@@ -205,7 +209,6 @@ function updateOimoPhysics() {
 }
 
 function loop() {
-    updateOimoPhysics();
     renderer.render(scene, camera);
     controls.update();
     requestAnimationFrame(loop);

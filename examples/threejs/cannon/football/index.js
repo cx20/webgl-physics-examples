@@ -92,6 +92,10 @@ function init() {
 
     controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
+
+    setInterval( () => {
+        updatePhysics();
+    }, 1000/60 );
 }
 
 function initLights() {
@@ -162,6 +166,11 @@ function createBalls() {
 
 function animate() {
     controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+}
+
+function updatePhysics() {
     world.step(TIME_STEP);
 
     (function updateObject3D(mesh) {
@@ -186,9 +195,6 @@ function animate() {
             mesh.children.map(updateObject3D);
         }
     })(scene);
-
-    renderer.render(scene, camera);
-    requestAnimationFrame(animate);
 }
 
 init();
