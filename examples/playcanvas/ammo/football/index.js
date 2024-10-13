@@ -54,8 +54,8 @@ function init() {
     let app = new pc.Application(canvas, {});
     app.start();
 
-    let texture_grass = getTexture("../../../../assets/textures/grass.jpg");
-    let texture_ball = getTexture("../../../../assets/textures/football.png");
+    let texture_grass = getTexture("../../../../assets/textures/grass.jpg", 512, 512);
+    let texture_ball = getTexture("../../../../assets/textures/football.png", 1024, 512);
 
     // create a few materials for our objects
     let black  = createMaterial(new pc.Color( 0xdc/0xff, 0xaa/0xff, 0x6b/0xff ), texture_ball);
@@ -90,10 +90,10 @@ function init() {
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
 
-    app.context.scene.ambientLight = new pc.Color(1, 1, 1);
+    app.scene.ambientLight = new pc.Color(1, 1, 1);
 
     function createMaterial (color, texture) {
-      let material = new pc.scene.PhongMaterial();
+      let material = new pc.StandardMaterial();
       material.diffuse = color;
       material.diffuseMapTint = true;
       material.diffuseMap = texture;
@@ -104,11 +104,11 @@ function init() {
     // Create camera entity
     function Camera() {
       let cam = new pc.Entity();
-      app.context.systems.camera.addComponent(cam, {
+      app.systems.camera.addComponent(cam, {
         clearColor: new pc.Color(0.1, 0.1, 0.1),
         farClip: 1000
       });
-      app.context.root.addChild(cam);
+      app.root.addChild(cam);
       this.entity = cam;
       this.timer = 0;
     }
@@ -129,13 +129,13 @@ function init() {
       light.setPosition(10, 10, 10);
       //light.setLocalEulerAngles(45, 45, 0);
       light.setLocalEulerAngles(45, 45, 45);
-      app.context.systems.light.addComponent(light, {
+      app.systems.light.addComponent(light, {
         type: "directional",
         color: new pc.Color(1, 1, 1),
         castShadows: true,
         shadowResolution: 2048
       });
-      app.context.root.addChild(light);
+      app.root.addChild(light);
       this.entity = light;
     }
 
@@ -144,21 +144,21 @@ function init() {
       let ground = new pc.Entity();
       ground.setPosition(0, -0.5, 0);
       ground.setLocalScale(10, 1, 10);
-      app.context.systems.model.addComponent(ground, {
+      app.systems.model.addComponent(ground, {
         type: "box"
       });
-      app.context.systems.rigidbody.addComponent(ground, {
+      app.systems.rigidbody.addComponent(ground, {
         type: "static",
         friction: 0.6,
         restitution: 0.8
       });
-      app.context.systems.collision.addComponent(ground, {
+      app.systems.collision.addComponent(ground, {
         type: "box",
         halfExtents: [5, 0.5, 5]
       });
       let material = createMaterial(new pc.Color(1, 1, 1), texture_grass);
       ground.model.model.meshInstances[0].material = material;
-      app.context.root.addChild(ground);
+      app.root.addChild(ground);
       this.entity = ground;
     }
 
@@ -191,21 +191,21 @@ function init() {
     function Ball() {
       let e = new pc.Entity();
       e.setPosition(0, 0, 0);
-      app.context.systems.model.addComponent(e, {
+      app.systems.model.addComponent(e, {
         type: "sphere",
         castShadows: true
       });
-      app.context.systems.rigidbody.addComponent(e, {
+      app.systems.rigidbody.addComponent(e, {
         type: "dynamic",
         friction: 0.4,
         restitution: 0.8
       });
-      app.context.systems.collision.addComponent(e, {
+      app.systems.collision.addComponent(e, {
         type: "sphere",
         radius: DOT_SIZE/2
       });
       e.setLocalScale(DOT_SIZE, DOT_SIZE, DOT_SIZE);
-      app.context.root.addChild(e);
+      app.root.addChild(e);
       this.entity = e;
     }
 
@@ -236,17 +236,17 @@ function init() {
       camera.update(dt);
     });
 
-    function getTexture(imageFile) {
-        let texture = new pc.gfx.Texture(app.graphicsDevice, {
-            width: 512,
-            height: 512
+    function getTexture(imageFile, width, height) {
+        let texture = new pc.Texture(app.graphicsDevice, {
+            width: width,
+            height: height
         });
         let img = new Image();
         img.onload = function() {
-            texture.minFilter = pc.gfx.FILTER_LINEAR;
-            texture.magFilter = pc.gfx.FILTER_LINEAR;
-            texture.addressU = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
-            texture.addressV = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
+            texture.minFilter = pc.FILTER_LINEAR;
+            texture.magFilter = pc.FILTER_LINEAR;
+            texture.addressU = pc.ADDRESS_CLAMP_TO_EDGE;
+            texture.addressV = pc.ADDRESS_CLAMP_TO_EDGE;
             texture.setSource(img);
         };
         img.crossOrigin = "anonymous";

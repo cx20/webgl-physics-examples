@@ -114,36 +114,28 @@ function init() {
         app.resizeCanvas(canvas.width, canvas.height);
     });
 
-    let Cube = pc.createScript('cube');
-    Cube.prototype.initialize = function () {
-        let node = new pc.scene.GraphNode();
-        let mesh = pc.createMesh(app.graphicsDevice, positions, options);
+	function createEraserMesh() {
+		let mesh = new pc.Mesh(app.graphicsDevice);
+        mesh.setPositions(positions);
+        mesh.setNormals(normals);
+        mesh.setUvs(0, textureCoords);
+        mesh.setIndices(indices);
+        mesh.update();
 
-        let material = new pc.StandardMaterial();
-        material.diffuseMap = getTexture("https://cx20.github.io/webgl-physics-examples/assets/textures/eraser_001/eraser.png");
-        material.cull = pc.CULLFACE_NONE;
-
-        let instance = new pc.scene.MeshInstance(node, mesh, material);
-
-        let model = new pc.scene.Model();
-        model.graph = node;
-        model.meshInstances = [ instance ];
-
-        this.entity.addChild(node);
-        app.scene.addModel(model);
-    };
+        return mesh;
+	}
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
     function createColorMaterial(color) {
-        var material = new pc.PhongMaterial();
+        var material = new pc.StandardMaterial();
         material.diffuse = color;
         material.update()
         return material;
     }
 
     function createTransparentMaterial(color) {
-        var material = new pc.PhongMaterial();
+        var material = new pc.StandardMaterial();
         material.opacity = 0.5;
         material.blendType = pc.BLEND_NORMAL;
         material.diffuse = color;
@@ -152,7 +144,7 @@ function init() {
     }
 
     function createTextureMaterial(imageFile) {
-        let material = new pc.PhongMaterial();
+        let material = new pc.StandardMaterial();
         material.diffuseMap = getTexture(imageFile);
         material.update()
 
@@ -160,16 +152,16 @@ function init() {
     }
     
     function getTexture(imageFile) {
-        let texture = new pc.gfx.Texture(app.graphicsDevice, {
+        let texture = new pc.Texture(app.graphicsDevice, {
             width: 512,
             height: 512
         });
         let img = new Image();
         img.onload = function() {
-            texture.minFilter = pc.gfx.FILTER_LINEAR;
-            texture.magFilter = pc.gfx.FILTER_LINEAR;
-            texture.addressU = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
-            texture.addressV = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
+            texture.minFilter = pc.FILTER_LINEAR;
+            texture.magFilter = pc.FILTER_LINEAR;
+            texture.addressU = pc.ADDRESS_CLAMP_TO_EDGE;
+            texture.addressV = pc.ADDRESS_CLAMP_TO_EDGE;
             texture.setSource(img);
         };
         img.crossOrigin = "anonymous";
@@ -225,16 +217,31 @@ function init() {
     }
 
     const SCALE = 2;
-    let eraserBody = new pc.Entity("eraserBody");
-    eraserBody.setLocalPosition(0, 20, 0);
-    eraserBody.addComponent("collision", { type: "box", halfExtents: [1 * SCALE, 0.2 * SCALE, 0.5 * SCALE] });
-    eraserBody.addComponent("rigidbody", { type: "dynamic", restitution: 0.5 });
-    let eraserModel = new pc.Entity("eraserModel");
-    eraserModel.setLocalScale(SCALE, SCALE, SCALE);
-    eraserModel.addComponent('script');
-    eraserModel.script.create('cube');
-    eraserBody.addChild(eraserModel);
-    //app.root.addChild(eraserBody);
+	let eraserMesh = createEraserMesh();
+	let textureMaterial = createTextureMaterial("https://cx20.github.io/webgl-physics-examples/assets/textures/eraser_001/eraser.png");
+	textureMaterial.cull = pc.CULLFACE_NONE;
+
+	function createEraser(x, y, z) {
+		let eraser = new pc.Entity("eraser");
+		eraser.setLocalPosition(x, y, z);
+		eraser.addComponent("collision", {
+			type: "box",
+			halfExtents: new pc.Vec3(1 * SCALE, 0.2 * SCALE, 0.5 * SCALE)
+		});
+		eraser.addComponent("rigidbody", {
+			type: "dynamic",
+			restitution: 0.5
+		});
+		let eraserModel = new pc.Entity("eraserModel");
+		eraserModel.addComponent("render", {
+			meshInstances: [new pc.MeshInstance(eraserMesh, textureMaterial)]
+        });
+		eraserModel.setLocalScale(SCALE, SCALE, SCALE);
+		eraser.addChild(eraserModel);
+		app.root.addChild(eraser);
+		return eraser;
+	}
+
 
     let floor = new pc.Entity("floor");
     floor.setLocalPosition(0, -2, 0);
@@ -251,13 +258,11 @@ function init() {
     let numErasers = 0;
     let erasers = [];
     function spawnEraser() {
-        var clone = eraserBody.clone();
-        let x = -5 + Math.random() * 10;
-        let y = 20 + Math.random() * 10;
-        let z = -5 + Math.random() * 10;
-        clone.setLocalPosition(x, y, z);
-        erasers.push(clone);
-        app.root.addChild(clone);
+		let x = -5 + Math.random() * 10;
+		let y = 20 + Math.random() * 10;
+		let z = -5 + Math.random() * 10;
+		let erase = createEraser(x, y, z);
+		erasers.push(erase);
         numErasers++;
     }
 

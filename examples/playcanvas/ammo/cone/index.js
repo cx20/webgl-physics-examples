@@ -23,14 +23,14 @@ function init() {
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
     function createColorMaterial(color) {
-        var material = new pc.PhongMaterial();
+        var material = new pc.StandardMaterial();
         material.diffuse = color;
         material.update()
         return material;
     }
 
     function createTransparentMaterial(color) {
-        var material = new pc.PhongMaterial();
+        var material = new pc.StandardMaterial();
         material.opacity = 0.5;
         material.blendType = pc.BLEND_NORMAL;
         material.diffuse = color;
@@ -39,7 +39,7 @@ function init() {
     }
 
     function createTextureMaterial(imageFile) {
-        let material = new pc.PhongMaterial();
+        let material = new pc.StandardMaterial();
         material.diffuseMap = getTexture(imageFile);
         material.update()
 
@@ -47,17 +47,17 @@ function init() {
     }
     
     function getTexture(imageFile) {
-        let texture = new pc.gfx.Texture(app.graphicsDevice, {
+        let texture = new pc.Texture(app.graphicsDevice, {
             width: 512,
             height: 512
         });
         let img = new Image();
         img.onload = function() {
             texture.flipY = false;
-            texture.minFilter = pc.gfx.FILTER_LINEAR;
-            texture.magFilter = pc.gfx.FILTER_LINEAR;
-            texture.addressU = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
-            texture.addressV = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
+            texture.minFilter = pc.FILTER_LINEAR;
+            texture.magFilter = pc.FILTER_LINEAR;
+            texture.addressU = pc.ADDRESS_CLAMP_TO_EDGE;
+            texture.addressV = pc.ADDRESS_CLAMP_TO_EDGE;
             texture.setSource(img);
         };
         img.crossOrigin = "anonymous";
