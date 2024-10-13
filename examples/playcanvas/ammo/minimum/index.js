@@ -24,7 +24,7 @@ function init() {
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
 
     function createTextureMaterial() {
-        let material = new pc.scene.PhongMaterial();
+        let material = new pc.StandardMaterial();
         material.diffuseMap = getTexture();
         material.update()
 
@@ -32,16 +32,16 @@ function init() {
     }
     
     function getTexture() {
-        let texture = new pc.gfx.Texture(app.graphicsDevice, {
+        let texture = new pc.Texture(app.graphicsDevice, {
             width: 256,
             height: 256
         });
         let img = new Image();
         img.onload = function() {
-            texture.minFilter = pc.gfx.FILTER_LINEAR;
-            texture.magFilter = pc.gfx.FILTER_LINEAR;
-            texture.addressU = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
-            texture.addressV = pc.gfx.ADDRESS_CLAMP_TO_EDGE;
+            texture.minFilter = pc.FILTER_LINEAR;
+            texture.magFilter = pc.FILTER_LINEAR;
+            texture.addressU = pc.ADDRESS_CLAMP_TO_EDGE;
+            texture.addressV = pc.ADDRESS_CLAMP_TO_EDGE;
             texture.setSource(img);
         };
         img.crossOrigin = "anonymous";

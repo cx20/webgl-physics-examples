@@ -88,10 +88,10 @@ function init() {
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
 
-    app.context.scene.ambientLight = new pc.Color(1, 1, 1);
+    app.scene.ambientLight = new pc.Color(1, 1, 1);
 
     function createMaterial (color) {
-      let material = new pc.scene.PhongMaterial();
+      let material = new pc.StandardMaterial();
       material.diffuse = color;
       // we need to call material.update when we change its properties
       material.update()
@@ -101,11 +101,11 @@ function init() {
     // Create camera entity
     function Camera() {
       let cam = new pc.Entity();
-      app.context.systems.camera.addComponent(cam, {
+      app.systems.camera.addComponent(cam, {
         clearColor: new pc.Color(0.1, 0.1, 0.1),
         farClip: 20
       });
-      app.context.root.addChild(cam);
+      app.root.addChild(cam);
       this.entity = cam;
       this.timer = 0;
     }
@@ -126,13 +126,13 @@ function init() {
       light.setPosition(10, 10, 10);
       //light.setLocalEulerAngles(45, 45, 0);
       light.setLocalEulerAngles(45, 45, 45);
-      app.context.systems.light.addComponent(light, {
+      app.systems.light.addComponent(light, {
         type: "directional",
         color: new pc.Color(1, 1, 1),
         castShadows: true,
         shadowResolution: 2048
       });
-      app.context.root.addChild(light);
+      app.root.addChild(light);
       this.entity = light;
     }
 
@@ -141,19 +141,19 @@ function init() {
       let ground = new pc.Entity();
       ground.setPosition(0, -0.5, 0);
       ground.setLocalScale(10, 1, 10);
-      app.context.systems.model.addComponent(ground, {
+      app.systems.model.addComponent(ground, {
         type: "box"
       });
-      app.context.systems.rigidbody.addComponent(ground, {
+      app.systems.rigidbody.addComponent(ground, {
         type: "static"
       });
-      app.context.systems.collision.addComponent(ground, {
+      app.systems.collision.addComponent(ground, {
         type: "box",
         halfExtents: [5, 0.5, 5]
       });
       let blue = createMaterial(new pc.Color(0.28, 0.46, 1));
       ground.model.model.meshInstances[0].material = blue;
-      app.context.root.addChild(ground);
+      app.root.addChild(ground);
       this.entity = ground;
     }
 
@@ -164,18 +164,18 @@ function init() {
       //for (let i = 0; i < 25; i++) {
       for (let i = 0; i < dataSet.length; i++) {
         let body = new pc.Entity();
-        app.context.systems.model.addComponent(body, {
+        app.systems.model.addComponent(body, {
           type: "box",
           castShadows: true
         });
-        app.context.systems.rigidbody.addComponent(body, {
+        app.systems.rigidbody.addComponent(body, {
           type: "dynamic"
         });
-        app.context.systems.collision.addComponent(body, {
+        app.systems.collision.addComponent(body, {
           type: "box",
           halfExtents: [0.5*DOT_SIZE, 0.5*DOT_SIZE, 0.5*DOT_SIZE]
         });
-        app.context.root.addChild(body);
+        app.root.addChild(body);
         body.model.material = getRgbColor(dataSet[i]);
         body.setLocalScale(1*DOT_SIZE, 1*DOT_SIZE, 1*DOT_SIZE);
 
@@ -202,20 +202,20 @@ function init() {
     function Ball() {
       let e = new pc.Entity();
       e.setPosition(0, -10, 0);
-      app.context.systems.model.addComponent(e, {
+      app.systems.model.addComponent(e, {
         type: "sphere",
         castShadows: true
       });
-      app.context.systems.rigidbody.addComponent(e, {
+      app.systems.rigidbody.addComponent(e, {
         type: "dynamic"
       });
-      app.context.systems.collision.addComponent(e, {
+      app.systems.collision.addComponent(e, {
         type: "sphere",
         radius: 0.5
       });
       let red = createMaterial(new pc.Color(1, 0.28, 0.28));
       e.model.model.meshInstances[0].material = red;
-      app.context.root.addChild(e);
+      app.root.addChild(e);
       this.entity = e;
     }
 
