@@ -245,9 +245,9 @@ function init() {
     controls = new OrbitControls( camera, renderer.domElement );
     controls.autoRotate = true;
 
-	setInterval( () => {
-		updatePhysics();
-	}, 1000/60 );
+    setInterval( () => {
+        updatePhysics();
+    }, 1000/60 );
 
     function rendering() {
         controls.update();
@@ -255,7 +255,7 @@ function init() {
         requestAnimationFrame(rendering);
     }
 
-	function updatePhysics() {
+    function updatePhysics() {
         
         world.stepSimulation(1/deltaT); // TODO:set actual FPS
 
@@ -263,7 +263,7 @@ function init() {
             let obj = objs[i];
             obj.move();
         }
-	}
+    }
 
     rendering();
 
