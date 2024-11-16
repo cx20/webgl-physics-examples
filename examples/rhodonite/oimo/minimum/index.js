@@ -38,6 +38,9 @@ const load = async function() {
     });
     sampler.create();
     
+    const material = Rn.MaterialHelper.createClassicUberMaterial();
+    material.setTextureParameter('diffuseColorTexture', texture, sampler)
+
     // Ground
     const entity1 = Rn.MeshHelper.createCube({
         physics: {
@@ -47,13 +50,13 @@ const load = async function() {
             friction: 0.5,
             restitution: 0.2,
         },
+        material: material
     });
     entity1.tryToSetTag({
         tag: "type",
         value: "ground"
     });
     entity1.scale = Rn.Vector3.fromCopyArray([200 / 2 * PHYSICS_SCALE, 2 / 2 * PHYSICS_SCALE, 200 / 2 * PHYSICS_SCALE]);
-    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
     entities.push(entity1);
 
     // Cube
@@ -65,6 +68,7 @@ const load = async function() {
             friction: 0.5,
             restitution: 0.2,
         },
+        material: material
     });
     entity2.tryToSetTag({
         tag: "type",
@@ -72,13 +76,12 @@ const load = async function() {
     });
     entity2.position = Rn.Vector3.fromCopyArray([0, 100 * PHYSICS_SCALE, 0]);
     entity2.scale = Rn.Vector3.fromCopyArray([50 / 2 * PHYSICS_SCALE, 50 / 2 * PHYSICS_SCALE, 50 / 2 * PHYSICS_SCALE]);
-    entity2.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
     entities.push(entity2);
 
     const startTime = Date.now();
 
     // camera
-    const cameraEntity = Rn.EntityHelper.createCameraControllerEntity();
+    const cameraEntity = Rn.createCameraControllerEntity();
     cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 50 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
