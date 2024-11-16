@@ -106,7 +106,7 @@ const load = async function() {
         value: "ground"
     });
     entity1.scale = Rn.Vector3.fromCopyArray([200 * PHYSICS_SCALE, 2 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
-    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
+    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
     entities.push(entity1);
 
     populate(texture, sampler);
@@ -114,7 +114,7 @@ const load = async function() {
     const startTime = Date.now();
 
     // camera
-    const cameraEntity = Rn.EntityHelper.createCameraControllerEntity();
+    const cameraEntity = Rn.createCameraControllerEntity();
     cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 100.0 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
     cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.5, 0.0, 0.0]);
     const cameraComponent = cameraEntity.getCamera();
@@ -124,12 +124,12 @@ const load = async function() {
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
     // Lights
-    const lightEntity1 = Rn.EntityHelper.createLightEntity();
+    const lightEntity1 = Rn.createLightEntity();
     const lightComponent1 = lightEntity1.getLight();
     lightComponent1.type = Rn.LightType.Directional;
     lightEntity1.localEulerAngles = Rn.Vector3.fromCopyArray([-Math.PI / 2, -Math.PI / 4, Math.PI / 4]);
 
-    const lightEntity2 = Rn.EntityHelper.createLightEntity();
+    const lightEntity2 = Rn.createLightEntity();
     const lightComponent2 = lightEntity2.getLight();
     lightComponent2.type = Rn.LightType.Directional;
     lightEntity2.localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 2, Math.PI / 4, -Math.PI / 4]);
@@ -162,7 +162,7 @@ function populate(texture, sampler) {
                 isLighting: true
             });
             modelMaterial.setParameter(
-                Rn.ShaderSemantics.BaseColorFactor,
+                'baseColorFactor',
                 Rn.Vector4.fromCopyArray4([c.r / 0xff, c.g / 0xff, c.b / 0xff, 1])
             );
 
@@ -182,7 +182,7 @@ function populate(texture, sampler) {
             });
             entity.position = Rn.Vector3.fromCopyArray([(-8 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
             entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
-            entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
+            entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
             entities.push(entity);
 
         }
@@ -199,11 +199,11 @@ function populate(texture, sampler) {
             isLighting: true
         });
         modelMaterial.setParameter(
-            Rn.ShaderSemantics.BaseColorFactor,
+            'baseColorFactor',
             Rn.Vector4.fromCopyArray4([1, 0, 0, 1])
         );
 
-        const entity = Rn.MeshHelper.createCube({
+ 		const entity = Rn.MeshHelper.createCube({
             physics: {
                 use: true,
                 move: true,
@@ -219,7 +219,7 @@ function populate(texture, sampler) {
         });
         entity.position = Rn.Vector3.fromCopyArray([(-8.4 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
         entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
-        entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter(Rn.ShaderSemantics.DiffuseColorTexture, texture, sampler);
+        entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
         entities.push(entity);
 
     }
