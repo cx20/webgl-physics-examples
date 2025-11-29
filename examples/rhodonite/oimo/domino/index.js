@@ -57,10 +57,6 @@ function getRgbColor( c )
 }
 
 const load = async function() {
-    Rn.Config.maxCameraNumber = 20;
-    Rn.Config.dataTextureWidth  = 2 ** 9; // default: 2 ** 11;
-    Rn.Config.dataTextureHeight = 2 ** 9; // default: 2 ** 11;
-
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
 
@@ -81,8 +77,9 @@ const load = async function() {
         Rn.System.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
-    const texture = new Rn.Texture();
-    texture.generateTextureFromUri('../../../../assets/textures/grass.jpg');
+    const assets = await Rn.defaultAssetLoader.load({
+        texture: Rn.Texture.loadFromUrl('../../../../assets/textures/grass.jpg')
+    });
 
     const sampler = new Rn.Sampler({
       magFilter: Rn.TextureParameter.Linear,
@@ -106,10 +103,10 @@ const load = async function() {
         value: "ground"
     });
     entity1.scale = Rn.Vector3.fromCopyArray([200 * PHYSICS_SCALE, 2 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
-    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
+    entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', assets.texture, sampler);
     entities.push(entity1);
 
-    populate(texture, sampler);
+    populate(assets.texture, sampler);
 
     const startTime = Date.now();
 

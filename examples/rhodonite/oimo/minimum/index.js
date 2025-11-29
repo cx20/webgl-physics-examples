@@ -3,9 +3,6 @@ import Rn from 'rhodonite';
 const PHYSICS_SCALE = 1/10;
 
 const load = async function() {
-    Rn.Config.dataTextureWidth  = 2 ** 9; // default: 2 ** 11;
-    Rn.Config.dataTextureHeight = 2 ** 9; // default: 2 ** 11;
-
     await Rn.ModuleManager.getInstance().loadModule('webgl');
     await Rn.ModuleManager.getInstance().loadModule('pbr');
     const c = document.getElementById('world');
@@ -27,8 +24,9 @@ const load = async function() {
     
     const entities = [];
 
-    const texture = new Rn.Texture();
-    texture.generateTextureFromUri('../../../../assets/textures/frog.jpg');
+    const assets = await Rn.defaultAssetLoader.load({
+        texture: Rn.Texture.loadFromUrl('../../../../assets/textures/frog.jpg')
+    });
 
     const sampler = new Rn.Sampler({
       magFilter: Rn.TextureParameter.Linear,
@@ -39,7 +37,7 @@ const load = async function() {
     sampler.create();
     
     const material = Rn.MaterialHelper.createClassicUberMaterial();
-    material.setTextureParameter('diffuseColorTexture', texture, sampler)
+    material.setTextureParameter('diffuseColorTexture', assets.texture, sampler)
 
     // Ground
     const entity1 = Rn.MeshHelper.createCube({
