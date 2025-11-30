@@ -9,13 +9,6 @@ canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 (async () => {
-  // Rhodonite Configuration
-  Rn.Config.isUboEnabled = false;
-  Rn.Config.maxLightNumberInShader = 8;
-  Rn.Config.maxMorphTargetNumber = 8;
-  Rn.Config.maxSkeletalBoneNumber = 400;
-  Rn.Config.maxSkeletonNumber = 84;
-  
   await Rn.System.init({
     approach: Rn.ProcessApproach.DataTexture,
     canvas,
@@ -37,19 +30,6 @@ canvas.height = window.innerHeight;
   cameraComponent.zFar = 1000.0;
   cameraComponent.setFovyAndChangeFocalLength(75.0);
   cameraComponent.aspect = canvas.width / canvas.height;
-
-  // Lights
-  const lightEntity1 = Rn.createLightEntity();
-  lightEntity1.getTransform().localPosition = Rn.Vector3.fromCopyArray([1.0, 1.0, 100000.0]);
-  lightEntity1.getComponent(Rn.LightComponent).intensity = 1;
-  lightEntity1.getComponent(Rn.LightComponent).type = Rn.LightType.Directional;
-  lightEntity1.getTransform().localEulerAngles = Rn.Vector3.fromCopyArray([-Math.PI / 2, -Math.PI / 4, Math.PI / 4]);
-
-  const lightEntity2 = Rn.createLightEntity();
-  lightEntity2.getTransform().localPosition = Rn.Vector3.fromCopyArray([1.0, 1.0, 100000.0]);
-  lightEntity2.getComponent(Rn.LightComponent).intensity = 1;
-  lightEntity2.getComponent(Rn.LightComponent).type = Rn.LightType.Directional;
-  lightEntity2.getTransform().localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 2, Math.PI / 4, -Math.PI / 4]);
 
   // Create ground with physics
   const materialGround = Rn.MaterialHelper.createPbrUberMaterial({
@@ -100,6 +80,9 @@ canvas.height = window.innerHeight;
   const envExpression = await createEnvCubeExpression('https://cx20.github.io/gltf-test/textures/papermill_hdr', cameraEntity);
 
   const mainRenderPass = assets.mainExpression.renderPasses[0];
+  
+  // Add ground to render pass
+  mainRenderPass.addEntities([groundEntity]);
   
   // Create physics-enabled spheres based on original model
   const sphereEntities = [];
@@ -169,7 +152,10 @@ canvas.height = window.innerHeight;
   
   // Remove original entities from render pass
   entitiesToRemove.forEach(entity => {
-    //mainRenderPass.removeEntity(entity);
+    const sceneGraph = entity.getSceneGraph();
+    if (sceneGraph) {
+      sceneGraph.isVisible = false;
+    }
   });
   
   console.log(`Created ${sphereEntities.length} physics spheres and removed ${entitiesToRemove.length} original entities`);
@@ -179,7 +165,7 @@ canvas.height = window.innerHeight;
   const controller = mainCameraControllerComponent.controller;
   const entities = mainRenderPass.entities;
   controller.setTargets(entities);
-  controller.dolly = 0.83;
+  controller.dolly = 0.7;
 
   await forwardRenderPipeline.setExpressions([envExpression, assets.mainExpression]);
 
