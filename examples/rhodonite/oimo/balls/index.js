@@ -48,6 +48,13 @@ const load = async function() {
     });
     materialGround.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0x3D/0xFF, 0x41/0xFF, 0x43/0xFF, 1]));
     
+    const materialGroundTrans = Rn.MaterialHelper.createPbrUberMaterial({
+        isLighting: true
+    });
+    materialGroundTrans.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0x3D/0xFF, 0x41/0xFF, 0x43/0xFF, 0.6]));
+    materialGroundTrans.alphaMode = Rn.AlphaMode.Blend;
+    
+    // Ground
     const entity1 = Rn.MeshHelper.createCube({
         physics: {
             use: true,
@@ -66,16 +73,47 @@ const load = async function() {
     entity1.position = Rn.Vector3.fromCopyArray([0, -2 * PHYSICS_SCALE, 0]);
     entities.push(entity1);
 
+    // Box walls
+    const boxDataSet = [
+        { size:[10, 10,  1], pos:[ 0, 5,-5] }, // front
+        { size:[10, 10,  1], pos:[ 0, 5, 5] }, // back
+        { size:[ 1, 10, 10], pos:[-5, 5, 0] }, // left
+        { size:[ 1, 10, 10], pos:[ 5, 5, 0] }  // right
+    ];
+
+    for (let i = 0; i < boxDataSet.length; i++) {
+        const size = boxDataSet[i].size;
+        const pos = boxDataSet[i].pos;
+        
+        const wallEntity = Rn.MeshHelper.createCube({
+            physics: {
+                use: true,
+                move: false,
+                density: 1,
+                friction: 0.6,
+                restitution: 0.5,
+            },
+            material: materialGroundTrans
+        });
+        wallEntity.tryToSetTag({
+            tag: "type",
+            value: "wall"
+        });
+        wallEntity.scale = Rn.Vector3.fromCopyArray([size[0] * PHYSICS_SCALE, size[1] * PHYSICS_SCALE, size[2] * PHYSICS_SCALE]);
+        wallEntity.position = Rn.Vector3.fromCopyArray([pos[0] * PHYSICS_SCALE, pos[1] * PHYSICS_SCALE, pos[2] * PHYSICS_SCALE]);
+        entities.push(wallEntity);
+    }
+
     populate(textures, sampler);
 
 	// camera
 	const cameraEntity = Rn.createCameraControllerEntity();
-	cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 10.0 * PHYSICS_SCALE, 40 * PHYSICS_SCALE]);
-	cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([0.0, 0.0, 0.0]);
+	cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 15 * PHYSICS_SCALE, 30 * PHYSICS_SCALE]);
+	cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.1, 0.0, 0.0]);
 	const cameraComponent = cameraEntity.getCamera();
 	cameraComponent.zNear = 0.1;
 	cameraComponent.zFar = 1000;
-	cameraComponent.setFovyAndChangeFocalLength(45);
+	cameraComponent.setFovyAndChangeFocalLength(60);
 	cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
 	// Lights
