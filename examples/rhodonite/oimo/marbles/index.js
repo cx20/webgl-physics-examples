@@ -3,13 +3,14 @@ import Rn from 'rhodonite';
 const modelUrl = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
 const scale = 1.0;
 const PHYSICS_SCALE = 1/10;
+let engine;
 
 const canvas = document.getElementById('world');
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 (async () => {
-  await Rn.System.init({
+  engine = await Rn.Engine.init({
     approach: Rn.ProcessApproach.DataTexture,
     canvas,
   });
@@ -17,14 +18,14 @@ canvas.height = window.innerHeight;
   Rn.MeshRendererComponent.isDepthMaskTrueForTransparencies = true;
 
   // Create ForwardRenderPipeline
-  const forwardRenderPipeline = new Rn.ForwardRenderPipeline();
+  const forwardRenderPipeline = new Rn.ForwardRenderPipeline(engine);
   forwardRenderPipeline.setup(canvas.width, canvas.height, {
     isBloom: false,
     isShadow: false,
   });
   
   // Camera
-  const cameraEntity = Rn.createCameraControllerEntity();
+  const cameraEntity = Rn.createCameraControllerEntity(engine);
   const cameraComponent = cameraEntity.getCamera();
   cameraComponent.zNear = 0.1;
   cameraComponent.zFar = 1000.0;
@@ -32,20 +33,19 @@ canvas.height = window.innerHeight;
   cameraComponent.aspect = canvas.width / canvas.height;
 
   // Create ground with physics
-  const materialGround = Rn.MaterialHelper.createPbrUberMaterial({
+  const materialGround = Rn.MaterialHelper.createPbrUberMaterial(engine, {
     isLighting: true
   });
-  const grassTexture = await Rn.Texture.loadFromUrl('../../../../assets/textures/grass.jpg');
-  const sampler = new Rn.Sampler({
+  const grassTexture = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/grass.jpg');
+  const sampler = new Rn.Sampler(engine, {
     magFilter: Rn.TextureParameter.Linear,
     minFilter: Rn.TextureParameter.Linear,
     wrapS: Rn.TextureParameter.Repeat,
     wrapT: Rn.TextureParameter.Repeat,
   });
-  sampler.create();
   materialGround.setTextureParameter('baseColorTexture', grassTexture, sampler);
 
-  const groundEntity = Rn.MeshHelper.createCube({
+  const groundEntity = Rn.MeshHelper.createCube(engine, {
     physics: {
       use: true,
       move: false,
@@ -65,6 +65,7 @@ canvas.height = window.innerHeight;
   // Load glTF model
   const assets = await Rn.defaultAssetLoader.load({
     mainExpression: (await Rn.GltfImporter.importFromUrl(
+      engine,
       modelUrl,
       {
         defaultMaterialHelperArgumentArray: [
@@ -77,9 +78,10 @@ canvas.height = window.innerHeight;
   });
 
   // Environment Cube
-  const envExpression = await createEnvCubeExpression('https://cx20.github.io/gltf-test/textures/papermill_hdr', cameraEntity);
+  const envExpression = await createEnvCubeExpression(engine, 'https://cx20.github.io/gltf-test/textures/papermill_hdr', cameraEntity);
 
   const mainRenderPass = assets.mainExpression.renderPasses[0];
+  mainRenderPass.cameraComponent = cameraComponent;
   
   // Add ground to render pass
   mainRenderPass.addEntities([groundEntity]);
@@ -112,7 +114,7 @@ canvas.height = window.innerHeight;
           const randomY = Math.random() * 20;
           const randomZ = (Math.random() - 0.5) * 2;
           
-          const physicsSphere = Rn.MeshHelper.createSphere({
+          const physicsSphere = Rn.MeshHelper.createSphere(engine, {
             radius: currentScale.x, // Use original scale as radius
             widthSegments: 32,
             heightSegments: 32,
@@ -170,7 +172,7 @@ canvas.height = window.innerHeight;
   await forwardRenderPipeline.setExpressions([envExpression, assets.mainExpression]);
 
   // IBL Textures
-  const diffuseCubeTexture = new Rn.CubeTexture();
+  const diffuseCubeTexture = new Rn.CubeTexture(engine);
   await diffuseCubeTexture.loadTextureImages({
     baseUrl: "https://cx20.github.io/gltf-test/textures/papermill_hdr/diffuse/diffuse",
     isNamePosNeg: true,
@@ -178,7 +180,7 @@ canvas.height = window.innerHeight;
     mipmapLevelNumber: 1
   });
 
-  const specularCubeTexture = new Rn.CubeTexture();
+  const specularCubeTexture = new Rn.CubeTexture(engine);
   await specularCubeTexture.loadTextureImages({
     baseUrl: "https://cx20.github.io/gltf-test/textures/papermill_hdr/specular/specular",
     isNamePosNeg: true,
@@ -195,7 +197,6 @@ canvas.height = window.innerHeight;
 
   // Animation Loop
   let startTime = Date.now();
-  let angle = 0;
 
   const randomNumber = (min, max) => {
     if (min == max) {
@@ -214,19 +215,12 @@ canvas.height = window.innerHeight;
   };
 
   const draw = function (frame) {
-    angle += 0.2;
-    
     const date = new Date();
     const time = (date.getTime() - startTime) / 1000;
     Rn.AnimationComponent.globalTime = time;
     if (time > Rn.AnimationComponent.endInputValue) {
       startTime = date.getTime();
     }
-
-    // Auto rotation
-    const mainCameraControllerComponent = cameraEntity.getComponent(Rn.CameraControllerComponent);
-    const controller = mainCameraControllerComponent.controller;
-    controller.rotX = angle;
 
     // Reset spheres that fall below the ground
     sphereEntities.forEach((sphere) => {
@@ -240,14 +234,14 @@ canvas.height = window.innerHeight;
       }
     });
 
-    Rn.System.process(frame);
+    engine.process(frame);
   };
 
   forwardRenderPipeline.startRenderLoop(draw);
 })();
 
-async function createEnvCubeExpression(baseuri, cameraEntity) {
-  const environmentCubeTexture = new Rn.CubeTexture();
+async function createEnvCubeExpression(engine, baseuri, cameraEntity) {
+  const environmentCubeTexture = new Rn.CubeTexture(engine);
   await environmentCubeTexture.loadTextureImages({
     baseUrl: baseuri + '/environment/environment',
     isNamePosNeg: true,
@@ -255,8 +249,8 @@ async function createEnvCubeExpression(baseuri, cameraEntity) {
     mipmapLevelNumber: 1
   });
 
-  const sphereMaterial = Rn.MaterialHelper.createEnvConstantMaterial();
-  const sampler = new Rn.Sampler({
+  const sphereMaterial = Rn.MaterialHelper.createEnvConstantMaterial(engine);
+  const sampler = new Rn.Sampler(engine, {
     wrapS: Rn.TextureParameter.ClampToEdge,
     wrapT: Rn.TextureParameter.ClampToEdge,
     minFilter: Rn.TextureParameter.Linear,
@@ -266,7 +260,7 @@ async function createEnvCubeExpression(baseuri, cameraEntity) {
   sphereMaterial.setParameter("envHdriFormat", Rn.HdriFormat.LDR_SRGB.index);
   sphereMaterial.setParameter("makeOutputSrgb", 0);
   
-  const spherePrimitive = new Rn.Sphere();
+  const spherePrimitive = new Rn.Sphere(engine);
   spherePrimitive.generate({
     radius: 1,
     widthSegments: 40,
@@ -274,18 +268,19 @@ async function createEnvCubeExpression(baseuri, cameraEntity) {
     material: sphereMaterial,
   });
 
-  const sphereMesh = new Rn.Mesh();
+  const sphereMesh = new Rn.Mesh(engine);
   sphereMesh.addPrimitive(spherePrimitive);
 
-  const sphereEntity = Rn.createMeshEntity();
+  const sphereEntity = Rn.createMeshEntity(engine);
   sphereEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([-1, 1, 1]);
   sphereEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, 0, 0]);
 
   const sphereMeshComponent = sphereEntity.getMesh();
   sphereMeshComponent.setMesh(sphereMesh);
 
-  const sphereRenderPass = new Rn.RenderPass();
+  const sphereRenderPass = new Rn.RenderPass(engine);
   sphereRenderPass.addEntities([sphereEntity]);
+  sphereRenderPass.cameraComponent = cameraEntity.getCamera();
 
   const sphereExpression = new Rn.Expression();
   sphereExpression.addRenderPasses([sphereRenderPass]);
