@@ -7,13 +7,12 @@ let entities = [];
 let shogiPieces = [];
 let world;
 let oimoBodies = [];
+let engine;
 
 const load = async function() {
-    await Rn.ModuleManager.getInstance().loadModule('webgl');
-    await Rn.ModuleManager.getInstance().loadModule('pbr');
     const c = document.getElementById('world');
 
-    await Rn.System.init({
+    engine = await Rn.Engine.init({
       approach: Rn.ProcessApproach.DataTexture,
       canvas: c,
     });
@@ -25,7 +24,7 @@ const load = async function() {
     });
 
     function resizeCanvas() {
-        Rn.System.resizeCanvas(window.innerWidth, window.innerHeight);
+        engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
     // Initialize physics world
@@ -51,27 +50,26 @@ const load = async function() {
     });
 
     // Load shogi texture
-    const shogiTexture = await Rn.Texture.loadFromUrl('../../../../assets/textures/shogi_001/shogi.png');
-    const sampler = new Rn.Sampler({
+    const shogiTexture = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/shogi_001/shogi.png');
+    const sampler = new Rn.Sampler(engine, {
       magFilter: Rn.TextureParameter.Linear,
       minFilter: Rn.TextureParameter.Linear,
       wrapS: Rn.TextureParameter.Repeat,
       wrapT: Rn.TextureParameter.Repeat,
     });
-    sampler.create();
     
     // Create ground visual (match physics size - Rhodonite Cube uses half-extent)
-    const groundEntity = Rn.createMeshEntity();
-    const groundPrimitive = new Rn.Cube();
+    const groundEntity = Rn.createMeshEntity(engine);
+    const groundPrimitive = new Rn.Cube(engine);
     groundPrimitive.generate({
         widthVector: Rn.Vector3.fromCopyArray([groundSize[0] / 1, groundSize[1] / 1, groundSize[2] / 1]),
     });
-    const groundMaterial = Rn.MaterialHelper.createPbrUberMaterial({
+    const groundMaterial = Rn.MaterialHelper.createPbrUberMaterial(engine, {
         isLighting: true
     });
     groundMaterial.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray([0.4, 0.6, 0.4, 1.0]));
     groundPrimitive.material = groundMaterial;
-    const groundMesh = new Rn.Mesh();
+    const groundMesh = new Rn.Mesh(engine);
     groundMesh.addPrimitive(groundPrimitive);
     groundEntity.getMesh().setMesh(groundMesh);
     groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, groundY, 0]);
@@ -81,34 +79,37 @@ const load = async function() {
     populate(shogiTexture, sampler);
 
     // camera
-    const cameraEntity = Rn.createCameraControllerEntity();
+    const cameraEntity = Rn.createCameraControllerEntity(engine);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0, 5, 15]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
-    cameraComponent.zFar = 10000;
-    cameraComponent.setFovyAndChangeFocalLength(70);
+    cameraComponent.zFar = 1000;
+    cameraComponent.setFovyAndChangeFocalLength(45);
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
-    // Set camera controller target
-    const cameraController = cameraEntity.getCameraController();
-    if (cameraController && cameraController.controller && entities.length > 0) {
-        cameraController.controller.setTarget(groundEntity);
-        cameraController.controller.dolly = 0.8;
-        cameraController.controller.dollyScale = 2.0;
-        cameraController.controller.rotY = -30; // Look down from above
-    }
-
     // Lights
-    const lightEntity1 = Rn.createLightEntity();
+    const lightEntity1 = Rn.createLightEntity(engine);
     const lightComponent1 = lightEntity1.getLight();
     lightComponent1.type = Rn.LightType.Directional;
     lightComponent1.intensity = 1.5;
     lightEntity1.localEulerAngles = Rn.Vector3.fromCopyArray([-Math.PI / 4, Math.PI / 6, 0]);
 
-    const lightEntity2 = Rn.createLightEntity();
+    const lightEntity2 = Rn.createLightEntity(engine);
     const lightComponent2 = lightEntity2.getLight();
     lightComponent2.type = Rn.LightType.Directional;
     lightComponent2.intensity = 0.8;
     lightEntity2.localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 4, -Math.PI / 6, 0]);
+
+    // renderPass
+    const renderPass = new Rn.RenderPass(engine);
+    renderPass.cameraComponent = cameraComponent;
+    renderPass.toClearColorBuffer = true;
+    renderPass.clearColor = Rn.Vector4.fromCopyArray4([0.2, 0.2, 0.2, 1]);
+    renderPass.addEntities(entities);
+
+    // expression
+    const expression = new Rn.Expression();
+    expression.addRenderPasses([renderPass]);
 
     let angle = 0;
     const draw = function(time) {
@@ -137,15 +138,19 @@ const load = async function() {
         }
 
         // Rotate camera around the scene
-        angle += 0.5;
-        
-        // Use camera controller rotation
-        const cameraController = cameraEntity.getCameraController();
-        if (cameraController && cameraController.controller) {
-            cameraController.controller.rotX = angle; // degrees
-        }
+        angle += 0.01;
+        cameraEntity.localPosition = Rn.Vector3.fromCopyArray([
+            Math.sin(angle) * 15,
+            5,
+            Math.cos(angle) * 15
+        ]);
+        cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([
+            -0.3,
+            angle,
+            0
+        ]);
 
-        Rn.System.processAuto();
+        engine.process([expression]);
 
         requestAnimationFrame(draw);
     }
@@ -334,13 +339,13 @@ function populate(shogiTexture, sampler) {
         oimoBodies.push(body);
 
         // Create material for each piece with lighting enabled
-        const material = Rn.MaterialHelper.createPbrUberMaterial({
+        const material = Rn.MaterialHelper.createPbrUberMaterial(engine, {
             isLighting: true
         });
         material.setTextureParameter('baseColorTexture', shogiTexture, sampler);
 
         // Create mesh with custom geometry
-        const primitive = Rn.Primitive.createPrimitive({
+        const primitive = Rn.Primitive.createPrimitive(engine, {
             indices: indices,
             attributeSemantics: [Rn.VertexAttribute.Position.XYZ, Rn.VertexAttribute.Normal.XYZ, Rn.VertexAttribute.Texcoord0.XY],
             attributes: [positions, normals, texcoords],
@@ -348,10 +353,10 @@ function populate(shogiTexture, sampler) {
             primitiveMode: Rn.PrimitiveMode.Triangles
         });
 
-        const mesh = new Rn.Mesh();
+        const mesh = new Rn.Mesh(engine);
         mesh.addPrimitive(primitive);
 
-        const entity = Rn.createMeshEntity();
+        const entity = Rn.createMeshEntity(engine);
         const meshComponent = entity.getMesh();
         meshComponent.setMesh(mesh);
 

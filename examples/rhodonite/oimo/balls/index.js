@@ -2,6 +2,7 @@ import Rn from 'rhodonite';
 
 let entities = [];
 const PHYSICS_SCALE = 1/10;
+let engine;
 
 const dataSet = [
     {imageFile:"../../../../assets/textures/Basketball.jpg", scale:1.0},
@@ -12,12 +13,9 @@ const dataSet = [
 ];
 
 const load = async function() {
-    await Rn.ModuleManager.getInstance().loadModule('webgl');
-    await Rn.ModuleManager.getInstance().loadModule('pbr');
-
     const c = document.getElementById('world');
 
-    await Rn.System.init({
+    engine = await Rn.Engine.init({
       approach: Rn.ProcessApproach.DataTexture,
       canvas: c,
     });
@@ -29,33 +27,32 @@ const load = async function() {
     });
 
     function resizeCanvas() {
-        Rn.System.resizeCanvas(window.innerWidth, window.innerHeight);
+        engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
-    const texturePromises = dataSet.map(data => Rn.Texture.loadFromUrl(data.imageFile));
+    const texturePromises = dataSet.map(data => Rn.Texture.loadFromUrl(engine, data.imageFile));
     const textures = await Promise.all(texturePromises);
 
-    const sampler = new Rn.Sampler({
+    const sampler = new Rn.Sampler(engine, {
       magFilter: Rn.TextureParameter.Linear,
       minFilter: Rn.TextureParameter.Linear,
       wrapS: Rn.TextureParameter.Repeat,
       wrapT: Rn.TextureParameter.Repeat,
     });
-    sampler.create();
     
-    const materialGround = Rn.MaterialHelper.createPbrUberMaterial({
+    const materialGround = Rn.MaterialHelper.createPbrUberMaterial(engine, {
         isLighting: true
     });
     materialGround.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0x3D/0xFF, 0x41/0xFF, 0x43/0xFF, 1]));
     
-    const materialGroundTrans = Rn.MaterialHelper.createPbrUberMaterial({
+    const materialGroundTrans = Rn.MaterialHelper.createPbrUberMaterial(engine, {
         isLighting: true
     });
     materialGroundTrans.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0x3D/0xFF, 0x41/0xFF, 0x43/0xFF, 0.6]));
     materialGroundTrans.alphaMode = Rn.AlphaMode.Blend;
     
     // Ground
-    const entity1 = Rn.MeshHelper.createCube({
+    const entity1 = Rn.MeshHelper.createCube(engine, {
         physics: {
             use: true,
             move: false,
@@ -85,7 +82,7 @@ const load = async function() {
         const size = boxDataSet[i].size;
         const pos = boxDataSet[i].pos;
         
-        const wallEntity = Rn.MeshHelper.createCube({
+        const wallEntity = Rn.MeshHelper.createCube(engine, {
             physics: {
                 use: true,
                 move: false,
@@ -107,7 +104,7 @@ const load = async function() {
     populate(textures, sampler);
 
 	// camera
-	const cameraEntity = Rn.createCameraControllerEntity();
+	const cameraEntity = Rn.createCameraControllerEntity(engine);
 	cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 15 * PHYSICS_SCALE, 30 * PHYSICS_SCALE]);
 	cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.1, 0.0, 0.0]);
 	const cameraComponent = cameraEntity.getCamera();
@@ -117,20 +114,31 @@ const load = async function() {
 	cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
 	// Lights
-	const lightEntity1 = Rn.createLightEntity();
+	const lightEntity1 = Rn.createLightEntity(engine);
 	const lightComponent1 = lightEntity1.getLight();
 	lightComponent1.type = Rn.LightType.Directional;
 	lightComponent1.intensity = 1.5;
 	lightEntity1.localEulerAngles = Rn.Vector3.fromCopyArray([-Math.PI / 4, Math.PI / 6, 0]);
 
-	const lightEntity2 = Rn.createLightEntity();
+	const lightEntity2 = Rn.createLightEntity(engine);
 	const lightComponent2 = lightEntity2.getLight();
 	lightComponent2.type = Rn.LightType.Directional;
 	lightComponent2.intensity = 0.8;
 	lightEntity2.localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 4, -Math.PI / 6, 0]);
+
+    // renderPass
+    const renderPass = new Rn.RenderPass(engine);
+    renderPass.cameraComponent = cameraComponent;
+    renderPass.toClearColorBuffer = true;
+    renderPass.clearColor = Rn.Vector4.fromCopyArray4([0, 0, 0, 1]);
+    renderPass.addEntities(entities);
+
+    // expression
+    const expression = new Rn.Expression();
+    expression.addRenderPasses([renderPass]);
 	
     const draw = function(time) {
-        Rn.System.processAuto();
+        engine.process([expression]);
 
         requestAnimationFrame(draw);
     }
@@ -152,12 +160,12 @@ function populate(textures, sampler) {
         const scale = dataSet[pos].scale;
         const radius = (w * scale) / 2;
 
-        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial({
+        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial(engine, {
             isLighting: true
         });
         modelMaterial.setTextureParameter('baseColorTexture', textures[pos], sampler);
 
-        const entity = Rn.MeshHelper.createSphere({
+        const entity = Rn.MeshHelper.createSphere(engine, {
             radius: radius * PHYSICS_SCALE,
             widthSegments: 20,
             heightSegments: 10,

@@ -2,12 +2,12 @@ import Rn from 'rhodonite';
 
 const PHYSICS_SCALE = 1/10;
 
+let engine;
+
 const load = async function() {
-    await Rn.ModuleManager.getInstance().loadModule('webgl');
-    await Rn.ModuleManager.getInstance().loadModule('pbr');
     const c = document.getElementById('world');
 
-    await Rn.System.init({
+    engine = await Rn.Engine.init({
       approach: Rn.ProcessApproach.DataTexture,
       canvas: c,
     });
@@ -19,28 +19,25 @@ const load = async function() {
     });
 
     function resizeCanvas() {
-        Rn.System.resizeCanvas(window.innerWidth, window.innerHeight);
+        engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
     
     const entities = [];
 
-    const assets = await Rn.defaultAssetLoader.load({
-        texture: Rn.Texture.loadFromUrl('../../../../assets/textures/frog.jpg')
-    });
+    const texture = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/frog.jpg');
 
-    const sampler = new Rn.Sampler({
+    const sampler = new Rn.Sampler(engine, {
       magFilter: Rn.TextureParameter.Linear,
       minFilter: Rn.TextureParameter.Linear,
       wrapS: Rn.TextureParameter.ClampToEdge,
       wrapT: Rn.TextureParameter.ClampToEdge,
     });
-    sampler.create();
     
-    const material = Rn.MaterialHelper.createClassicUberMaterial();
-    material.setTextureParameter('diffuseColorTexture', assets.texture, sampler)
+    const material = Rn.MaterialHelper.createClassicUberMaterial(engine);
+    material.setTextureParameter('diffuseColorTexture', texture, sampler)
 
     // Ground
-    const entity1 = Rn.MeshHelper.createCube({
+    const entity1 = Rn.MeshHelper.createCube(engine, {
         physics: {
             use: true,
             move: false,
@@ -58,7 +55,7 @@ const load = async function() {
     entities.push(entity1);
 
     // Cube
-    const entity2 = Rn.MeshHelper.createCube({
+    const entity2 = Rn.MeshHelper.createCube(engine, {
         physics: {
             use: true,
             move: true,
@@ -79,7 +76,7 @@ const load = async function() {
     const startTime = Date.now();
 
     // camera
-    const cameraEntity = Rn.createCameraControllerEntity();
+    const cameraEntity = Rn.createCameraControllerEntity(engine);
     cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 50 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
@@ -88,7 +85,7 @@ const load = async function() {
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
     // renderPass
-    const renderPass = new Rn.RenderPass();
+    const renderPass = new Rn.RenderPass(engine);
     renderPass.cameraComponent = cameraComponent;
     renderPass.toClearColorBuffer = true;
     renderPass.clearColor = Rn.Vector4.fromCopyArray4([0, 0, 0, 1]);
@@ -99,7 +96,7 @@ const load = async function() {
     expression.addRenderPasses([renderPass]);
 
     const draw = function(time) {
-        Rn.System.process([expression]);
+        engine.process([expression]);
 
         requestAnimationFrame(draw);
     }
