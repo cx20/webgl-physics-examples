@@ -1,9 +1,8 @@
 let c = document.getElementById("c");
-let gl = c.getContext("experimental-webgl");
+let gl = c.getContext("webgl2");
 gl.clearColor(0.0, 0.0, 0.0, 1.0);
 gl.enable(gl.DEPTH_TEST);
 gl.depthFunc(gl.LEQUAL);
-let ext = gl.getExtension("ANGLE_instanced_arrays");
 
 resizeCanvas();
 window.addEventListener("resize", function(){
@@ -18,7 +17,7 @@ function resizeCanvas() {
 
 let p1 = gl.createProgram();
 let type = [gl.VERTEX_SHADER, gl.FRAGMENT_SHADER];
-let src = [vs.text, fs.text];
+let src = [vs.text.trim(), fs.text.trim()];
 for (let i = 0; i < 2; i++) {
     let shader = gl.createShader(type[i]);
     gl.shaderSource(shader, src[i]);
@@ -218,26 +217,24 @@ for (let i = 0; i < strides.length; i++) {
 let max = 300;
 let posStride = 3;
 let rotStride = 4;
-let posBuffer =  gl.createBuffer();
-let rotBuffer =  gl.createBuffer();
+let posBuffer = gl.createBuffer();
+let rotBuffer = gl.createBuffer();
 let posArray = new Float32Array(max * posStride);
 let rotArray = new Float32Array(max * rotStride);
 
 let idx = strides.length;
 gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
-gl.bufferData(gl.ARRAY_BUFFER,  posArray, gl.STATIC_DRAW);
+gl.bufferData(gl.ARRAY_BUFFER, posArray, gl.STATIC_DRAW);
 gl.enableVertexAttribArray(idx);
 gl.vertexAttribPointer(idx, posStride, gl.FLOAT, false, 0, 0);
-//gl.vertexAttribDivisor(idx, 1);
-ext.vertexAttribDivisorANGLE(idx, 1)
+gl.vertexAttribDivisor(idx, 1);
 
 idx++;
 gl.bindBuffer(gl.ARRAY_BUFFER, rotBuffer);
-gl.bufferData(gl.ARRAY_BUFFER,  rotArray, gl.STATIC_DRAW);
+gl.bufferData(gl.ARRAY_BUFFER, rotArray, gl.STATIC_DRAW);
 gl.enableVertexAttribArray(idx);
 gl.vertexAttribPointer(idx, rotStride, gl.FLOAT, false, 0, 0);
-//gl.vertexAttribDivisor(idx, 1);
-ext.vertexAttribDivisorANGLE(idx, 1)
+gl.vertexAttribDivisor(idx, 1);
 
 let img = new Image();
 let texture;
@@ -253,7 +250,7 @@ img.src = "../../../../assets/textures/shogi_001/shogi.png";
 let p2 = gl.createProgram();
 for (let i = 0; i < 2; i++) {
     let shader = gl.createShader([gl.VERTEX_SHADER, gl.FRAGMENT_SHADER][i]);
-    gl.shaderSource(shader, [gvs.text, gfs.text][i]);
+    gl.shaderSource(shader, [gvs.text.trim(), gfs.text.trim()][i]);
     gl.compileShader(shader);
     gl.attachShader(p2, shader);
     gl.deleteShader(shader);
@@ -308,7 +305,6 @@ let genPosition = function () {
     return p;
 };
 
-//let ground = new OIMO.Body({size:[13, 0.1, 13], pos:[0, -10, 0], world:world});
 let ground = world.add({
     type: "box",
     size: [13, 0.1, 13],
@@ -321,7 +317,6 @@ let ground = world.add({
 let bodys = [];
 for (let i = 0; i < max; i++) {
     let p = genPosition();
-    //bodys[i] = new OIMO.Body({type:'box', size:[w*2, h*2, d*2], pos:[p.x, p.y, p.z], move:true, world:world});
     bodys[i] = world.add({
         type: "box",
         size: [w * 2, h * 2, d * 2],
@@ -387,7 +382,7 @@ setInterval(function () {
     gl.bindBuffer(gl.ARRAY_BUFFER, shogiVBOs[0]);
     gl.vertexAttribPointer(0, strides[0], gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shogiIdxBuf);
-    ext.drawElementsInstancedANGLE(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, max);
+    gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, max);
 
     requestAnimationFrame(render);
 })();
