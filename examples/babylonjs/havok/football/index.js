@@ -75,7 +75,7 @@ const createScene = function() {
     scene.getPhysicsEngine().setTimeStep(scene.getAnimationRatio());
 
     const camera = new BABYLON.ArcRotateCamera("Camera", -2.2, 1.0, 500, BABYLON.Vector3.Zero(), scene);
-    camera.setPosition(new BABYLON.Vector3(0, 30 * PHYSICS_SCALE, -500 * PHYSICS_SCALE));
+    camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -300 * PHYSICS_SCALE));
     camera.attachControl(canvas);
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
     new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(0.0, -1.0, 0.5), scene);

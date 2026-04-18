@@ -242,7 +242,7 @@ function initPhysics() {
         gravity: [0, -9.8, 0]
     });
 
-    ground = { size: [50, 1, 50], pos: [0, -5, 0] };
+    ground = { size: [30, 0.4, 30], pos: [0, -2, 0] };
 
     world.add({
         type: 'box',
@@ -344,9 +344,9 @@ function render(timeMs) {
     world.step();
 
     const t = timeMs * 0.001;
-    const eye = vec3.fromValues(Math.sin(t * 0.2) * 50, 20, Math.cos(t * 0.2) * 50);
+    const eye = vec3.fromValues(Math.sin(t * 0.2) * 20, 10, Math.cos(t * 0.2) * 20);
     mat4.lookAt(view, eye, [0, 8, 0], [0, 1, 0]);
-    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 200);
+    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 120);
     mat4.multiply(viewProj, projection, view);
 
     const encoder = device.createCommandEncoder();
