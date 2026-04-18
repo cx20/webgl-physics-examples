@@ -70,12 +70,12 @@ function initOimo() {
     world.gravity = new OIMO.Vec3(0, -9.80665, 0);
     
     let groundShapec = new OIMO.ShapeConfig();
-    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(25, 0, 25));
+    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(15, 0.2, 15));
     groundShapec.friction  = 0.6;
     groundShapec.restitution  = 0.5;
     let groundBodyc = new OIMO.RigidBodyConfig();
     groundBodyc.type = OIMO.RigidBodyType.STATIC;
-    groundBodyc.position = new OIMO.Vec3(0, -5, 0);
+    groundBodyc.position = new OIMO.Vec3(0, -2, 0);
     let groundBody = new OIMO.RigidBody(groundBodyc);
     groundBody.addShape(new OIMO.Shape(groundShapec));
     world.addRigidBody(groundBody);
@@ -83,20 +83,20 @@ function initOimo() {
 
 function initThree() {
     container = document.getElementById('container');
-    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 300);
     camera.position.x = 0;
-    camera.position.y = 20;
-    camera.position.z = 50;
+    camera.position.y = 10;
+    camera.position.z = 24;
     scene = new THREE.Scene();
 
     loader = new THREE.TextureLoader();
     texture_grass = loader.load('../../../../assets/textures/grass.jpg');
 
     let material = new THREE.MeshBasicMaterial({map: texture_grass});
-    let geometryGround = new THREE.PlaneGeometry(50, 50);
+    let geometryGround = new THREE.PlaneGeometry(30, 30);
     meshGround = new THREE.Mesh(geometryGround, material);
     meshGround.rotation.x = -Math.PI * 90 / 180;
-    meshGround.position.y = -5;
+    meshGround.position.y = -2;
     scene.add(meshGround);
 
     renderer = new THREE.WebGLRenderer();
@@ -150,8 +150,8 @@ function createBoxes() {
         for (let y = 0; y < 16; y++) {
             let i = x + (15 - y) * 16;
             let z = 0;
-            let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
-            let y1 = -5 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
+            let x1 = -12 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
+            let y1 = 0 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
             let z1 = z * BOX_SIZE * 1 + Math.random() * 0.1;
             let color = getRgbColor(dataSet[y * 16 + x]);
             let w = BOX_SIZE * 1;

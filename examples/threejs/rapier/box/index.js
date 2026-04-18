@@ -71,9 +71,9 @@ async function init() {
 
     // Three.js の初期設定
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(8, 20, 50);
-    camera.lookAt(new THREE.Vector3(0, 10, 0));
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
+    camera.position.set(8, 10, 24);
+    camera.lookAt(new THREE.Vector3(0, 4, 0));
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -111,13 +111,13 @@ function initLights() {
 
 function initGround() {
     // Rapier の地面のコライダー
-    const groundColliderDesc = RAPIER.ColliderDesc.cuboid(25, 0.5, 25);
+    const groundColliderDesc = RAPIER.ColliderDesc.cuboid(15, 0.2, 15);
     const groundBodyDesc = RAPIER.RigidBodyDesc.fixed();
     const groundBody = world.createRigidBody(groundBodyDesc);
     world.createCollider(groundColliderDesc, groundBody);
 
     // Three.js の地面の作成
-    const ground = createGround(50, 1, 50);
+    const ground = createGround(30, 0.4, 30);
     scene.add(ground);
 }
 
@@ -147,7 +147,7 @@ function createBoxes() {
         for (let y = 0; y < 16; y++) {
             let i = x + (15 - y) * 16;
             let z = 0;
-            let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
+            let x1 = -12 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
             let y1 = 0 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
             let z1 = z * BOX_SIZE * 1 + Math.random() * 0.1;
             let color = getRgbColor(dataSet[y * 16 + x]);

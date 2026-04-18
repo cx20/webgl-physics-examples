@@ -76,8 +76,8 @@ function initOimo() {
     });
     let groundBody = world.add({
         type: "box",
-        size: [50, 1, 50],
-        pos: [0, -5, 0],
+        size: [30, 0.4, 30],
+        pos: [0, -2, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
@@ -86,19 +86,19 @@ function initOimo() {
 
 function initThree() {
     container = document.getElementById('container');
-    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 300);
     camera.position.x = 0;
-    camera.position.y = 20;
-    camera.position.z = 50;
+    camera.position.y = 10;
+    camera.position.z = 24;
     scene = new THREE.Scene();
 
     loader = new THREE.TextureLoader();
     texture_grass = loader.load('../../../../assets/textures/grass.jpg');
 
     let material = new THREE.MeshBasicMaterial({map: texture_grass});
-    let geometryGround = new THREE.BoxGeometry(50, 1, 50);
+    let geometryGround = new THREE.BoxGeometry(30, 0.4, 30);
     meshGround = new THREE.Mesh(geometryGround, material);
-    meshGround.position.y = -5;
+    meshGround.position.y = -2;
     scene.add(meshGround);
 
     renderer = new THREE.WebGLRenderer();
@@ -148,8 +148,8 @@ function createBoxes() {
         for (let y = 0; y < 16; y++) {
             let i = x + (15 - y) * 16;
             let z = 0;
-            let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
-            let y1 = -5  + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
+            let x1 = -12 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
+            let y1 = 0  + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
             let z1 = z * BOX_SIZE * 1 + Math.random() * 0.1;
             let color = getRgbColor(dataSet[y * 16 + x]);
             let w = BOX_SIZE * 1;

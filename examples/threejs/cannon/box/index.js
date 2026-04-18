@@ -79,11 +79,11 @@ function init() {
     parentElement.appendChild(renderer.domElement);
 
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
     camera.position.x = 8;
-    camera.position.y = 20;
-    camera.position.z = 50;
-    camera.lookAt(new THREE.Vector3(0, 10, 0));
+    camera.position.y = 10;
+    camera.position.z = 24;
+    camera.lookAt(new THREE.Vector3(0, 4, 0));
 
     initLights();
     initGround();
@@ -108,12 +108,12 @@ function initLights() {
 }
 
 function initGround() {
-    let groundShape = new CANNON.Box(new CANNON.Vec3(50/2, 1/2, 50/2));
+    let groundShape = new CANNON.Box(new CANNON.Vec3(30/2, 0.4/2, 30/2));
     let groundBody = new CANNON.Body({mass: 0});
     groundBody.addShape(groundShape);
     world.add(groundBody);
 
-    let ground = createGround(50, 1, 50);
+    let ground = createGround(30, 0.4, 30);
     scene.add(ground);
 }
 
@@ -151,7 +151,7 @@ function createBoxes() {
         for (let y = 0; y < 16; y++) {
             let i = x + (15 - y) * 16;
             let z = 0;
-            let x1 = -10 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
+            let x1 = -12 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
             let y1 = 0 + (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
             let z1 = z * BOX_SIZE * 1 + Math.random() * 0.1;
             let color = getRgbColor(dataSet[y * 16 + x]);

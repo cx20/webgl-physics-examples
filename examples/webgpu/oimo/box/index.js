@@ -226,7 +226,7 @@ function initPhysics() {
         gravity: [0, -9.8, 0]
     });
 
-    ground = { size: [50, 1, 50], pos: [0, -5, 0] };
+    ground = { size: [30, 0.4, 30], pos: [0, -2, 0] };
 
     world.add({
         type: 'box',
@@ -248,8 +248,8 @@ function initPhysics() {
                 type: 'box',
                 size: [boxSize, boxSize, boxSize],
                 pos: [
-                    -10 + x * boxSize * 1.5 + Math.random() * 0.1,
-                    -5 + (DOT_ROWS.length - 1 - y) * boxSize * 1.2 + Math.random() * 0.1,
+                    -12 + x * boxSize * 1.5 + Math.random() * 0.1,
+                    0 + (DOT_ROWS.length - 1 - y) * boxSize * 1.2 + Math.random() * 0.1,
                     Math.random() * 0.1
                 ],
                 rot: [0, 0, 0],
@@ -325,9 +325,9 @@ function render(timeMs) {
     world.step();
 
     const t = timeMs * 0.001;
-    const eye = vec3.fromValues(Math.sin(t * 0.2) * 50, 20, Math.cos(t * 0.2) * 50);
+    const eye = vec3.fromValues(Math.sin(t * 0.2) * 24, 12, Math.cos(t * 0.2) * 24);
     mat4.lookAt(view, eye, [0, 8, 0], [0, 1, 0]);
-    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 200);
+    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 150);
     mat4.multiply(viewProj, projection, view);
 
     const encoder = device.createCommandEncoder();
