@@ -12,12 +12,12 @@
 <script type="text/goml" id="main">
   <goml width="fit" height="fit">
       <scene>
-          <camera class="camera" near="0.01" far="4000.0" aspect="1.0" fovy="60d" position="0,10,15" rotation="y(0d)">
+          <camera class="camera" near="0.1" far="300.0" aspect="1.0" fovy="60d" position="0,10,12" rotation="y(0d)">
               <camera.components>
                   <MouseCameraControl></MouseCameraControl>
               </camera.components>
           </camera>
-          <rigid-cube geometry="cube" position="0,-5,0" scale="20, 0.5, 20" texture="../../../../assets/textures/grass.jpg" move="false">
+          <rigid-cube geometry="cube" position="0,0,0" scale="12, 0.2, 12" texture="../../../../assets/textures/grass.jpg" move="false">
           </rigid-cube>
           <light type="directional" rotation="-30d,30d,0d"  color="white" intensity="4.0"/>
           <light type="directional" rotation="0d,-150d,0d" color="white" intensity="4.0"/>

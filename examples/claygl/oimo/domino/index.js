@@ -67,7 +67,7 @@ let app = clay.application.create('#main', {
         
         // Create a orthographic camera
         this._camera = app.createCamera(null, null, 'perspective');
-        this._camera.position.set(0, 0, 500);
+        this._camera.position.set(0, 8, 24);
         app.resize(window.innerWidth, window.innerHeight);
         // Create geometry
         let geometryCube  = new clay.geometry.Cube();
@@ -84,15 +84,15 @@ let app = clay.application.create('#main', {
         
         this._oimoGround = this._world.add({
            type: "box",
-            size: [200*2, 4*2, 200*2],
-            pos: [0, -80, 0],
+            size: [20*2, 0.4*2, 20*2],
+            pos: [0, -8, 0],
             rot: [0, 0, 0],
             move: false,
             density: 1
         });
         
-        let box_size = 8;
-        let DOT_SIZE = 8;
+        let box_size = 0.8;
+        let DOT_SIZE = 0.8;
         let w = DOT_SIZE*0.2;
         let h = DOT_SIZE*1.5;
         let d = DOT_SIZE;
@@ -101,9 +101,9 @@ let app = clay.application.create('#main', {
         for (let x = 0; x < 16; x++) {
             for (let z = 0; z < 16; z++) {
                 i = x + z * 16;
-                let x1 = -110+x*(DOT_SIZE*2);
+                let x1 = -13.75 * DOT_SIZE + x * (DOT_SIZE * 2);
                 let y1 = y*(DOT_SIZE*2);
-                let z1 = -120+z*(DOT_SIZE*2)*1.2;
+                let z1 = -15 * DOT_SIZE + z * (DOT_SIZE * 2) * 1.2;
                 let rgbColor = getRgbColor(dataSet[i]);
                 let meshCube = app.createCube({color:rgbColor});
                 //meshCube.scale.set(box_size, box_size, box_size);
@@ -130,9 +130,9 @@ let app = clay.application.create('#main', {
             x = 0;
             y = 1;
             z = i;
-            let x1 = -115+x*(DOT_SIZE*2);
+            let x1 = -14.375 * DOT_SIZE + x * (DOT_SIZE * 2);
             let y1 = y*(DOT_SIZE*2);
-            let z1 = -120+z*(DOT_SIZE*2)*1.2;
+            let z1 = -15 * DOT_SIZE + z * (DOT_SIZE * 2) * 1.2;
             let meshCube = app.createCube({color:getRgbColor("赤")});
             meshCube.scale.set(w, h, d);
             meshCube.position.set(x1*2, y1*2, z1*2);
@@ -150,8 +150,8 @@ let app = clay.application.create('#main', {
         this._rad = 0;
          
         this._meshGround = app.createMesh(geometryGround, materialGround);
-        this._meshGround.scale.set(200, 4, 200);
-        this._meshGround.position.set(0, -80, 0);
+        this._meshGround.scale.set(20, 0.4, 20);
+        this._meshGround.position.set(0, -8, 0);
         materialGround.set('diffuseMap', diffuse);
         
         app.createAmbientLight("#fff", 0.2);

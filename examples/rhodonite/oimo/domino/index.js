@@ -107,11 +107,11 @@ const load = async function() {
 
     // camera
     const cameraEntity = Rn.createCameraControllerEntity(engine);
-    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 100.0 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 60.0 * PHYSICS_SCALE, 120 * PHYSICS_SCALE]);
     cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.5, 0.0, 0.0]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
-    cameraComponent.zFar = 1000;
+    cameraComponent.zFar = 300;
     cameraComponent.setFovyAndChangeFocalLength(45);
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
 

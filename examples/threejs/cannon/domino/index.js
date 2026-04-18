@@ -75,11 +75,11 @@ function init() {
     parentElement.appendChild(renderer.domElement);
 
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
     camera.position.x = 8;
-    camera.position.y = 20;
-    camera.position.z = 50;
-    camera.lookAt(new THREE.Vector3(0, 10, 0));
+    camera.position.y = 10;
+    camera.position.z = 24;
+    camera.lookAt(new THREE.Vector3(0, 4, 0));
 
     initLights();
     initGround();
