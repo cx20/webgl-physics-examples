@@ -14,8 +14,8 @@ function initOimo() {
 
     let groundBody = world.add({
         type: "box",
-        size: [200, 2, 200],
-        pos: [0, -20, 0],
+        size: [4, 0.1, 4],
+        pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
@@ -24,8 +24,8 @@ function initOimo() {
     });
     body = world.add({
         type: "box",
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 0, 10],
         move: true,
         density: 1,
@@ -52,8 +52,8 @@ function initCzpg() {
     controler = scene.controler;
     context.canvas.width = window.innerWidth;
     context.canvas.height = window.innerHeight;    
-    camera = new CZPG.PerspectiveCamera(45, context.canvas.width/context.canvas.height, 0.01, 2000);
-    camera.position = [0, 50, 200];
+    camera = new CZPG.PerspectiveCamera(45, context.canvas.width/context.canvas.height, 0.01, 100);
+    camera.position = [0, 3, 6];
     camera.updateViewMatrix(); // lookAt target is [0,0,0] by default
     // Is there need a orbit control? cause it rotate by default...
     cameraControler = new CZPG.OrbitControls(camera, context.canvas, controler);
@@ -69,13 +69,13 @@ function initCzpg() {
     });
 
     modelCube = CZPG.Cube.createModel();
-    modelCube.scale = [50, 50, 50];
+    modelCube.scale = [1, 1, 1];
     shader = new CZPG.FlatTextureShader(context, camera, textures.pic);
     scene.add({shader: shader, model: modelCube});
 
     modelGround = CZPG.Cube.createModel();
-    modelGround.position = [0, -20, 0];
-    modelGround.scale = [200, 2, 200];
+    modelGround.position = [0, 0, 0];
+    modelGround.scale = [4, 0.1, 4];
     scene.add({shader: shader, model: modelGround});
 
 }

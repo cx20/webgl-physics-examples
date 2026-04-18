@@ -22,8 +22,8 @@ function initOimo() {
 
     let groundBody = world.add({
         type: "box",
-        size: [200, 2, 200],
-        pos: [0, -10, 0],
+        size: [4, 0.1, 4],
+        pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
@@ -32,8 +32,8 @@ function initOimo() {
     });
     body = world.add({
         type: "box",
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 0, 10],
         move: true,
         density: 1,
@@ -44,21 +44,21 @@ function initOimo() {
 
 function initThree() {
     container = document.getElementById('container');
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
-    camera.position.y = 50;
-    camera.position.z = 200;
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.y = 3;
+    camera.position.z = 6;
     scene = new THREE.Scene();
 
     let loader = new THREE.TextureLoader();
     let texture = loader.load('../../../../assets/textures/frog.jpg');  // frog.jpg
 
     let material = new THREE.MeshBasicMaterial({map: texture});
-    let geometryGround = new THREE.BoxGeometry(200, 2, 200);
+    let geometryGround = new THREE.BoxGeometry(4, 0.1, 4);
     meshGround = new THREE.Mesh(geometryGround, material);
-    meshGround.position.y = -10;
+    meshGround.position.y = 0;
     scene.add(meshGround);
 
-    let geometryCube = new THREE.BoxGeometry(50, 50, 50);
+    let geometryCube = new THREE.BoxGeometry(1, 1, 1);
     meshCube = new THREE.Mesh(geometryCube, material);
     scene.add(meshCube);
 

@@ -13,13 +13,13 @@ async function initRapier() {
     const gravity = new RAPIER.Vector3(0, -9.81, 0);
     world = new RAPIER.World(gravity);
 
-    const groundColliderDesc = RAPIER.ColliderDesc.cuboid(100, 1, 100).setRestitution(0.1).setFriction(0.5);
-    const groundBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, -45, 0);
+    const groundColliderDesc = RAPIER.ColliderDesc.cuboid(2, 0.05, 2).setRestitution(0.1).setFriction(0.5);
+    const groundBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0);
     groundBody = world.createRigidBody(groundBodyDesc);
     world.createCollider(groundColliderDesc, groundBody);
 
-    const boxColliderDesc = RAPIER.ColliderDesc.cuboid(50, 50, 50);
-    const boxBodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 100, 0);
+    const boxColliderDesc = RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
+    const boxBodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 2, 0);
     boxBody = world.createRigidBody(boxBodyDesc);
     world.createCollider(boxColliderDesc, boxBody);
 
@@ -30,21 +30,21 @@ async function initRapier() {
 
 function initThree() {
     container = document.getElementById('container');
-    camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 1, 1000);
-    camera.position.y = 50;
-    camera.position.z = 200;
+    camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.y = 3;
+    camera.position.z = 6;
     scene = new THREE.Scene();
 
     const loader = new THREE.TextureLoader();
     const texture = loader.load('../../../../assets/textures/frog.jpg');
     const material = new THREE.MeshBasicMaterial({ map: texture });
 
-    const geometryGround = new THREE.BoxGeometry(200, 2, 200);
+    const geometryGround = new THREE.BoxGeometry(4, 0.1, 4);
     meshGround = new THREE.Mesh(geometryGround, material);
-    meshGround.position.y = -20;
+    meshGround.position.y = 0;
     scene.add(meshGround);
 
-    const geometryCube = new THREE.BoxGeometry(50, 50, 50);
+    const geometryCube = new THREE.BoxGeometry(1, 1, 1);
     meshCube = new THREE.Mesh(geometryCube, material);
     scene.add(meshCube);
 

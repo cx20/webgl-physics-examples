@@ -1,7 +1,5 @@
 import Rn from 'rhodonite';
 
-const PHYSICS_SCALE = 1/10;
-
 let engine;
 
 const load = async function() {
@@ -51,7 +49,7 @@ const load = async function() {
         tag: "type",
         value: "ground"
     });
-    entity1.scale = Rn.Vector3.fromCopyArray([200 / 2 * PHYSICS_SCALE, 2 / 2 * PHYSICS_SCALE, 200 / 2 * PHYSICS_SCALE]);
+    entity1.scale = Rn.Vector3.fromCopyArray([2, 0.05, 2]);
     entities.push(entity1);
 
     // Cube
@@ -69,18 +67,18 @@ const load = async function() {
         tag: "type",
         value: "cube"
     });
-    entity2.position = Rn.Vector3.fromCopyArray([0, 100 * PHYSICS_SCALE, 0]);
-    entity2.scale = Rn.Vector3.fromCopyArray([50 / 2 * PHYSICS_SCALE, 50 / 2 * PHYSICS_SCALE, 50 / 2 * PHYSICS_SCALE]);
+    entity2.position = Rn.Vector3.fromCopyArray([0, 2, 0]);
+    entity2.scale = Rn.Vector3.fromCopyArray([0.5, 0.5, 0.5]);
     entities.push(entity2);
 
     const startTime = Date.now();
 
     // camera
     const cameraEntity = Rn.createCameraControllerEntity(engine);
-    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 50 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0, 3, 6]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
-    cameraComponent.zFar = 1000;
+    cameraComponent.zFar = 100;
     cameraComponent.setFovyAndChangeFocalLength(45);
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
 

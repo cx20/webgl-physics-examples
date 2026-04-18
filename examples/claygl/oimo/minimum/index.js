@@ -12,7 +12,7 @@ let app = clay.application.create('#main', {
         
         // Create a orthographic camera
         this._camera = app.createCamera(null, null, 'perspective');
-        this._camera.position.set(0, 50, 400);
+        this._camera.position.set(0, 3, 6);
         app.resize(window.innerWidth, window.innerHeight);
         
         // Create geometry
@@ -28,8 +28,8 @@ let app = clay.application.create('#main', {
                 
         this._oimoCube = this._world.add({
             type: "box",
-            size: [50*2, 50*2, 50*2],
-            pos: [0, 100, 0],
+            size: [1, 1, 1],
+            pos: [0, 2, 0],
             rot: [10, 0, 10],
             move: true,
             density: 1
@@ -37,8 +37,8 @@ let app = clay.application.create('#main', {
         
         this._oimoGround = this._world.add({
            type: "box",
-            size: [200*2, 4*2, 200*2],
-            pos: [0, -50, 0],
+            size: [4, 0.1, 4],
+            pos: [0, 0, 0],
             rot: [0, 0, 0],
             move: false,
             density: 1
@@ -47,11 +47,13 @@ let app = clay.application.create('#main', {
         this._rad = 0;
          
         this._meshCube = app.createMesh(geometryCube, material);
-        this._meshCube.scale.set(50, 50, 50);
-        this._meshCube.position.set(0, 100, 0);
+        // clay.geometry.Cube has a base size of 2, so use half scale to match Oimo size 1.
+        this._meshCube.scale.set(0.5, 0.5, 0.5);
+        this._meshCube.position.set(0, 2, 0);
         this._meshGround = app.createMesh(geometryGround, material);
-        this._meshGround.scale.set(200, 4, 200);
-        this._meshGround.position.set(0, -50, 0);
+        // Keep render scale aligned with Oimo size [4, 0.1, 4].
+        this._meshGround.scale.set(2, 0.05, 2);
+        this._meshGround.position.set(0, 0, 0);
         let diffuse = new clay.Texture2D;
         diffuse.load("../../../../assets/textures/frog.jpg");
         material.set('diffuseMap', diffuse);

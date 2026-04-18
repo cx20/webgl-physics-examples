@@ -143,3 +143,19 @@ Examples of WebGL Physics Library.
 |[Babylon.js](https://github.com/BabylonJS/Babylon.js)        |                                                                                        |                                                                                                                                                                                    |[Link](https://cx20.github.io/webgl-physics-examples/examples/babylonjs/havok/cone/)        |                                                                                                                                                                                       |
 |[PlayCanvas](https://github.com/playcanvas/engine)           |[Link](https://cx20.github.io/webgl-physics-examples/examples/playcanvas/ammo/cone/)    |                                                                                                                                                                                    |                                                                                              |                                                                                                                                                                                       |
 |[three.js](https://github.com/mrdoob/three.js/)              |                                                                                        |                                                                                                                                                                                    |                                                                                              |[Link1](https://cx20.github.io/webgl-physics-examples/examples/threejs/oimo/cone/) / [Link2](https://cx20.github.io/webgl-physics-examples/examples/threejs/oimophysics/cone/)        |
+
+## Physics Library Unit Systems
+
+All physics libraries used in this project adopt the **SI (International System of Units)**: meters (m), kilograms (kg), seconds (s), and newtons (N).  
+The convention **1 unit = 1 meter** is recommended for stable simulation results.
+
+| Library | Unit System | Recommended Scale | Notes |
+|:--------|:------------|:------------------|:------|
+| [ammo.js](https://github.com/kripken/ammo.js/) (Bullet) | SI (m / kg / s / N) | 0.05 – 10 m | Most sensitive to scale; official docs strongly recommend matching real-world meter scale |
+| [Cannon.js](https://github.com/schteppe/cannon.js) / [cannon-es](https://github.com/pmndrs/cannon-es) | SI (m / kg / s / N) | Flexible | Relatively tolerant of scale variation |
+| [Havok](https://doc.babylonjs.com/features/featuresDeepDive/physics) | SI (m / kg / s / N) | 0.1 – 10 m | |
+| [Oimo.js](https://github.com/lo-th/Oimo.js/) / [OimoPhysics](https://github.com/saharan/OimoPhysics) | SI (m / kg / s / N) | 0.1 – 10 m | |
+| [PhysX](https://github.com/fabmax/physx-js-webidl) | SI (m / kg / s / N) | 0.1 – 10 m | |
+| [rapier](https://github.com/dimforge/rapier) | SI (m / kg / s / N) | Flexible | Good numerical stability across a wide range of scales |
+
+> **Tip:** Objects smaller than ~0.05 m or larger than ~100 m may cause floating-point instability (jitter, tunneling). Keep rigid bodies within the recommended scale range for best results.

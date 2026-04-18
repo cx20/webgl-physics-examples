@@ -14,19 +14,19 @@ function initOimo() {
     world.gravity = new OIMO.Vec3(0, -9.80665, 0);
     
     let groundShapec = new OIMO.ShapeConfig();
-    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(100, 1, 100));
+    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(2, 0.05, 2));
     let groundBodyc = new OIMO.RigidBodyConfig();
     groundBodyc.type = OIMO.RigidBodyType.STATIC;
-    groundBodyc.position = new OIMO.Vec3(0, -20, 0);
+    groundBodyc.position = new OIMO.Vec3(0, 0, 0);
     let groundBody = new OIMO.RigidBody(groundBodyc);
     groundBody.addShape(new OIMO.Shape(groundShapec));
     world.addRigidBody(groundBody);
     
     let shapec = new OIMO.ShapeConfig();
-    shapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(25, 25, 25));
+    shapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(0.5, 0.5, 0.5));
     let bodyc = new OIMO.RigidBodyConfig();
     bodyc.type = OIMO.RigidBodyType.DYNAMIC;
-    bodyc.position = new OIMO.Vec3(0, 100, 0);
+    bodyc.position = new OIMO.Vec3(0, 2, 0);
     body = new OIMO.RigidBody(bodyc);
     body.setRotationXyz(new OIMO.Vec3(Math.PI*10/180, 0, Math.PI*10/180));
     body.addShape(new OIMO.Shape(shapec));
@@ -35,21 +35,21 @@ function initOimo() {
 
 function initThree() {
     container = document.getElementById('container');
-    camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 1, 1000);
-    camera.position.y = 50;
-    camera.position.z = 200;
+    camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.y = 3;
+    camera.position.z = 6;
     scene = new THREE.Scene();
 
     let loader = new THREE.TextureLoader();
     let texture = loader.load('../../../../assets/textures/frog.jpg');  // frog.jpg
 
     let material = new THREE.MeshBasicMaterial({map: texture});
-    let geometryGround = new THREE.BoxGeometry(200, 2, 200);
+    let geometryGround = new THREE.BoxGeometry(4, 0.1, 4);
     meshGround = new THREE.Mesh(geometryGround, material);
-    meshGround.position.y = -20;
+    meshGround.position.y = 0;
     scene.add(meshGround);
 
-    let geometryCube = new THREE.BoxGeometry(50, 50, 50);
+    let geometryCube = new THREE.BoxGeometry(1, 1, 1);
     meshCube = new THREE.Mesh(geometryCube, material);
     scene.add(meshCube);
 

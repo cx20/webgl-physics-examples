@@ -49,7 +49,7 @@ async function init() {
     // Setup matrices
     const aspect = canvas.width / canvas.height;
     projectionMatrix = mat4.create();
-    mat4.perspective(projectionMatrix, 45, aspect, 0.1, 1000.0);
+    mat4.perspective(projectionMatrix, 45, aspect, 0.1, 100.0);
 
     // Create shaders
     const vShaderModule = device.createShaderModule({ code: vertexShaderWGSL });
@@ -267,7 +267,7 @@ function initWorld() {
 function addGround() {
     groundBody = world.add({
         type: 'box',
-        size: [200, 4, 200],
+        size: [4, 0.1, 4],
         pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
@@ -278,8 +278,8 @@ function addGround() {
 function addBox() {
     boxBody = world.add({
         type: 'box',
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 10, 10],
         move: true,
         density: 1
@@ -336,9 +336,9 @@ async function render() {
     // Calculate view matrix
     angle -= Math.PI / 180 * 0.1;
     const eyePos = vec3.fromValues(
-        200 * Math.sin(angle),
-        50,
-        200 * Math.cos(angle)
+        6 * Math.sin(angle),
+        3,
+        6 * Math.cos(angle)
     );
     const centerPos = vec3.fromValues(0, 0, 0);
     const upVec = vec3.fromValues(0, 1, 0);
@@ -360,7 +360,7 @@ async function render() {
         const groundRotationMatrix = mat4.create();
         mat4.fromQuat(groundRotationMatrix, groundQuaternion);
         mat4.multiply(groundWorldMatrix, groundWorldMatrix, groundRotationMatrix);
-        mat4.scale(groundWorldMatrix, groundWorldMatrix, [200, 4, 200]);
+        mat4.scale(groundWorldMatrix, groundWorldMatrix, [4, 0.1, 4]);
 
         const groundMVPMatrix = mat4.create();
         mat4.multiply(groundMVPMatrix, projectionMatrix, viewMatrix);
@@ -407,7 +407,7 @@ async function render() {
         const boxRotationMatrix = mat4.create();
         mat4.fromQuat(boxRotationMatrix, boxQuaternion);
         mat4.multiply(boxWorldMatrix, boxWorldMatrix, boxRotationMatrix);
-        mat4.scale(boxWorldMatrix, boxWorldMatrix, [50, 50, 50]);
+        mat4.scale(boxWorldMatrix, boxWorldMatrix, [1, 1, 1]);
 
         const boxMVPMatrix = mat4.create();
         mat4.multiply(boxMVPMatrix, projectionMatrix, viewMatrix);
