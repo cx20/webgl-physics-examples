@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + Oimo.js Falling Marbles (glTF) Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/gl-matrix@3.4.4/gl-matrix-min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/oimo/1.0.9/oimo.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    cameraPos : vec4<f32>,
+    lightDir : vec4<f32>,
+    params0 : vec4<f32>,
+    params1 : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) worldPos : vec3<f32>,
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>
+) -> VSOut {
+    var out : VSOut;
+    let world = uniforms.model * vec4<f32>(position, 1.0);
+    out.Position = uniforms.viewProj * world;
+    out.normal = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    out.uv = uv;
+    out.worldPos = world.xyz;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    cameraPos : vec4<f32>,
+    lightDir : vec4<f32>,
+    params0 : vec4<f32>,
+    params1 : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var samp : sampler;
+@group(0) @binding(2) var tex : texture_2d<f32>;
+@group(0) @binding(3) var iridescenceTex : texture_2d<f32>;
+@group(0) @binding(4) var iridescenceThicknessTex : texture_2d<f32>;
+
+fn sq(x: f32) -> f32 {
+    return x * x;
+}
+
+fn fresnelSchlick(f0: vec3<f32>, cosTheta: f32) -> vec3<f32> {
+    let c = clamp(cosTheta, 0.0, 1.0);
+    return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - c, 5.0);
+}
+
+fn rainbowFromThickness(thickness: f32, ndotv: f32) -> vec3<f32> {
+    let phase = thickness * 0.045 * (1.0 - ndotv * 0.65);
+    let r = 0.5 + 0.5 * sin(phase + 0.0);
+    let g = 0.5 + 0.5 * sin(phase + 2.0943951);
+    let b = 0.5 + 0.5 * sin(phase + 4.1887902);
+    return vec3<f32>(r, g, b);
+}
+
+@fragment
+fn main(
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) worldPos : vec3<f32>
+) -> @location(0) vec4<f32> {
+    let lightDir = normalize(uniforms.lightDir.xyz);
+    let N = normalize(normal);
+    let V = normalize(uniforms.cameraPos.xyz - worldPos);
+    let ndotv = max(dot(N, V), 0.0);
+    let diffuse = max(dot(N, lightDir), 0.25);
+
+    let ior = max(uniforms.params0.x, 1.0);
+    let f0s = sq((ior - 1.0) / (ior + 1.0));
+    let fresnel = fresnelSchlick(vec3<f32>(f0s), ndotv);
+
+    var irFactor = uniforms.params0.y;
+    if (uniforms.params0.w > 0.5) {
+        irFactor = irFactor * textureSample(iridescenceTex, samp, uv).r;
+    }
+
+    var irThickness = uniforms.params1.y;
+    if (uniforms.params1.z > 0.5) {
+        let t = textureSample(iridescenceThicknessTex, samp, uv).g;
+        irThickness = mix(uniforms.params1.x, uniforms.params1.y, t);
+    }
+
+    let rainbow = rainbowFromThickness(irThickness, ndotv);
+    let irFresnel = fresnel * rainbow;
+    let specColor = mix(fresnel, irFresnel, clamp(irFactor, 0.0, 1.0));
+
+    let texColor = textureSample(tex, samp, uv);
+    let base = uniforms.baseColor * texColor;
+    let color = base.rgb * diffuse + specColor * 0.6;
+    return vec4<f32>(color, base.a);
+}
+</script>
+
+<canvas id="c"></canvas>
+
+<script type="module" src="index.js"></script>
+</body>
+</html>
