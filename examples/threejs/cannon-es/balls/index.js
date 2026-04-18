@@ -32,8 +32,8 @@ let bodys = [];
 
 function init() {
 
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(18, 20, 30);
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 300);
+    camera.position.set(10, 10, 16);
 
     scene = new THREE.Scene();
 
@@ -106,19 +106,19 @@ function addStaticBox(size, position, rotation, spec) {
 function initCannonPhysics() {
     let max = 200;
     let groundMaterial = new CANNON.Material('ground')
-    let groundShape = new CANNON.Box(new CANNON.Vec3(40/2, 4/2, 40/2));
+    let groundShape = new CANNON.Box(new CANNON.Vec3(20/2, 2/2, 20/2));
     let groundBody = new CANNON.Body({mass: 0, material: groundMaterial});
     groundBody.position.set(0, -2, 0);
     groundBody.addShape(groundShape);
     world.addBody(groundBody);
     
-    addStaticBox([40, 4, 40], [0, -2, 0], [0, 0, 0]);
+    addStaticBox([20, 2, 20], [0, -2, 0], [0, 0, 0]);
 
     let boxDataSet = [
-        { size:[10, 10,  1], pos:[ 0, 5,-5], rot:[0,0,0] },
-        { size:[10, 10,  1], pos:[ 0, 5, 5], rot:[0,0,0] },
-        { size:[ 1, 10, 10], pos:[-5, 5, 0], rot:[0,0,0] },
-        { size:[ 1, 10, 10], pos:[ 5, 5, 0], rot:[0,0,0] } 
+        { size:[5, 5,  0.5], pos:[ 0, 1.5,-2.5], rot:[0,0,0] },
+        { size:[5, 5,  0.5], pos:[ 0, 1.5, 2.5], rot:[0,0,0] },
+        { size:[ 0.5, 5, 5], pos:[-2.5, 1.5, 0], rot:[0,0,0] },
+        { size:[ 0.5, 5, 5], pos:[ 2.5, 1.5, 0], rot:[0,0,0] } 
     ];
 
     let surfaces = [];
@@ -139,7 +139,7 @@ function initCannonPhysics() {
 
     while (i--) {
         let x = -5 + Math.random() * 10;
-        let y = 20 + Math.random() * 10;
+        let y = 6 + Math.random() * 13;
         let z = -5 + Math.random() * 10;
         let w = 2 + Math.random() * 1;
         let h = 1 + Math.random() * 1;
@@ -147,7 +147,7 @@ function initCannonPhysics() {
 
         let pos = Math.floor(Math.random() * dataSet.length);
         let scale = dataSet[pos].scale;
-        w *= scale;
+        w *= scale * 0.5;
 
         let shape = new CANNON.Sphere(w/2);
         let ballMaterial = new CANNON.Material('ball')
@@ -188,7 +188,7 @@ function updateCannonPhysics() {
         
         if (mesh.position.y < -10) {
             let x = -5 + Math.random() * 10;
-            let y = 20 + Math.random() * 10;
+            let y = 10 + Math.random() * 8;
             let z = -5 + Math.random() * 10;
             body.angularVelocity.set(0, 0, 0);
             //body.velocity.set(0, 0, 0);

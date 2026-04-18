@@ -30,8 +30,8 @@ let bodys = [];
 
 function init() {
 
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(18, 20, 30);
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 300);
+    camera.position.set(10, 10, 16);
 
     scene = new THREE.Scene();
 
@@ -102,7 +102,7 @@ function initOimoPhysics() {
 
     // Is all the physics setting for rigidbody
     let groundShapec = new OIMO.ShapeConfig();
-    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(40/2, 4/2, 40/2));
+    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(20/2, 2/2, 20/2));
     groundShapec.friction  = 0.6;
     groundShapec.restitution  = 0.5;
     let groundBodyc = new OIMO.RigidBodyConfig();
@@ -112,13 +112,13 @@ function initOimoPhysics() {
     groundBody.addShape(new OIMO.Shape(groundShapec));
     world.addRigidBody(groundBody);
 
-    addStaticBox([40, 4, 40], [0, -2, 0], [0, 0, 0]);
+    addStaticBox([20, 2, 20], [0, -2, 0], [0, 0, 0]);
 
     let boxDataSet = [
-        { size:[10, 10,  1], pos:[ 0, 5,-5], rot:[0,0,0] },
-        { size:[10, 10,  1], pos:[ 0, 5, 5], rot:[0,0,0] },
-        { size:[ 1, 10, 10], pos:[-5, 5, 0], rot:[0,0,0] },
-        { size:[ 1, 10, 10], pos:[ 5, 5, 0], rot:[0,0,0] } 
+        { size:[5, 5,  0.5], pos:[ 0, 1.5,-2.5], rot:[0,0,0] },
+        { size:[5, 5,  0.5], pos:[ 0, 1.5, 2.5], rot:[0,0,0] },
+        { size:[ 0.5, 5, 5], pos:[-2.5, 1.5, 0], rot:[0,0,0] },
+        { size:[ 0.5, 5, 5], pos:[ 2.5, 1.5, 0], rot:[0,0,0] } 
     ];
 
     let surfaces = [];
@@ -144,7 +144,7 @@ function initOimoPhysics() {
 
     while (i--) {
         let x = -5 + Math.random() * 10;
-        let y = 20 + Math.random() * 10;
+        let y = 6 + Math.random() * 13;
         let z = -5 + Math.random() * 10;
         let w = 2 + Math.random() * 1;
         let h = 1 + Math.random() * 1;
@@ -152,7 +152,7 @@ function initOimoPhysics() {
 
         let pos = Math.floor(Math.random() * dataSet.length);
         let scale = dataSet[pos].scale;
-        w *= scale;
+        w *= scale * 0.5;
 
         let ballShapec = new OIMO.ShapeConfig();
         ballShapec.geometry = new OIMO.SphereGeometry(w/2);
@@ -200,7 +200,7 @@ function updateOimoPhysics() {
         // reset position
         if (mesh.position.y < -10) {
             let x = -5 + Math.random() * 10;
-            let y = 20 + Math.random() * 10;
+            let y = 10 + Math.random() * 8;
             let z = -5 + Math.random() * 10;
 
             body.setAngularVelocity(new OIMO.Vec3(0, 0, 0));

@@ -24,7 +24,7 @@ const createScene = function() {
 
     const camera = new BABYLON.ArcRotateCamera("Camera", 0.86, 1.37, 250, BABYLON.Vector3.Zero(), scene);
     camera.minZ /= 100; // TODO: If near is 1, the model is missing, so adjusted
-    camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -200 * PHYSICS_SCALE));
+    camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -300 * PHYSICS_SCALE));
     camera.attachControl(canvas, true);
 
     const mat = new BABYLON.StandardMaterial("ground", scene);
@@ -33,7 +33,7 @@ const createScene = function() {
     t.uScale = t.vScale = 2;
     mat.diffuseTexture = t;
     mat.specularColor = BABYLON.Color3.Black();
-    const g = BABYLON.Mesh.CreateBox("ground", 200 * PHYSICS_SCALE, scene);
+    const g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
     g.position.y = -15 * PHYSICS_SCALE;
     g.scaling.y = 0.01;
     g.material = mat;
