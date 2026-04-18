@@ -67,7 +67,7 @@ let app = clay.application.create('#main', {
         
         // Create a orthographic camera
         this._camera = app.createCamera(null, null, 'perspective');
-        this._camera.position.set(0, 0, 500);
+        this._camera.position.set(0, 0, 60);
         app.resize(window.innerWidth, window.innerHeight);
         // Create geometry
         let geometrySphere  = new clay.geometry.Sphere();
@@ -87,26 +87,26 @@ let app = clay.application.create('#main', {
         
         this._oimoGround = this._world.add({
            type: "box",
-            size: [400*2, 4*2, 400*2],
-            pos: [0, -80, 0],
+            size: [40*2, 0.4*2, 40*2],
+            pos: [0, -8, 0],
             rot: [0, 0, 0],
             move: false,
             density: 1
         });
         
-        let box_size = 8;
+        let box_size = 0.8;
         let i = 0;
         for (let y = 0; y < 16; y++) {
             for (let x = 0; x < 16; x++) {
                 i = (15 - x) + (15 - y) * 16;
                 //i = x + (15 - y) * 16;
-                let x1 = -130 + x * (box_size+1)*2 + Math.random();
-                let y1 = 30 + y * (box_size+1)*2 + Math.random();
-                let z1 = 0 + Math.random();
+                let x1 = -13 + x * (box_size + 0.1) * 2 + Math.random() * 0.1;
+                let y1 = 3 + y * (box_size + 0.1) * 2 + Math.random() * 0.1;
+                let z1 = Math.random() * 0.1;
                 let rgbColor = getRgbColor(dataSet[i]);
                 let meshSphere = app.createSphere({color:rgbColor, diffuseMap:diffuseFootball});
                 meshSphere.scale.set(box_size, box_size, box_size);
-                meshSphere.position.set(x1*2, y1*2, z1*2);
+                meshSphere.position.set(x1, y1, z1);
                 meshSpheres.push(meshSphere);
                 let oimoSphere = this._world.add({
                     type: "sphere",
@@ -122,8 +122,8 @@ let app = clay.application.create('#main', {
         this._rad = 0;
          
         this._meshGround = app.createMesh(geometryGround, materialGround);
-        this._meshGround.scale.set(400, 4, 400);
-        this._meshGround.position.set(0, -80, 0);
+        this._meshGround.scale.set(40, 0.4, 40);
+        this._meshGround.position.set(0, -8, 0);
         materialGround.set('diffuseMap', diffuse);
         
         app.createAmbientLight("#fff", 0.2);

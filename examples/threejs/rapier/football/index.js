@@ -74,9 +74,9 @@ async function init() {
 
     // Three.js の初期設定
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(8, 20, 50);
-    camera.lookAt(new THREE.Vector3(0, 10, 0));
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
+    camera.position.set(8, 10, 24);
+    camera.lookAt(new THREE.Vector3(0, 4, 0));
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -114,13 +114,13 @@ function initLights() {
 
 function initGround() {
     // Rapier の床のコライダー
-    const groundColliderDesc = RAPIER.ColliderDesc.cuboid(25, 0.5, 25);
+    const groundColliderDesc = RAPIER.ColliderDesc.cuboid(10, 0.2, 10);
     const groundBodyDesc = RAPIER.RigidBodyDesc.fixed();
     const groundBody = world.createRigidBody(groundBodyDesc);
     world.createCollider(groundColliderDesc, groundBody);
 
     // Three.js の床メッシュ
-    const box = createBox(50, 1, 50);
+    const box = createBox(20, 0.4, 20);
     scene.add(box);
 }
 
