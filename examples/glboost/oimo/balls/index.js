@@ -31,14 +31,14 @@ function init() {
     scene = glBoostContext.createScene();
 
     camera = glBoostContext.createPerspectiveCamera({
-        eye: new GLBoost.Vector3(0.0, 100, 200),
+        eye: new GLBoost.Vector3(0.0, 24, 48),
         center: new GLBoost.Vector3(0.0, 0.0, 0.0),
         up: new GLBoost.Vector3(0.0, 1.0, 0.0)
     }, {
         fovy: 45.0,
         aspect: width/height,
         zNear: 0.001,
-        zFar: 3000.0
+        zFar: 300.0
     });
     camera.cameraController = glBoostContext.createCameraController();
     scene.addChild(camera);
@@ -74,8 +74,8 @@ function populate() {
 
     let ground2 = world.add({
         type: "box",
-        size: [400, 40, 400],
-        pos: [0, -20, 0],
+        size: [20, 2, 20],
+        pos: [0, -1, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
@@ -83,13 +83,13 @@ function populate() {
         restitution: 0.1,
     });
     
-    addStaticBox([400, 40, 400], [0,-20,0], [0,0,0]);
+    addStaticBox([20, 2, 20], [0,-1,0], [0,0,0]);
     
     let boxDataSet = [
-        { size:[100, 100,  10], pos:[  0, 50,-50], rot:[0,0,0] },
-        { size:[100, 100,  10], pos:[  0, 50, 50], rot:[0,0,0] },
-        { size:[ 10, 100, 100], pos:[-50, 50,  0], rot:[0,0,0] },
-        { size:[ 10, 100, 100], pos:[ 50, 50,  0], rot:[0,0,0] } 
+        { size:[5, 5,  0.5], pos:[  0, 2.5,-2.5], rot:[0,0,0] },
+        { size:[5, 5,  0.5], pos:[  0, 2.5, 2.5], rot:[0,0,0] },
+        { size:[ 0.5, 5, 5], pos:[-2.5, 2.5,  0], rot:[0,0,0] },
+        { size:[ 0.5, 5, 5], pos:[ 2.5, 2.5,  0], rot:[0,0,0] } 
     ];
     
     let surfaces = [];
@@ -130,12 +130,12 @@ function populate() {
     let x, y, z;
     let i = max;
     while (i--){
-        x = -50 + Math.random()*100;
-        y = 200 + Math.random()*100;
-        z = -50 + Math.random()*100;
-        w = 20 + Math.random()*10;
-        h = 10 + Math.random()*10;
-        d = 10 + Math.random()*10;
+        x = -5 + Math.random()*10;
+        y = 10 + Math.random()*5;
+        z = -5 + Math.random()*10;
+        w = 1 + Math.random()*0.5;
+        h = 0.5 + Math.random()*0.5;
+        d = 0.5 + Math.random()*0.5;
         let pos = Math.floor(Math.random() * dataSet.length);
         let scale = dataSet[pos].scale;
         w *= scale;
@@ -197,10 +197,10 @@ function animate() {
         let q = body.getQuaternion();
         mesh.translate = new GLBoost.Vector3(p.x, p.y, p.z);
         mesh.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
-        if ( p.y < -300 ) {
-            x = -50 + Math.random()*100;
-            y = 200 + Math.random()*100;
-            z = -50 + Math.random()*100;
+        if ( p.y < -15 ) {
+            x = -5 + Math.random()*10;
+            y = 10 + Math.random()*5;
+            z = -5 + Math.random()*10;
             bodys[i].resetPosition(x, y, z);
         }
     }

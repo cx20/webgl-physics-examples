@@ -3,7 +3,7 @@ import Module from 'https://esm.run/manifold-3d';
 const { mat4, vec3, quat } = glMatrix;
 
 const BALL_COUNT = 140;
-const BASKET_HALF = 5;
+const BASKET_HALF = 2.5;
 const WALL_RENDER_Y_OFFSET = 0.03;
 const TEXTURE_FILES = [
     '../../../../assets/textures/Basketball.jpg',
@@ -12,6 +12,7 @@ const TEXTURE_FILES = [
     '../../../../assets/textures/Softball.jpg',
     '../../../../assets/textures/TennisBall.jpg'
 ];
+const BALL_SIZE_SCALES = [1.0, 0.9, 1.0, 0.3, 0.3];
 
 let canvas;
 let gl;
@@ -242,12 +243,12 @@ function initPhysics() {
         gravity: [0, -9.8, 0]
     });
 
-    ground = { size: [40, 4, 40], pos: [0, -2, 0] };
+    ground = { size: [20, 2, 20], pos: [0, -2, 0] };
     basketWalls = [
-        { size: [9.6, 10, 0.8], pos: [0, 5, -5] },
-        { size: [9.6, 10, 0.8], pos: [0, 5, 5] },
-        { size: [0.8, 10, 9.6], pos: [-5, 5, 0] },
-        { size: [0.8, 10, 9.6], pos: [5, 5, 0] }
+        { size: [4.8, 5, 0.4], pos: [0, 1.5, -2.5] },
+        { size: [4.8, 5, 0.4], pos: [0, 1.5, 2.5] },
+        { size: [0.4, 5, 4.8], pos: [-2.5, 1.5, 0] },
+        { size: [0.4, 5, 4.8], pos: [2.5, 1.5, 0] }
     ];
 
     world.add({
@@ -276,13 +277,14 @@ function initPhysics() {
 
     balls = [];
     for (let i = 0; i < BALL_COUNT; i++) {
-        const radius = 0.5 + Math.random() * 0.45;
+        const textureIndex = Math.floor(Math.random() * BALL_SIZE_SCALES.length);
+        const radius = (0.5 + Math.random() * 0.25) * BALL_SIZE_SCALES[textureIndex];
         const body = world.add({
             type: 'sphere',
             size: [radius],
             pos: [
                 (Math.random() - 0.5) * (BASKET_HALF * 1.4),
-                12 + Math.random() * 26,
+                6 + Math.random() * 13,
                 (Math.random() - 0.5) * (BASKET_HALF * 1.4)
             ],
             rot: [0, 0, 0],
@@ -294,7 +296,7 @@ function initPhysics() {
         balls.push({
             body,
             radius,
-            textureIndex: i % textures.length
+            textureIndex
         });
     }
 }
@@ -316,16 +318,16 @@ function render(timeMs) {
         if (p.y < -20) {
             item.body.resetPosition(
                 (Math.random() - 0.5) * (BASKET_HALF * 1.4),
-                20 + Math.random() * 16,
+                10 + Math.random() * 8,
                 (Math.random() - 0.5) * (BASKET_HALF * 1.4)
             );
         }
     }
 
     const t = timeMs * 0.001;
-    const eye = vec3.fromValues(Math.sin(t * 0.2) * 28, 18, Math.cos(t * 0.2) * 28);
-    mat4.lookAt(view, eye, [0, 5, 0], [0, 1, 0]);
-    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 200);
+    const eye = vec3.fromValues(Math.sin(t * 0.2) * 24, 12, Math.cos(t * 0.2) * 24);
+    mat4.lookAt(view, eye, [0, 4, 0], [0, 1, 0]);
+    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 150);
     mat4.multiply(viewProj, projection, view);
 
     gl.clearColor(0.97, 0.97, 0.98, 1.0);

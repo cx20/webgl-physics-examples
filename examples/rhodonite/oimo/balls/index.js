@@ -66,16 +66,16 @@ const load = async function() {
         tag: "type",
         value: "ground"
     });
-    entity1.scale = Rn.Vector3.fromCopyArray([40 * PHYSICS_SCALE, 4 * PHYSICS_SCALE, 40 * PHYSICS_SCALE]);
-    entity1.position = Rn.Vector3.fromCopyArray([0, -2 * PHYSICS_SCALE, 0]);
+    entity1.scale = Rn.Vector3.fromCopyArray([200 * PHYSICS_SCALE, 20 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
+    entity1.position = Rn.Vector3.fromCopyArray([0, -20 * PHYSICS_SCALE, 0]);
     entities.push(entity1);
 
     // Box walls
     const boxDataSet = [
-        { size:[10, 10,  1], pos:[ 0, 5,-5] }, // front
-        { size:[10, 10,  1], pos:[ 0, 5, 5] }, // back
-        { size:[ 1, 10, 10], pos:[-5, 5, 0] }, // left
-        { size:[ 1, 10, 10], pos:[ 5, 5, 0] }  // right
+        { size:[48, 50,  4], pos:[ 0, 15,-25] }, // front
+        { size:[48, 50,  4], pos:[ 0, 15, 25] }, // back
+        { size:[ 4, 50, 48], pos:[-25, 15, 0] }, // left
+        { size:[ 4, 50, 48], pos:[ 25, 15, 0] }  // right
     ];
 
     for (let i = 0; i < boxDataSet.length; i++) {
@@ -105,11 +105,11 @@ const load = async function() {
 
 	// camera
 	const cameraEntity = Rn.createCameraControllerEntity(engine);
-	cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 15 * PHYSICS_SCALE, 30 * PHYSICS_SCALE]);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 100 * PHYSICS_SCALE, 160 * PHYSICS_SCALE]);
 	cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.1, 0.0, 0.0]);
 	const cameraComponent = cameraEntity.getCamera();
 	cameraComponent.zNear = 0.1;
-	cameraComponent.zFar = 1000;
+	cameraComponent.zFar = 400;
 	cameraComponent.setFovyAndChangeFocalLength(60);
 	cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
@@ -151,10 +151,10 @@ function populate(textures, sampler) {
     const max = 200;
     
     for (let i = 0; i < max; i++) {
-        const x = -5 + Math.random() * 10;
-        const y = 20 + Math.random() * 10;
-        const z = -5 + Math.random() * 10;
-        const w = 2 + Math.random() * 1;
+        const x = -25 + Math.random() * 50;
+        const y = 60 + Math.random() * 130;
+        const z = -25 + Math.random() * 50;
+        const w = 10 + Math.random() * 5;
 
         const pos = Math.floor(Math.random() * dataSet.length);
         const scale = dataSet[pos].scale;

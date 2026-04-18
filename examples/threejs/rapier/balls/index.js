@@ -28,8 +28,8 @@ async function init() {
     await RAPIER.init();
     
     // Three.js の初期設定
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(18, 20, 30);
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 300);
+    camera.position.set(10, 10, 16);
 
     scene = new THREE.Scene();
 
@@ -108,13 +108,13 @@ function initRapierPhysics() {
     let groundBody = world.createRigidBody(groundBodyDesc);
     world.createCollider(groundColliderDesc, groundBody);
 
-    addStaticBox([40, 4, 40], [0, -2, 0], [0, 0, 0]);
+    addStaticBox([20, 2, 20], [0, -2, 0], [0, 0, 0]);
 
     let boxDataSet = [
-        { size: [10, 10,  1], pos: [ 0, 5, -5], rot: [0, 0, 0] },
-        { size: [10, 10,  1], pos: [ 0, 5,  5], rot: [0, 0, 0] },
-        { size: [ 1, 10, 10], pos: [-5, 5,  0], rot: [0, 0, 0] },
-        { size: [ 1, 10, 10], pos: [ 5, 5,  0], rot: [0, 0, 0] }
+        { size: [5, 5,  0.5], pos: [ 0, 1.5, -2.5], rot: [0, 0, 0] },
+        { size: [5, 5,  0.5], pos: [ 0, 1.5,  2.5], rot: [0, 0, 0] },
+        { size: [ 0.5, 5, 5], pos: [-2.5, 1.5,  0], rot: [0, 0, 0] },
+        { size: [ 0.5, 5, 5], pos: [ 2.5, 1.5,  0], rot: [0, 0, 0] }
     ];
 
     for (let i = 0; i < boxDataSet.length; i++) {
@@ -130,13 +130,13 @@ function initRapierPhysics() {
     // ボールの初期化
     for (let i = 0; i < 200; i++) {
         const x = -5 + Math.random() * 10;
-        const y = 20 + Math.random() * 10;
+        const y = 6 + Math.random() * 13;
         const z = -5 + Math.random() * 10;
         const w = 1;
 
         const pos = Math.floor(Math.random() * dataSet.length);
         const scale = dataSet[pos].scale;
-        const radius = w * scale;
+        const radius = w * scale * 0.5;
 
         const colliderDesc = RAPIER.ColliderDesc.ball(radius);
         const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z);
@@ -145,7 +145,7 @@ function initRapierPhysics() {
         bodys[i] = body;
 
         const mesh = new THREE.Mesh(buffgeoSphere, matSpheres[pos]);
-        mesh.scale.set(scale, scale, scale);
+        mesh.scale.set(scale * 0.5, scale * 0.5, scale * 0.5);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
@@ -170,7 +170,7 @@ function updatePhysics() {
         // 床を超えて落ちたオブジェクトの位置をリセット
         if (mesh.position.y < -10) {
             const x = -5 + Math.random() * 10;
-            const y = 20 + Math.random() * 10;
+            const y = 10 + Math.random() * 8;
             const z = -5 + Math.random() * 10;
             body.setTranslation({ x, y, z }, true);
 

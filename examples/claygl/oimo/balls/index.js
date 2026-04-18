@@ -19,7 +19,7 @@ let app = clay.application.create('#main', {
         
         // Create a orthographic camera
         this._camera = app.createCamera(null, null, 'perspective');
-        this._camera.position.set(0, 0, 500);
+        this._camera.position.set(0, 0, 60);
         this._rad = 0;
         app.resize(window.innerWidth, window.innerHeight);
          
@@ -56,16 +56,16 @@ let app = clay.application.create('#main', {
 
         this._oimoGround = this._world.add({
            type: "box",
-            size: [400*2, 4*2, 400*2],
-            pos: [0, -80, 0],
+            size: [40*2, 0.4*2, 40*2],
+            pos: [0, -8, 0],
             rot: [0, 0, 0],
             move: false,
             density: 1
         });
 
         this._meshGround = app.createMesh(geometryGround, materialGround);
-        this._meshGround.scale.set(400, 4, 400);
-        this._meshGround.position.set(0, -80, 0);
+        this._meshGround.scale.set(40, 0.4, 40);
+        this._meshGround.position.set(0, -8, 0);
         materialGround.set('diffuseMap', diffuse);
         
     },
@@ -83,10 +83,10 @@ let app = clay.application.create('#main', {
         materialSurface.set('alpha', 0.5);
     
         let boxDataSet = [
-            { size:[100, 100,  10], pos:[  0, 50,-50], rot:[0,0,0] },
-            { size:[100, 100,  10], pos:[  0, 50, 50], rot:[0,0,0] },
-            { size:[ 10, 100, 100], pos:[-50, 50,  0], rot:[0,0,0] },
-            { size:[ 10, 100, 100], pos:[ 50, 50,  0], rot:[0,0,0] } 
+            { size:[10, 10,  1], pos:[  0, 5,-5], rot:[0,0,0] },
+            { size:[10, 10,  1], pos:[  0, 5, 5], rot:[0,0,0] },
+            { size:[ 1, 10, 10], pos:[-5, 5,  0], rot:[0,0,0] },
+            { size:[ 1, 10, 10], pos:[ 5, 5,  0], rot:[0,0,0] } 
         ];
         let geometrySurface = new clay.geometry.Cube();
         let surfaces = [];
@@ -98,12 +98,12 @@ let app = clay.application.create('#main', {
                 geometrySurface,
                 materialSurface
             );
-            meshSurface.position.set(pos[0], pos[1] - 80, pos[2]);
+            meshSurface.position.set(pos[0], pos[1] - 8, pos[2]);
             meshSurface.scale.set(size[0]/2, size[1]/2, size[2]/2);
             let oimoGround = this._world.add({
                 type: "box",
                 size: [size[0], size[1], size[2]],
-                pos: [pos[0], pos[1] - 80, pos[2]],
+                pos: [pos[0], pos[1] - 8, pos[2]],
                 rot: [0, 0, 0],
                 move: false,
                 density: 1
