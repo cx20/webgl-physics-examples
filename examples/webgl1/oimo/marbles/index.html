@@ -33,9 +33,12 @@ precision mediump float;
 uniform sampler2D uTexture;
 uniform sampler2D uIridescenceMap;
 uniform sampler2D uIridescenceThicknessMap;
+uniform samplerCube uEnvCubeMap;
 uniform bool uHasTexture;
 uniform bool uHasIridescenceMap;
 uniform bool uHasIridescenceThicknessMap;
+uniform bool uHasEnvCubeMap;
+uniform bool uUnlitTextureOnly;
 uniform vec4 uBaseColor;
 uniform vec3 uLightDir;
 uniform vec3 uCameraPos;
@@ -44,6 +47,11 @@ uniform float uIridescenceFactor;
 uniform float uIridescenceIor;
 uniform float uIridescenceThicknessMin;
 uniform float uIridescenceThicknessMax;
+uniform float uEnvIntensity;
+uniform float uEnvExposure;
+uniform float uEnvDiffuseStrength;
+uniform float uMetallic;
+uniform float uRoughness;
 varying vec3 vNormal;
 varying vec2 vTexCoord;
 varying vec3 vWorldPos;
@@ -140,13 +148,17 @@ vec3 evalIridescence(float outsideIor, float eta2, float cosTheta1, float thinFi
 
 void main() {
     vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
     vec3 V = normalize(uCameraPos - vWorldPos);
+    vec3 H = normalize(L + V);
     float NdotV = max(dot(N, V), 0.0);
-    float diffuse = max(dot(N, normalize(uLightDir)), 0.25);
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotH = max(dot(N, H), 0.0);
 
     float ior = max(1.0, uIor);
     float f0 = pow((ior - 1.0) / (ior + 1.0), 2.0);
-    vec3 fresnel = fresnelSchlick(vec3(f0), NdotV);
+    vec3 baseF0 = mix(vec3(f0), uBaseColor.rgb, clamp(uMetallic, 0.0, 1.0));
+    vec3 fresnel = fresnelSchlick(baseF0, NdotV);
 
     float irFactor = uIridescenceFactor;
     if (uHasIridescenceMap) {
@@ -163,11 +175,67 @@ void main() {
         base *= texture2D(uTexture, vTexCoord);
     }
 
-    vec3 irFresnel = evalIridescence(1.0, uIridescenceIor, NdotV, irThickness, vec3(f0));
-    vec3 specColor = mix(fresnel, irFresnel, clamp(irFactor, 0.0, 1.0));
-    vec3 color = base.rgb * diffuse + specColor * 0.6;
+    if (uUnlitTextureOnly) {
+        gl_FragColor = vec4(base.rgb, base.a);
+        return;
+    }
+
+    vec3 irFresnel = evalIridescence(1.0, uIridescenceIor, NdotV, irThickness, baseF0);
+    float irMix = clamp(irFactor * 1.25, 0.0, 1.0);
+    vec3 specColor = mix(fresnel, irFresnel, irMix);
+
+    float roughness = clamp(uRoughness, 0.04, 1.0);
+    float metallic = clamp(uMetallic, 0.0, 1.0);
+    float shininess = mix(256.0, 8.0, roughness * roughness);
+    float specLobe = pow(max(NdotH, 0.0), shininess);
+
+    float kd = (1.0 - metallic) * (1.0 - max(max(specColor.r, specColor.g), specColor.b));
+    vec3 directDiffuse = base.rgb * (0.15 + 0.85 * NdotL) * kd;
+    vec3 directSpec = specColor * specLobe * mix(0.3, 1.1, metallic);
+
+    vec3 color = directDiffuse + directSpec;
+
+    if (uHasEnvCubeMap) {
+        vec3 R = normalize(reflect(-V, N));
+        vec3 blurredR = normalize(mix(R, N, roughness * roughness));
+        vec3 envDiffuse = textureCube(uEnvCubeMap, N).rgb * uEnvExposure;
+        vec3 envSpec = textureCube(uEnvCubeMap, blurredR).rgb * uEnvExposure;
+
+        color += base.rgb * envDiffuse * ((0.08 + 0.22 * (1.0 - roughness)) * kd * uEnvIntensity * uEnvDiffuseStrength);
+        color += specColor * envSpec * ((0.65 + 0.55 * metallic) * uEnvIntensity);
+    }
+
+    color = color / (color + vec3(1.0));
+    color = pow(color, vec3(1.0 / 2.2));
 
     gl_FragColor = vec4(color, base.a);
+}
+</script>
+
+<script id="skybox-vs" type="x-shader/x-vertex">
+attribute vec3 aPosition;
+uniform mat4 uProjection;
+uniform mat4 uViewNoTranslation;
+varying vec3 vDir;
+
+void main() {
+    vDir = aPosition;
+    vec4 pos = uProjection * uViewNoTranslation * vec4(aPosition, 1.0);
+    gl_Position = pos.xyww;
+}
+</script>
+
+<script id="skybox-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform samplerCube uEnvCubeMap;
+uniform float uEnvExposure;
+varying vec3 vDir;
+
+void main() {
+    vec3 env = textureCube(uEnvCubeMap, normalize(vDir)).rgb * uEnvExposure;
+    env = env / (env + vec3(1.0));
+    env = pow(env, vec3(1.0 / 2.2));
+    gl_FragColor = vec4(env, 1.0);
 }
 </script>
 
