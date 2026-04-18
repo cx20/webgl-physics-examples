@@ -219,7 +219,7 @@ function init() {
     let width = window.innerWidth;
     let height = window.innerHeight;
 
-    let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 300);
     camera.position.x = 0;
     camera.position.y = 100 * SCALE;
     camera.position.z = 150 * SCALE;

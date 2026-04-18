@@ -1,4 +1,4 @@
-﻿let DOT_SIZE = 8;
+﻿let DOT_SIZE = 0.8;
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
@@ -78,14 +78,14 @@ function init() {
     scene = glBoostContext.createScene();
 
     camera = glBoostContext.createPerspectiveCamera({
-        eye: new GLBoost.Vector3(0.0, 50, 100),
+        eye: new GLBoost.Vector3(0.0, 12, 24),
         center: new GLBoost.Vector3(0.0, 0.0, 0.0),
         up: new GLBoost.Vector3(0.0, 1.0, 0.0)
     }, {
         fovy: 45.0,
         aspect: width/height,
         zNear: 0.001,
-        zFar: 3000.0
+        zFar: 300.0
     });
     camera.cameraController = glBoostContext.createCameraController();
     scene.addChild(camera);
@@ -100,7 +100,7 @@ function init() {
     material.setTexture(texture);
     material.baseColor = new GLBoost.Vector4(1, 1, 1, 1);
 
-    let geo1 = glBoostContext.createCube(new GLBoost.Vector3(200, 2, 200), new GLBoost.Vector4(1, 1, 1, 1));
+    let geo1 = glBoostContext.createCube(new GLBoost.Vector3(20, 0.4, 20), new GLBoost.Vector4(1, 1, 1, 1));
     mground1 = glBoostContext.createMesh(geo1, material);
     mground1.dirty = true;
     scene.addChild(mground1);
@@ -133,8 +133,8 @@ function populate() {
 
     groundBody = world.add({
         type: "box",
-        size: [200, 2, 200],
-        pos: [0, -20, 0],
+        size: [20, 0.4, 20],
+        pos: [0, -2, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,

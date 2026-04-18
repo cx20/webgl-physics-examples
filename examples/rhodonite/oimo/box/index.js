@@ -97,8 +97,8 @@ const load = async function() {
         tag: "type",
         value: "ground"
     });
-    entity1.scale = Rn.Vector3.fromCopyArray([400 * PHYSICS_SCALE, 0.4 * PHYSICS_SCALE, 400 * PHYSICS_SCALE]);
-    entity1.position = Rn.Vector3.fromCopyArray([0, -100 * PHYSICS_SCALE, 0]);
+    entity1.scale = Rn.Vector3.fromCopyArray([200 * PHYSICS_SCALE, 0.4 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
+    entity1.position = Rn.Vector3.fromCopyArray([0, -50 * PHYSICS_SCALE, 0]);
     entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', grassTexture, sampler);
     entities.push(entity1);
 
@@ -106,11 +106,11 @@ const load = async function() {
 
     // camera
     const cameraEntity = Rn.createCameraControllerEntity(engine);
-    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 50 * PHYSICS_SCALE, 500 * PHYSICS_SCALE]);
+    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 30 * PHYSICS_SCALE, 240 * PHYSICS_SCALE]);
     cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([0.0, 0.0, 0.0]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
-    cameraComponent.zFar = 1000;
+    cameraComponent.zFar = 400;
     cameraComponent.setFovyAndChangeFocalLength(40);
     cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
