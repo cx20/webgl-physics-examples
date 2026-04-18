@@ -281,10 +281,10 @@ function init(PhysX) {
     console.log('Created scene');
     
     // create three.js scene
-    const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 1000 );
+    const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 300 );
     camera.position.x = 0;
-    camera.position.y = 200 * SCALE;
-    camera.position.z = 300 * SCALE;
+    camera.position.y = 120 * SCALE;
+    camera.position.z = 180 * SCALE;
 
     const sceneThree = new THREE.Scene();
     

@@ -66,11 +66,11 @@ let rad = 0;
 function initScene() {
     camera = new Hilo3d.PerspectiveCamera({
         aspect: innerWidth / innerHeight,
-        far: 1000,
+        far: 200,
         near: 0.1,
         x: 0,
-        y: 50,
-        z: 200
+        y: 10,
+        z: 20
     });
 
     stage = new Hilo3d.Stage({
@@ -114,9 +114,9 @@ function addGround() {
     geometryGround.setAllRectUV([[0, 1], [1, 1], [1, 0], [0, 0]]);
 
     meshGround = new Hilo3d.Mesh({
-        scaleX: 200,
-        scaleY: 4,
-        scaleZ: 200,
+        scaleX: 20,
+        scaleY: 0.4,
+        scaleZ: 20,
         x: 0,
         y: 0,
         z: 0,
@@ -129,7 +129,7 @@ function addGround() {
 
     oimoGround = world.add({
         type: "box",
-        size: [200, 4, 200],
+        size: [20, 0.4, 20],
         pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
@@ -139,7 +139,7 @@ function addGround() {
 }
 
 function addBox() {
-    let DOT_SIZE = 8;
+    let DOT_SIZE = 0.8;
     let w = DOT_SIZE*0.2;
     let h = DOT_SIZE*1.5;
     let d = DOT_SIZE;
@@ -184,7 +184,7 @@ function addBox() {
 }
 
 function addBox2() {
-    let DOT_SIZE = 8;
+    let DOT_SIZE = 0.8;
     let w = DOT_SIZE;
     let h = DOT_SIZE;
     let d = DOT_SIZE;
@@ -245,7 +245,7 @@ function animate() {
         }
         
         camera.lookAt( new Hilo3d.Vector3(0,0,0));
-        camera.setPosition( 200 * Math.sin(rad), 100, 200 * Math.cos(rad));
+        camera.setPosition( 20 * Math.sin(rad), 10, 20 * Math.cos(rad));
         
         rad += Math.PI/180 * 0.1;
     };

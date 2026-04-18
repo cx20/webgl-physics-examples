@@ -61,9 +61,9 @@ async function init() {
 
     // Three.js シーンの初期化
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(8, 20, 50);
-    camera.lookAt(new THREE.Vector3(0, 10, 0));
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
+    camera.position.set(8, 10, 24);
+    camera.lookAt(new THREE.Vector3(0, 4, 0));
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);

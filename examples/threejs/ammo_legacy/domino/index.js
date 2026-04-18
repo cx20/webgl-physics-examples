@@ -302,10 +302,10 @@ function init() {
     let width = window.innerWidth;
     let height = window.innerHeight;
 
-    let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 300);
     camera.position.x = 0;
-    camera.position.y = 200 * SCALE;
-    camera.position.z = 300 * SCALE;
+    camera.position.y = 120 * SCALE;
+    camera.position.z = 180 * SCALE;
     camera.lookAt(new THREE.Vector3(0, 0, 0));
 
     scene = new THREE.Scene();

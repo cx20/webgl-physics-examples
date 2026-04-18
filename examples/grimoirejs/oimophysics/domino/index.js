@@ -56,7 +56,7 @@ gr(function() {
     for ( let x = 0; x < 16; x++ ) {
         for ( let z = 0; z < 16; z ++ ) {
             i = x + (z) * 16;
-            y = -3.5;
+            y = 0.8;
             const n = scene.addChildByName("rigid-cube", {
                 albedo: getRgbColor(dataSet[i]),
                 scale: [0.2 * 0.5, 1.2 * 0.5, 1.0 * 0.5],
@@ -66,7 +66,7 @@ gr(function() {
     }
     for ( i = 0; i < 16; i++ ) {
         x = -0.4;
-        y = -2;
+        y = 1.6;
         z = i;
         const n = scene.addChildByName("rigid-cube", {
             albedo: "#ff0000",

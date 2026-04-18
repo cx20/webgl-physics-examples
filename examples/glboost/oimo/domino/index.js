@@ -1,4 +1,4 @@
-﻿let DOT_SIZE = 8;
+﻿let DOT_SIZE = 0.8;
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
@@ -78,14 +78,14 @@ function init() {
     scene = glBoostContext.createScene();
 
     camera = glBoostContext.createPerspectiveCamera({
-        eye: new GLBoost.Vector3(0.0, 50, 100),
-        center: new GLBoost.Vector3(0.0, 0.0, 0.0),
+        eye: new GLBoost.Vector3(0.0, 6, 12),
+        center: new GLBoost.Vector3(0.0, 2.0, 0.0),
         up: new GLBoost.Vector3(0.0, 1.0, 0.0)
     }, {
         fovy: 45.0,
         aspect: width/height,
         zNear: 0.001,
-        zFar: 3000.0
+        zFar: 120.0
     });
     camera.cameraController = glBoostContext.createCameraController();
     scene.addChild(camera);
@@ -100,14 +100,14 @@ function init() {
     material.setTexture(texture);
     material.baseColor = new GLBoost.Vector4(1, 1, 1, 1);
 
-    let geo1 = glBoostContext.createCube(new GLBoost.Vector3(200, 2, 200), new GLBoost.Vector4(1, 1, 1, 1));
+    let geo1 = glBoostContext.createCube(new GLBoost.Vector3(20, 0.2, 20), new GLBoost.Vector4(1, 1, 1, 1));
     mground1 = glBoostContext.createMesh(geo1, material);
     mground1.dirty = true;
     scene.addChild(mground1);
 
     // oimo init
     world = new OIMO.World({ 
-        timestep: 1/10, 
+        timestep: 1/60, 
         iterations: 8, 
         broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
         worldscale: 1, // scale full world 
@@ -133,8 +133,8 @@ function populate() {
 
     groundBody = world.add({
         type: "box",
-        size: [200, 2, 200],
-        pos: [0, -20, 0],
+        size: [20, 0.2, 20],
+        pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
@@ -157,7 +157,7 @@ function populate() {
         for ( let z = 0; z < 16; z ++ ) {
             i = x + (z) * 16;
             let c = getRgbColor(dataSet[i]);
-            y = 0;
+            y = 1;
             bodys[i] = world.add({
                 type: "box",
                 size: [w, h, d],
@@ -187,7 +187,7 @@ function populate() {
         h = DOT_SIZE;
         d = DOT_SIZE;
         x = 0;
-        y = 2;
+        y = 3;
         z = i;
         bodys[size+i] = world.add({
             type: "box",
