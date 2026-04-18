@@ -113,7 +113,7 @@ class Plane {
 
     initThreeObj() {
         let s = this.s;
-        let geometry = new THREE.BoxGeometry(s, 1 * SCALE, s);
+        let geometry = new THREE.BoxGeometry(s, 2 * SCALE, s);
         let material = new THREE.MeshBasicMaterial({
             map: texture
         });
@@ -127,7 +127,7 @@ class Plane {
 
     initBulletObj(m) {
         let s = this.s;
-        let tmpVec = new Ammo.btVector3(s / 2, 0 / 2, s / 2);
+        let tmpVec = new Ammo.btVector3(s / 2, 0.05, s / 2);
         let shape = new Ammo.btBoxShape(tmpVec);
         Ammo.destroy(tmpVec);
         let startTransform = new Ammo.btTransform();
@@ -169,15 +169,15 @@ function init() {
     let width = window.innerWidth;
     let height = window.innerHeight;
 
-    let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    let camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
     camera.position.x = 0;
-    camera.position.y = 50 * SCALE;
-    camera.position.z = 200 * SCALE;
+    camera.position.y = 60 * SCALE;
+    camera.position.z = 120 * SCALE;
 
     scene = new THREE.Scene();
 
     world = initWorld();
-    let ground = new Plane(0, 0, 0, 200 * SCALE, 0, 0xdddddd);
+    let ground = new Plane(0, 0, 0, 80 * SCALE, 0, 0xdddddd);
     scene.add(ground.threeObj);
     world.addRigidBody(ground.bulletObj);
 
@@ -217,11 +217,11 @@ function init() {
 function createBox() {
     let z = 0;
     let x1 = 0;
-    let y1 = 50 * SCALE;
+    let y1 = 40 * SCALE;
     let z1 = 0;
-    let w = 50 * SCALE;
-    let h = 50 * SCALE;
-    let d = 50 * SCALE;
+    let w = 20 * SCALE;
+    let h = 20 * SCALE;
+    let d = 20 * SCALE;
     let box = new Box(x1, y1, z1, w, h, d, 10);
     scene.add(box.threeObj);
     world.addRigidBody(box.bulletObj);

@@ -177,10 +177,10 @@ async function initBuffers() {
 
 function addGround() {
     let groundShapec = new OIMO.ShapeConfig();
-    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(100, 1, 100));
+    groundShapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(2, 0.05, 2));
     let groundBodyc = new OIMO.RigidBodyConfig();
     groundBodyc.type = OIMO.RigidBodyType.STATIC;
-    groundBodyc.position = new OIMO.Vec3(0, -20, 0);
+    groundBodyc.position = new OIMO.Vec3(0, 0, 0);
     groundBody = new OIMO.RigidBody(groundBodyc);
     groundBody.addShape(new OIMO.Shape(groundShapec));
     world.addRigidBody(groundBody);
@@ -188,10 +188,10 @@ function addGround() {
 
 function addCube() {
     let shapec = new OIMO.ShapeConfig();
-    shapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(25, 25, 25));
+    shapec.geometry = new OIMO.BoxGeometry(new OIMO.Vec3(0.5, 0.5, 0.5));
     let bodyc = new OIMO.RigidBodyConfig();
     bodyc.type = OIMO.RigidBodyType.DYNAMIC;
-    bodyc.position = new OIMO.Vec3(0, 100, 0);
+    bodyc.position = new OIMO.Vec3(0, 2, 0);
     body = new OIMO.RigidBody(bodyc);
     body.setRotationXyz(new OIMO.Vec3(Math.PI*10/180, 0, Math.PI*10/180));
     body.addShape(new OIMO.Shape(shapec));
@@ -213,13 +213,13 @@ async function draw() {
     let rot = body.getOrientation();
 
     // Camera
-    const camera = new Vector3(200 * Math.sin(rad), 50, 200 * Math.cos(rad));
+    const camera = new Vector3(6 * Math.sin(rad), 3, 6 * Math.cos(rad));
     const lookAt = new Vector3(0, 0, 0);
     const cameraUpDirection = new Vector3(0, 1, 0);
     const view = Matrix4.lookAt(camera, lookAt, cameraUpDirection);
     
     // Cube
-    let pMatrix = Matrix4.perspective({fovYRadian: 45 * Math.PI/180, aspectRatio: window.innerWidth/window.innerHeight, near: 0.1, far: 1000});
+    let pMatrix = Matrix4.perspective({fovYRadian: 45 * Math.PI/180, aspectRatio: window.innerWidth/window.innerHeight, near: 0.1, far: 100});
     let identity = Matrix4.identity();
     let translation = Matrix4.translation(pos.x, pos.y, pos.z);
     let q = new Quaternion(rot.x, rot.y, rot.z, rot.w);
@@ -227,7 +227,7 @@ async function draw() {
     let mvMatrix = identity.mulByMatrix4(translation)
                            .mulByMatrix4(view)
                            .mulByMatrix4(rotation)
-                           .scale(50, 50, 50)
+                           .scale(1, 1, 1)
     
     if ( uMVMatrix !== undefined ) uMVMatrix.setMatrix(mvMatrix.values);
     if ( uPMatrix !== undefined ) uPMatrix.setMatrix(pMatrix.values);
@@ -244,7 +244,7 @@ async function draw() {
     mvMatrix = identity.mulByMatrix4(translation)
                        .mulByMatrix4(view)
                        .mulByMatrix4(rotation)
-                       .scale(200, 4, 200)
+                       .scale(4, 0.1, 4)
     
     if ( uMVMatrix !== undefined ) uMVMatrix.setMatrix(mvMatrix.values);
     if ( uPMatrix !== undefined ) uPMatrix.setMatrix(pMatrix.values);

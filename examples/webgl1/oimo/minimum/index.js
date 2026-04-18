@@ -40,7 +40,7 @@ function initWebGL() {
     eye = vec3.create();
     center = vec3.create();
     up = vec3.create();
-    vec3.set(eye, 0, 50, 200);
+    vec3.set(eye, 0, 3, 6);
     vec3.set(center, 0, 0, 0);
     vec3.set(up, 0, 1, 0);
     view = mat4.create();
@@ -227,7 +227,7 @@ function initBuffers() {
 function addGround() {
     oimoGround = world.add({
         type: "box",
-        size: [200, 4, 200],
+        size: [4, 0.1, 4],
         pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
@@ -238,8 +238,8 @@ function addGround() {
 function addBox() {
     oimoBox = world.add({
         type: "box",
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 10, 10],
         move: true,
         density: 1
@@ -253,18 +253,18 @@ function draw() {
     rad -= Math.PI * 1.0 / 180.0 * 0.1;
 
     // Camera
-    vec3.set(eye, 200 * Math.sin(rad), 50, 200 * Math.cos(rad));
+    vec3.set(eye, 6 * Math.sin(rad), 3, 6 * Math.cos(rad));
     vec3.set(center, 0, 0, 0);
     vec3.set(up, 0, 1, 0);
     mat4.lookAt(view, eye, center, up);
-    mat4.perspective(pMatrix, 45, c.width / c.height, 0.1, 1000.0);
+    mat4.perspective(pMatrix, 45, c.width / c.height, 0.1, 100.0);
     mat4.multiply(pMatrix, pMatrix, view);
 
     // Ground
     mat4.identity(mvMatrix);
     p = oimoGround.getPosition();
     r = oimoGround.getQuaternion();
-    vec3.set(scale, 200, 4, 200);
+    vec3.set(scale, 4, 0.1, 4);
     vec3.set(translation, p.x, p.y, p.z);
     mat4.translate(mvMatrix, mvMatrix, translation);
     q = quat.fromValues(r.x, r.y, r.z, r.w);
@@ -279,7 +279,7 @@ function draw() {
 
     // Box
     mat4.identity(mvMatrix);
-    vec3.set(scale, 50.0, 50.0, 50.0);
+    vec3.set(scale, 1.0, 1.0, 1.0);
     p = oimoBox.getPosition();
     r = oimoBox.getQuaternion();
     vec3.set(translation, p.x, p.y, p.z);

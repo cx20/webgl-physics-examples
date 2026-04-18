@@ -32,18 +32,18 @@ function initCannon() {
     // Create a plane
     let groundBody = new CANNON.Body({
         mass: 0, // mass == 0 makes the body static
-        position: new CANNON.Vec3(0, -45, 0),
+        position: new CANNON.Vec3(0, 0, 0),
         //material: groundMaterial
     });
-    let groundShape = new CANNON.Box(new CANNON.Vec3(100, 1, 100));
+    let groundShape = new CANNON.Box(new CANNON.Vec3(2, 0.05, 2));
     groundBody.addShape(groundShape);
     world.addBody(groundBody);
 
     // Create a box
-    shape = new CANNON.Box(new CANNON.Vec3(50, 50, 50));
+    shape = new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5));
     body = new CANNON.Body({
         mass: 100, // kg
-        position: new CANNON.Vec3(0, 100, 0), // m
+        position: new CANNON.Vec3(0, 2, 0), // m
         shape: shape,
         material: groundMaterial
     });
@@ -53,21 +53,21 @@ function initCannon() {
 
 function initThree() {
     container = document.getElementById('container');
-    camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 1, 1000);
-    camera.position.y = 50;
-    camera.position.z = 200;
+    camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.y = 3;
+    camera.position.z = 6;
     scene = new THREE.Scene();
 
     let loader = new THREE.TextureLoader();
     let texture = loader.load('../../../../assets/textures/frog.jpg');  // frog.jpg
 
     let material = new THREE.MeshBasicMaterial({map: texture});
-    let geometryGround = new THREE.BoxGeometry(200, 2, 200);
+    let geometryGround = new THREE.BoxGeometry(4, 0.1, 4);
     meshGround = new THREE.Mesh(geometryGround, material);
-    meshGround.position.y = -20;
+    meshGround.position.y = 0;
     scene.add(meshGround);
 
-    let geometryCube = new THREE.BoxGeometry(50, 50, 50);
+    let geometryCube = new THREE.BoxGeometry(1, 1, 1);
     meshCube = new THREE.Mesh(geometryCube, material);
     meshCube.rigidBody = body; // THREE.Object3D#rigidBody has a field of CANNON.RigidBody
     scene.add(meshCube);

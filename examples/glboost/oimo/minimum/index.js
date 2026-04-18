@@ -21,8 +21,8 @@ function initOimo() {
 
     groundBody = world.add({
         type: "box",
-        size: [200, 2, 200],
-        pos: [0, -20, 0],
+        size: [4, 0.1, 4],
+        pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
@@ -31,8 +31,8 @@ function initOimo() {
     });
     body = world.add({
         type: "box",
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 0, 10],
         move: true,
         density: 1,
@@ -56,7 +56,7 @@ function initBoost() {
     material.setTexture(texture);
     material.baseColor = new GLBoost.Vector4(1, 1, 1, 1);
     
-    let geometryGround = glBoostContext.createCube(new GLBoost.Vector3(200, 2, 200), new GLBoost.Vector4(1, 1, 1, 1));
+    let geometryGround = glBoostContext.createCube(new GLBoost.Vector3(4, 0.1, 4), new GLBoost.Vector4(1, 1, 1, 1));
     meshGround = glBoostContext.createMesh(geometryGround, material);
     scene.addChild(meshGround);
 
@@ -65,7 +65,7 @@ function initBoost() {
     meshGround.translate = new GLBoost.Vector3(p.x, p.y, p.z);
     meshGround.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
 
-    let geometryCube = glBoostContext.createCube(new GLBoost.Vector3(50, 50, 50), new GLBoost.Vector4(1, 1, 1, 1));
+    let geometryCube = glBoostContext.createCube(new GLBoost.Vector3(1, 1, 1), new GLBoost.Vector4(1, 1, 1, 1));
     meshCube = glBoostContext.createMesh(geometryCube, material);
     scene.addChild(meshCube);
     
@@ -73,14 +73,14 @@ function initBoost() {
     scene.addChild( directionalLight );
     
     camera = glBoostContext.createPerspectiveCamera({
-        eye: new GLBoost.Vector3(0.0, 50, 100),
-        center: new GLBoost.Vector3(0.0, 0.0, 0.0),
+        eye: new GLBoost.Vector3(0.0, 1.8, 3.2),
+        center: new GLBoost.Vector3(0.0, 0.5, 0.0),
         up: new GLBoost.Vector3(0.0, 1.0, 0.0)
     }, {
         fovy: 45.0,
         aspect: width/height,
         zNear: 0.001,
-        zFar: 3000.0
+        zFar: 100.0
     });
     camera.cameraController = glBoostContext.createCameraController();
     scene.addChild(camera);

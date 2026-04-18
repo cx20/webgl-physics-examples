@@ -185,7 +185,7 @@ async function initBuffers() {
 function addGround() {
     oimoGround = world.add({
         type: "box",
-        size: [200, 4, 200],
+        size: [4, 0.1, 4],
         pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
@@ -196,8 +196,8 @@ function addGround() {
 function addCube() {
     oimoCube = world.add({
         type: "box",
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 10, 10],
         move: true,
         density: 1
@@ -220,13 +220,13 @@ async function draw() {
     let rot = oimoCube.getQuaternion();
 
     // Camera
-    const camera = new Vector3(200 * Math.sin(rad), 50, 200 * Math.cos(rad));
+    const camera = new Vector3(6 * Math.sin(rad), 3, 6 * Math.cos(rad));
     const lookAt = new Vector3(0, 0, 0);
     const cameraUpDirection = new Vector3(0, 1, 0);
     const view = Matrix4.lookAt(camera, lookAt, cameraUpDirection);
     
     // Cube
-    let pMatrix = Matrix4.perspective({fovYRadian: 45 * Math.PI/180, aspectRatio: window.innerWidth/window.innerHeight, near: 0.1, far: 1000});
+    let pMatrix = Matrix4.perspective({fovYRadian: 45 * Math.PI/180, aspectRatio: window.innerWidth/window.innerHeight, near: 0.1, far: 100});
     let identity = Matrix4.identity();
     let translation = Matrix4.translation(pos.x, pos.y, pos.z);
     let q = new Quaternion(rot.x, rot.y, rot.z, rot.w);
@@ -234,7 +234,7 @@ async function draw() {
     let mvMatrix = identity.mulByMatrix4(translation)
                            .mulByMatrix4(view)
                            .mulByMatrix4(rotation)
-                           .scale(50, 50, 50)
+                           .scale(1, 1, 1)
     
     if ( uMVMatrix !== undefined ) uMVMatrix.setMatrix(mvMatrix.values);
     if ( uPMatrix !== undefined ) uPMatrix.setMatrix(pMatrix.values);
@@ -251,7 +251,7 @@ async function draw() {
     mvMatrix = identity.mulByMatrix4(translation)
                        .mulByMatrix4(view)
                        .mulByMatrix4(rotation)
-                       .scale(200, 4, 200)
+                       .scale(4, 0.1, 4)
     
     if ( uMVMatrix !== undefined ) uMVMatrix.setMatrix(mvMatrix.values);
     if ( uPMatrix !== undefined ) uPMatrix.setMatrix(pMatrix.values);

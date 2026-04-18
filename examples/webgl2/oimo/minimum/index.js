@@ -38,7 +38,7 @@ function initWebGL() {
     eye = vec3.create();
     center = vec3.create();
     up = vec3.create();
-    vec3.set(eye, 0, 50, 200);
+    vec3.set(eye, 0, 3, 6);
     vec3.set(center, 0, 0, 0);
     vec3.set(up, 0, 1, 0);
     viewMatrix = mat4.create();
@@ -188,7 +188,7 @@ function initBuffers() {
 function addGround() {
     groundBody = world.add({
         type: 'box',
-        size: [200, 4, 200],
+        size: [4, 0.1, 4],
         pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
@@ -199,8 +199,8 @@ function addGround() {
 function addBox() {
     boxBody = world.add({
         type: 'box',
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 10, 10],
         move: true,
         density: 1
@@ -232,14 +232,14 @@ function draw() {
     gl.clearColor(1, 1, 1, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    vec3.set(eye, 200 * Math.sin(angle), 50, 200 * Math.cos(angle));
+    vec3.set(eye, 6 * Math.sin(angle), 3, 6 * Math.cos(angle));
     mat4.lookAt(viewMatrix, eye, center, up);
-    mat4.perspective(projectionMatrix, 45, canvas.width / canvas.height, 0.1, 1000.0);
+    mat4.perspective(projectionMatrix, 45, canvas.width / canvas.height, 0.1, 100.0);
     mat4.multiply(projectionMatrix, projectionMatrix, viewMatrix);
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertexIndexBuffer);
-    drawBody(groundBody, [200, 4, 200]);
-    drawBody(boxBody, [50, 50, 50]);
+    drawBody(groundBody, [4, 0.1, 4]);
+    drawBody(boxBody, [1, 1, 1]);
 
     gl.flush();
 }

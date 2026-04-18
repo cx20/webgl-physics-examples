@@ -14,11 +14,11 @@ let rad = 0;
 function initScene() {
     camera = new Hilo3d.PerspectiveCamera({
         aspect: innerWidth / innerHeight,
-        far: 1000,
+        far: 100,
         near: 0.1,
         x: 0,
-        y: 50,
-        z: 200
+        y: 3,
+        z: 6
     });
 
     stage = new Hilo3d.Stage({
@@ -47,9 +47,9 @@ function addGround() {
     geometryGround.setAllRectUV([[0, 1], [1, 1], [1, 0], [0, 0]]);
 
     meshGround = new Hilo3d.Mesh({
-        scaleX: 200,
-        scaleY: 4,
-        scaleZ: 200,
+        scaleX: 4,
+        scaleY: 0.1,
+        scaleZ: 4,
         x: 0,
         y: 0,
         z: 0,
@@ -64,7 +64,7 @@ function addGround() {
 
     oimoGround = world.add({
         type: "box",
-        size: [200, 4, 200],
+        size: [4, 0.1, 4],
         pos: [0, 0, 0],
         rot: [0, 0, 0],
         move: false,
@@ -83,11 +83,11 @@ function addBox() {
     geometryBox.setAllRectUV([[0, 1], [1, 1], [1, 0], [0, 0]]);
 
     meshBox = new Hilo3d.Mesh({
-        scaleX: 50,
-        scaleY: 50,
-        scaleZ: 50,
+        scaleX: 1,
+        scaleY: 1,
+        scaleZ: 1,
         x: 0,
-        y: 100,
+        y: 2,
         z: 0,
         geometry: geometryBox,
         material: new Hilo3d.BasicMaterial({
@@ -102,8 +102,8 @@ function addBox() {
 
     oimoBox = world.add({
         type: "box",
-        size: [50, 50, 50],
-        pos: [0, 100, 0],
+        size: [1, 1, 1],
+        pos: [0, 2, 0],
         rot: [10, 0, 10],
         move: true,
         density: 1
@@ -122,7 +122,7 @@ function animate() {
         meshBox.quaternion.set(rot.x, rot.y, rot.z, rot.w);
         
         camera.lookAt( new Hilo3d.Vector3(0,0,0));
-        camera.setPosition( 200 * Math.sin(rad), 50, 200 * Math.cos(rad));
+        camera.setPosition( 6 * Math.sin(rad), 3, 6 * Math.cos(rad));
         
         rad += Math.PI/180 * 0.1;
     };

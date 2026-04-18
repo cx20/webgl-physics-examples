@@ -148,21 +148,21 @@ function init(PhysX) {
     console.log('Created scene');
     
     // create three.js scene
-    const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 1000 );
+    const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 100 );
     camera.position.x = 0;
-    camera.position.y = 5;
-    camera.position.z = 20;
+    camera.position.y = 3;
+    camera.position.z = 6;
 
     const sceneThree = new THREE.Scene();
 
     const loader = new THREE.TextureLoader();
     const texture = loader.load('../../../../assets/textures/frog.jpg');
     
-    let ground = new Ground(0, 0, 0, 20, 1, 20, texture);
+    let ground = new Ground(0, 0, 0, 4, 0.1, 4, texture);
     sceneThree.add(ground.threeObj);
     scenePhysx.addActor(ground.physxObj);
     
-    let box = new Box(0, 10, 0, 5, 5, 5, texture);
+    let box = new Box(0, 2, 0, 1, 1, 1, texture);
     sceneThree.add(box.threeObj);
     scenePhysx.addActor(box.physxObj);
     box.move();

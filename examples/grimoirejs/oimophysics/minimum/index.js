@@ -2,7 +2,7 @@ const Quaternion = gr.lib.math.Quaternion;
 gr(function() {
     const scene = gr("#main")("scene").single();
     const n = scene.addChildByName("rigid-cube", {
-        position: [Math.random() * 3 - 1.5, Math.random() * 5 + 5, Math.random() * 3 - 1.5]
+        position: [Math.random() * 1 - 0.5, Math.random() * 0.5 + 2, Math.random() * 1 - 0.5]
     });
 });
 
@@ -56,7 +56,7 @@ gr.register(() => {
     });
     gr.registerNode("rigid-cube", ["Rigid"], {
         geometry: "cube",
-        scale: 5,
+        scale: 0.5,
         texture: "../../../../assets/textures/frog.jpg"
     }, "mesh");
 });

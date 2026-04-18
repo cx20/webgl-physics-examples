@@ -12,7 +12,7 @@ async function main() {
 
     // Set default position
     let cameraTrans = mainCamera.components.Transform;
-    vec3.set(cameraTrans.translate, 0, 0, 200);
+    vec3.set(cameraTrans.translate, 0, 3, 6);
 
     // Add it to scene
     scene.appendChild(mainCamera);
@@ -45,15 +45,15 @@ async function main() {
     EntityMgr.addComponent(entityCube2, textureMR2);
     EntityMgr.addComponent(entityCube1, new OimoComponent(
         "box",
-        [50*2, 50*2, 50*2],
-        [0, 100, 0],
+        [1, 1, 1],
+        [0, 2, 0],
         [10, 0, 10],
         true
     ));
     EntityMgr.addComponent(entityCube2, new OimoComponent(
         "box",
-        [200*2, 4*2, 200*2],
-        [0, -50, 0],
+        [4, 0.1, 4],
+        [0, 0, 0],
         [0, 0, 0],
         false
     ));
