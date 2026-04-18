@@ -1,6 +1,8 @@
 const { mat4, vec3, quat } = glMatrix;
 
 const MARBLES_GLTF_URL = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
+const GROUND_TEXTURE_FILE = '../../../../assets/textures/grass.jpg';
+const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
 const MARBLE_SCALE = 1.0;
 const MAX_MARBLES = 120;
 
@@ -13,16 +15,24 @@ let depthTexture;
 let pipeline;
 let sampler;
 let whiteTextureView;
+let blackCubeTextureView;
+let envCubeTextureView;
+let skyboxPipeline;
+let skyboxUniformBuffer;
+let skyboxBindGroup;
+let skyboxVertexBuffer;
 
 let world;
 const marbles = [];
 
 let groundMesh;
 let groundRenderItem;
+let groundTextureView;
 
 const projection = mat4.create();
 const view = mat4.create();
 const viewProj = mat4.create();
+const viewNoTranslation = mat4.create();
 
 function rand(min, max) {
     return min + Math.random() * (max - min);
@@ -234,6 +244,26 @@ function createSolidTextureView(r, g, b, a) {
     return texture.createView();
 }
 
+function createSolidCubeTextureView(r, g, b, a) {
+    const texture = device.createTexture({
+        size: [1, 1, 6],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
+
+    const pixel = new Uint8Array([r, g, b, a]);
+    for (let layer = 0; layer < 6; layer++) {
+        device.queue.writeTexture(
+            { texture, origin: { x: 0, y: 0, z: layer } },
+            pixel,
+            { bytesPerRow: 4, rowsPerImage: 1 },
+            { width: 1, height: 1, depthOrArrayLayers: 1 }
+        );
+    }
+
+    return texture.createView({ dimension: 'cube' });
+}
+
 async function loadTextureView(url) {
     const response = await fetch(url);
     const blob = await response.blob();
@@ -254,9 +284,186 @@ async function loadTextureView(url) {
     return texture.createView();
 }
 
-function createRenderItem(textureView, iridescenceTextureView, iridescenceThicknessTextureView) {
+function parseHDR(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let offset = 0;
+
+    function readLine() {
+        let line = '';
+        while (offset < bytes.length) {
+            const c = bytes[offset++];
+            if (c === 10) break;
+            if (c !== 13) line += String.fromCharCode(c);
+        }
+        return line;
+    }
+
+    let line = readLine();
+    if (!line.startsWith('#?RADIANCE') && !line.startsWith('#?RGBE')) {
+        throw new Error('Invalid HDR header.');
+    }
+
+    while (offset < bytes.length) {
+        line = readLine();
+        if (line.trim() === '') break;
+    }
+
+    const resolution = readLine();
+    const match = resolution.match(/-Y\s+(\d+)\s+\+X\s+(\d+)/);
+    if (!match) {
+        throw new Error('Unsupported HDR resolution format.');
+    }
+
+    const height = parseInt(match[1], 10);
+    const width = parseInt(match[2], 10);
+    const data = new Float32Array(width * height * 3);
+    const scanline = new Uint8Array(width * 4);
+
+    for (let y = 0; y < height; y++) {
+        if (offset + 4 > bytes.length) throw new Error('Unexpected HDR EOF.');
+
+        const b0 = bytes[offset++];
+        const b1 = bytes[offset++];
+        const b2 = bytes[offset++];
+        const b3 = bytes[offset++];
+        if (b0 !== 2 || b1 !== 2 || (b2 & 0x80) !== 0 || ((b2 << 8) | b3) !== width) {
+            throw new Error('Unsupported non-RLE HDR scanline.');
+        }
+
+        for (let c = 0; c < 4; c++) {
+            let x = 0;
+            while (x < width) {
+                const code = bytes[offset++];
+                if (code > 128) {
+                    const run = code - 128;
+                    const val = bytes[offset++];
+                    for (let i = 0; i < run; i++) scanline[c * width + x++] = val;
+                } else {
+                    const run = code;
+                    for (let i = 0; i < run; i++) scanline[c * width + x++] = bytes[offset++];
+                }
+            }
+        }
+
+        for (let x = 0; x < width; x++) {
+            const r = scanline[x];
+            const g = scanline[width + x];
+            const b = scanline[2 * width + x];
+            const e = scanline[3 * width + x];
+            const dst = (y * width + x) * 3;
+            if (e) {
+                const f = Math.pow(2.0, e - 136.0);
+                data[dst] = r * f;
+                data[dst + 1] = g * f;
+                data[dst + 2] = b * f;
+            }
+        }
+    }
+
+    return { width, height, data };
+}
+
+function sampleEquirectHDR(hdr, u, v) {
+    const w = hdr.width;
+    const h = hdr.height;
+    const uu = ((u % 1) + 1) % 1;
+    const vv = Math.min(Math.max(v, 0), 1);
+
+    const x = uu * (w - 1);
+    const y = vv * (h - 1);
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const x1 = (x0 + 1) % w;
+    const y1 = Math.min(y0 + 1, h - 1);
+    const tx = x - x0;
+    const ty = y - y0;
+
+    const i00 = (y0 * w + x0) * 3;
+    const i10 = (y0 * w + x1) * 3;
+    const i01 = (y1 * w + x0) * 3;
+    const i11 = (y1 * w + x1) * 3;
+
+    const c00 = [hdr.data[i00], hdr.data[i00 + 1], hdr.data[i00 + 2]];
+    const c10 = [hdr.data[i10], hdr.data[i10 + 1], hdr.data[i10 + 2]];
+    const c01 = [hdr.data[i01], hdr.data[i01 + 1], hdr.data[i01 + 2]];
+    const c11 = [hdr.data[i11], hdr.data[i11 + 1], hdr.data[i11 + 2]];
+
+    const c0 = [
+        c00[0] * (1 - tx) + c10[0] * tx,
+        c00[1] * (1 - tx) + c10[1] * tx,
+        c00[2] * (1 - tx) + c10[2] * tx
+    ];
+    const c1 = [
+        c01[0] * (1 - tx) + c11[0] * tx,
+        c01[1] * (1 - tx) + c11[1] * tx,
+        c01[2] * (1 - tx) + c11[2] * tx
+    ];
+
+    return [
+        c0[0] * (1 - ty) + c1[0] * ty,
+        c0[1] * (1 - ty) + c1[1] * ty,
+        c0[2] * (1 - ty) + c1[2] * ty
+    ];
+}
+
+function directionForCubeFace(faceIndex, u, v) {
+    if (faceIndex === 0) return vec3.normalize(vec3.create(), vec3.fromValues(1, -v, -u));
+    if (faceIndex === 1) return vec3.normalize(vec3.create(), vec3.fromValues(-1, -v, u));
+    if (faceIndex === 2) return vec3.normalize(vec3.create(), vec3.fromValues(u, 1, v));
+    if (faceIndex === 3) return vec3.normalize(vec3.create(), vec3.fromValues(u, -1, -v));
+    if (faceIndex === 4) return vec3.normalize(vec3.create(), vec3.fromValues(u, -v, 1));
+    return vec3.normalize(vec3.create(), vec3.fromValues(-u, -v, -1));
+}
+
+async function loadHDRAsCubeTextureView(url, size = 192) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error('Failed to fetch HDR: ' + response.status);
+    }
+
+    const buffer = await response.arrayBuffer();
+    const hdr = parseHDR(buffer);
+    const texture = device.createTexture({
+        size: [size, size, 6],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
+
+    for (let face = 0; face < 6; face++) {
+        const faceData = new Uint8Array(size * size * 4);
+        let p = 0;
+        for (let y = 0; y < size; y++) {
+            const vv = 2 * ((y + 0.5) / size) - 1;
+            for (let x = 0; x < size; x++) {
+                const uu = 2 * ((x + 0.5) / size) - 1;
+                const dir = directionForCubeFace(face, uu, vv);
+                const phi = Math.atan2(dir[2], dir[0]);
+                const theta = Math.acos(Math.min(Math.max(dir[1], -1), 1));
+                const eu = phi / (2 * Math.PI) + 0.5;
+                const ev = theta / Math.PI;
+                const c = sampleEquirectHDR(hdr, eu, ev);
+
+                faceData[p++] = Math.max(0, Math.min(255, Math.floor(Math.min(Math.max(c[0], 0), 1) * 255)));
+                faceData[p++] = Math.max(0, Math.min(255, Math.floor(Math.min(Math.max(c[1], 0), 1) * 255)));
+                faceData[p++] = Math.max(0, Math.min(255, Math.floor(Math.min(Math.max(c[2], 0), 1) * 255)));
+                faceData[p++] = 255;
+            }
+        }
+
+        device.queue.writeTexture(
+            { texture, origin: { x: 0, y: 0, z: face } },
+            faceData,
+            { bytesPerRow: size * 4, rowsPerImage: size },
+            { width: size, height: size, depthOrArrayLayers: 1 }
+        );
+    }
+
+    return texture.createView({ dimension: 'cube' });
+}
+
+function createRenderItem(textureView, iridescenceTextureView, iridescenceThicknessTextureView, envCubeView) {
     const uniformBuffer = device.createBuffer({
-        size: 208,
+        size: 240,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -267,7 +474,8 @@ function createRenderItem(textureView, iridescenceTextureView, iridescenceThickn
             { binding: 1, resource: sampler },
             { binding: 2, resource: textureView },
             { binding: 3, resource: iridescenceTextureView },
-            { binding: 4, resource: iridescenceThicknessTextureView }
+            { binding: 4, resource: iridescenceThicknessTextureView },
+            { binding: 5, resource: envCubeView }
         ]
     });
 
@@ -290,6 +498,18 @@ function writeUniforms(renderItem, modelMatrix, baseColor, cameraPos, materialPa
         materialParams.iridescenceThicknessMin,
         materialParams.iridescenceThicknessMax,
         materialParams.hasIridescenceThicknessMap,
+        materialParams.envIntensity
+    ]));
+    device.queue.writeBuffer(renderItem.uniformBuffer, 208, new Float32Array([
+        materialParams.envExposure,
+        materialParams.envDiffuseStrength,
+        materialParams.metallic,
+        materialParams.roughness
+    ]));
+    device.queue.writeBuffer(renderItem.uniformBuffer, 224, new Float32Array([
+        materialParams.hasEnvCube,
+        materialParams.unlitTextureOnly,
+        0.0,
         0.0
     ]));
 }
@@ -359,6 +579,8 @@ async function loadMarblesFromGLTF() {
             let iridescenceThicknessMax = 400.0;
             let hasIridescenceMap = 0.0;
             let hasIridescenceThicknessMap = 0.0;
+            let metallic = 1.0;
+            let roughness = 0.2;
             if (primitive.material !== undefined) {
                 const material = gltf.materials[primitive.material];
                 if (material && material.pbrMetallicRoughness) {
@@ -366,6 +588,8 @@ async function loadMarblesFromGLTF() {
                     if (pbr.baseColorFactor) {
                         baseColor = pbr.baseColorFactor;
                     }
+                    if (pbr.metallicFactor !== undefined) metallic = pbr.metallicFactor;
+                    if (pbr.roughnessFactor !== undefined) roughness = pbr.roughnessFactor;
                     if (pbr.baseColorTexture) {
                         textureView = await getTextureView(pbr.baseColorTexture.index);
                     }
@@ -394,7 +618,12 @@ async function loadMarblesFromGLTF() {
                 }
             }
 
-            const renderItem = createRenderItem(textureView, iridescenceTextureView, iridescenceThicknessTextureView);
+            const renderItem = createRenderItem(
+                textureView,
+                iridescenceTextureView,
+                iridescenceThicknessTextureView,
+                envCubeTextureView || blackCubeTextureView
+            );
             primitives.push({
                 mesh,
                 renderItem,
@@ -405,7 +634,9 @@ async function loadMarblesFromGLTF() {
                 iridescenceThicknessMin,
                 iridescenceThicknessMax,
                 hasIridescenceMap,
-                hasIridescenceThicknessMap
+                hasIridescenceThicknessMap,
+                metallic,
+                roughness
             });
         }
 
@@ -506,16 +737,20 @@ function drawMesh(pass, mesh, bindGroup) {
     pass.draw(mesh.vertexCount, 1, 0, 0);
 }
 
-function render(timeMs) {
-    world.step();
+function drawSkybox(encoder) {
+    if (!envCubeTextureView || !skyboxPipeline) return;
 
-    const t = timeMs * 0.001;
-    const eye = vec3.fromValues(Math.sin(t * 0.2) * 24, 10, Math.cos(t * 0.2) * 24);
-    mat4.lookAt(view, eye, [0, 2, 0], [0, 1, 0]);
-    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 200);
-    mat4.multiply(viewProj, projection, view);
+    mat4.copy(viewNoTranslation, view);
+    viewNoTranslation[12] = 0;
+    viewNoTranslation[13] = 0;
+    viewNoTranslation[14] = 0;
 
-    const encoder = device.createCommandEncoder();
+    const skyboxUniformData = new Float32Array(40);
+    skyboxUniformData.set(projection, 0);
+    skyboxUniformData.set(viewNoTranslation, 16);
+    skyboxUniformData[32] = 1.0;
+    device.queue.writeBuffer(skyboxUniformBuffer, 0, skyboxUniformData);
+
     const pass = encoder.beginRenderPass({
         colorAttachments: [{
             view: context.getCurrentTexture().createView(),
@@ -527,6 +762,37 @@ function render(timeMs) {
             view: depthTexture.createView(),
             depthClearValue: 1.0,
             depthLoadOp: 'clear',
+            depthStoreOp: 'store'
+        }
+    });
+
+    pass.setPipeline(skyboxPipeline);
+    pass.setBindGroup(0, skyboxBindGroup);
+    pass.setVertexBuffer(0, skyboxVertexBuffer);
+    pass.draw(36, 1, 0, 0);
+    pass.end();
+}
+
+function render(timeMs) {
+    world.step();
+
+    const t = timeMs * 0.001;
+    const eye = vec3.fromValues(Math.sin(t * 0.2) * 24, 10, Math.cos(t * 0.2) * 24);
+    mat4.lookAt(view, eye, [0, 2, 0], [0, 1, 0]);
+    mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 200);
+    mat4.multiply(viewProj, projection, view);
+
+    const encoder = device.createCommandEncoder();
+    drawSkybox(encoder);
+    const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            loadOp: 'load',
+            storeOp: 'store'
+        }],
+        depthStencilAttachment: {
+            view: depthTexture.createView(),
+            depthLoadOp: 'load',
             depthStoreOp: 'store'
         }
     });
@@ -543,7 +809,14 @@ function render(timeMs) {
         hasIridescenceMap: 0.0,
         iridescenceThicknessMin: 100.0,
         iridescenceThicknessMax: 400.0,
-        hasIridescenceThicknessMap: 0.0
+        hasIridescenceThicknessMap: 0.0,
+        envIntensity: 0.55,
+        envExposure: 0.92,
+        envDiffuseStrength: 0.18,
+        metallic: 0.0,
+        roughness: 1.0,
+                hasEnvCube: 0.0,
+        unlitTextureOnly: 1.0
     });
     drawMesh(pass, groundMesh, groundRenderItem.bindGroup);
 
@@ -568,7 +841,14 @@ function render(timeMs) {
                 hasIridescenceMap: prim.hasIridescenceMap,
                 iridescenceThicknessMin: prim.iridescenceThicknessMin,
                 iridescenceThicknessMax: prim.iridescenceThicknessMax,
-                hasIridescenceThicknessMap: prim.hasIridescenceThicknessMap
+                hasIridescenceThicknessMap: prim.hasIridescenceThicknessMap,
+                envIntensity: 1.0,
+                envExposure: 1.0,
+                envDiffuseStrength: 1.0,
+                metallic: prim.metallic,
+                roughness: prim.roughness,
+                hasEnvCube: envCubeTextureView ? 1.0 : 0.0,
+                unlitTextureOnly: 0.0
             });
             drawMesh(pass, prim.mesh, prim.renderItem.bindGroup);
         }
@@ -640,12 +920,83 @@ async function main() {
     });
 
     whiteTextureView = createSolidTextureView(255, 255, 255, 255);
+    blackCubeTextureView = createSolidCubeTextureView(0, 0, 0, 255);
+    try {
+        envCubeTextureView = await loadHDRAsCubeTextureView(ENV_HDR_URL, 192);
+    } catch (e) {
+        console.warn('HDR cube map load failed:', e);
+        envCubeTextureView = null;
+    }
+    groundTextureView = await loadTextureView(GROUND_TEXTURE_FILE);
+
+    const skyboxVs = device.createShaderModule({ code: document.getElementById('skybox-vs').textContent });
+    const skyboxFs = device.createShaderModule({ code: document.getElementById('skybox-fs').textContent });
+    skyboxPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: skyboxVs,
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }]
+        },
+        fragment: {
+            module: skyboxFs,
+            entryPoint: 'main',
+            targets: [{ format }]
+        },
+        primitive: {
+            topology: 'triangle-list',
+            cullMode: 'none'
+        },
+        depthStencil: {
+            format: 'depth24plus',
+            depthWriteEnabled: false,
+            depthCompare: 'less-equal'
+        }
+    });
+
+    const skyboxVerts = new Float32Array([
+        -1, -1, -1,  1, -1, -1,  1,  1, -1,
+        -1, -1, -1,  1,  1, -1, -1,  1, -1,
+        -1, -1,  1,  1, -1,  1,  1,  1,  1,
+        -1, -1,  1,  1,  1,  1, -1,  1,  1,
+        -1, -1, -1, -1,  1, -1, -1,  1,  1,
+        -1, -1, -1, -1,  1,  1, -1, -1,  1,
+         1, -1, -1,  1,  1, -1,  1,  1,  1,
+         1, -1, -1,  1,  1,  1,  1, -1,  1,
+        -1, -1, -1, -1, -1,  1,  1, -1,  1,
+        -1, -1, -1,  1, -1,  1,  1, -1, -1,
+        -1,  1, -1, -1,  1,  1,  1,  1,  1,
+        -1,  1, -1,  1,  1,  1,  1,  1, -1
+    ]);
+    skyboxVertexBuffer = device.createBuffer({
+        size: skyboxVerts.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    device.queue.writeBuffer(skyboxVertexBuffer, 0, skyboxVerts);
+
+    skyboxUniformBuffer = device.createBuffer({
+        size: 40 * 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    skyboxBindGroup = device.createBindGroup({
+        layout: skyboxPipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: skyboxUniformBuffer } },
+            { binding: 1, resource: sampler },
+            { binding: 2, resource: envCubeTextureView || blackCubeTextureView }
+        ]
+    });
 
     resize();
     window.addEventListener('resize', resize);
 
     groundMesh = createGroundMesh();
-    groundRenderItem = createRenderItem(whiteTextureView, whiteTextureView, whiteTextureView);
+    groundRenderItem = createRenderItem(
+        groundTextureView,
+        whiteTextureView,
+        whiteTextureView,
+        envCubeTextureView || blackCubeTextureView
+    );
 
     const templates = await loadMarblesFromGLTF();
     initPhysics(templates);
