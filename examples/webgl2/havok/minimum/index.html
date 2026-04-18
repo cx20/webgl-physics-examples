@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGL 2.0 + Havok Minimum Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">#version 300 es
+in vec3 position;
+in vec2 textureCoord;
+uniform mat4 pjMatrix;
+uniform mat4 mvMatrix;
+out vec2 vTextureCoord;
+
+void main() {
+    vTextureCoord = textureCoord;
+    gl_Position = pjMatrix * mvMatrix * vec4(position, 1.0);
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">#version 300 es
+precision mediump float;
+uniform sampler2D textureSampler;
+in vec2 vTextureCoord;
+out vec4 outColor;
+
+void main() {
+    outColor = texture(textureSampler, vTextureCoord);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
