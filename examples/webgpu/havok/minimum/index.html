@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + Havok Minimum Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    viewProjection : mat4x4<f32>,
+    model : mat4x4<f32>
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) uv : vec2<f32>
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) uv : vec2<f32>
+) -> VSOut {
+    var out : VSOut;
+    out.Position = uniforms.viewProjection * uniforms.model * vec4<f32>(position, 1.0);
+    out.uv = uv;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@group(0) @binding(1) var texSampler : sampler;
+@group(0) @binding(2) var tex : texture_2d<f32>;
+
+@fragment
+fn main(@location(0) uv : vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(tex, texSampler, uv);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
