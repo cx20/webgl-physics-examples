@@ -2,6 +2,7 @@ const { mat4, vec3, quat } = glMatrix;
 
 const MARBLES_GLTF_URL = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
 const GROUND_TEXTURE_FILE = '../../../../assets/textures/grass.jpg';
+const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
 const MARBLE_SCALE = 1.0;
 const MAX_MARBLES = 120;
 
@@ -12,6 +13,10 @@ let extUint;
 let program;
 let attribs;
 let uniforms;
+let skyboxProgram;
+let skyboxAttribs;
+let skyboxUniforms;
+let skyboxVbo;
 
 let world;
 let groundBody;
@@ -20,9 +25,11 @@ const marbles = [];
 const projection = mat4.create();
 const view = mat4.create();
 const viewProj = mat4.create();
+const viewNoTranslation = mat4.create();
 
 let groundMesh;
 let groundTexture;
+let envCubeTexture = null;
 
 function rand(min, max) {
     return min + Math.random() * (max - min);
@@ -125,6 +132,201 @@ function loadTexture(url, options = {}) {
     });
 }
 
+function parseHDR(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let offset = 0;
+
+    function readLine() {
+        let line = '';
+        while (offset < bytes.length) {
+            const c = bytes[offset++];
+            if (c === 10) break;
+            if (c !== 13) line += String.fromCharCode(c);
+        }
+        return line;
+    }
+
+    let line = readLine();
+    if (!line.startsWith('#?RADIANCE') && !line.startsWith('#?RGBE')) {
+        throw new Error('Invalid HDR header.');
+    }
+
+    while (offset < bytes.length) {
+        line = readLine();
+        if (line.trim() === '') break;
+    }
+
+    const resolution = readLine();
+    const match = resolution.match(/-Y\s+(\d+)\s+\+X\s+(\d+)/);
+    if (!match) {
+        throw new Error('Unsupported HDR resolution format.');
+    }
+
+    const height = parseInt(match[1], 10);
+    const width = parseInt(match[2], 10);
+    const data = new Float32Array(width * height * 3);
+    const scanline = new Uint8Array(width * 4);
+
+    for (let y = 0; y < height; y++) {
+        if (offset + 4 > bytes.length) throw new Error('Unexpected HDR EOF.');
+
+        const b0 = bytes[offset++];
+        const b1 = bytes[offset++];
+        const b2 = bytes[offset++];
+        const b3 = bytes[offset++];
+
+        if (b0 !== 2 || b1 !== 2 || (b2 & 0x80) !== 0 || ((b2 << 8) | b3) !== width) {
+            throw new Error('Unsupported non-RLE HDR scanline.');
+        }
+
+        for (let c = 0; c < 4; c++) {
+            let x = 0;
+            while (x < width) {
+                if (offset >= bytes.length) throw new Error('Unexpected HDR EOF in RLE.');
+                const code = bytes[offset++];
+                if (code > 128) {
+                    const run = code - 128;
+                    if (offset >= bytes.length) throw new Error('Unexpected HDR EOF in RLE run.');
+                    const val = bytes[offset++];
+                    for (let i = 0; i < run; i++) scanline[c * width + x++] = val;
+                } else {
+                    const run = code;
+                    for (let i = 0; i < run; i++) {
+                        if (offset >= bytes.length) throw new Error('Unexpected HDR EOF in RLE literal.');
+                        scanline[c * width + x++] = bytes[offset++];
+                    }
+                }
+            }
+        }
+
+        for (let x = 0; x < width; x++) {
+            const r = scanline[x];
+            const g = scanline[width + x];
+            const b = scanline[2 * width + x];
+            const e = scanline[3 * width + x];
+            const dst = (y * width + x) * 3;
+            if (e) {
+                const f = Math.pow(2.0, e - 136.0);
+                data[dst] = r * f;
+                data[dst + 1] = g * f;
+                data[dst + 2] = b * f;
+            } else {
+                data[dst] = 0;
+                data[dst + 1] = 0;
+                data[dst + 2] = 0;
+            }
+        }
+    }
+
+    return { width, height, data };
+}
+
+async function loadHDRTexture(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error('Failed to fetch HDR: ' + response.status);
+    }
+    const buffer = await response.arrayBuffer();
+    return parseHDR(buffer);
+}
+
+function sampleEquirectHDR(hdr, u, v) {
+    const w = hdr.width;
+    const h = hdr.height;
+    const uu = ((u % 1) + 1) % 1;
+    const vv = Math.min(Math.max(v, 0), 1);
+
+    const x = uu * (w - 1);
+    const y = vv * (h - 1);
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const x1 = (x0 + 1) % w;
+    const y1 = Math.min(y0 + 1, h - 1);
+    const tx = x - x0;
+    const ty = y - y0;
+
+    const i00 = (y0 * w + x0) * 3;
+    const i10 = (y0 * w + x1) * 3;
+    const i01 = (y1 * w + x0) * 3;
+    const i11 = (y1 * w + x1) * 3;
+
+    const c00 = [hdr.data[i00], hdr.data[i00 + 1], hdr.data[i00 + 2]];
+    const c10 = [hdr.data[i10], hdr.data[i10 + 1], hdr.data[i10 + 2]];
+    const c01 = [hdr.data[i01], hdr.data[i01 + 1], hdr.data[i01 + 2]];
+    const c11 = [hdr.data[i11], hdr.data[i11 + 1], hdr.data[i11 + 2]];
+
+    const c0 = [
+        c00[0] * (1 - tx) + c10[0] * tx,
+        c00[1] * (1 - tx) + c10[1] * tx,
+        c00[2] * (1 - tx) + c10[2] * tx
+    ];
+    const c1 = [
+        c01[0] * (1 - tx) + c11[0] * tx,
+        c01[1] * (1 - tx) + c11[1] * tx,
+        c01[2] * (1 - tx) + c11[2] * tx
+    ];
+
+    return [
+        c0[0] * (1 - ty) + c1[0] * ty,
+        c0[1] * (1 - ty) + c1[1] * ty,
+        c0[2] * (1 - ty) + c1[2] * ty
+    ];
+}
+
+function directionForCubeFace(face, u, v) {
+    if (face === gl.TEXTURE_CUBE_MAP_POSITIVE_X) return vec3.normalize(vec3.create(), vec3.fromValues(1, -v, -u));
+    if (face === gl.TEXTURE_CUBE_MAP_NEGATIVE_X) return vec3.normalize(vec3.create(), vec3.fromValues(-1, -v, u));
+    if (face === gl.TEXTURE_CUBE_MAP_POSITIVE_Y) return vec3.normalize(vec3.create(), vec3.fromValues(u, 1, v));
+    if (face === gl.TEXTURE_CUBE_MAP_NEGATIVE_Y) return vec3.normalize(vec3.create(), vec3.fromValues(u, -1, -v));
+    if (face === gl.TEXTURE_CUBE_MAP_POSITIVE_Z) return vec3.normalize(vec3.create(), vec3.fromValues(u, -v, 1));
+    return vec3.normalize(vec3.create(), vec3.fromValues(-u, -v, -1));
+}
+
+function createCubemapFromHDR(hdr, size = 192) {
+    const faces = [
+        gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+        gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
+        gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
+        gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+        gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
+        gl.TEXTURE_CUBE_MAP_NEGATIVE_Z
+    ];
+
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, tex);
+
+    for (const face of faces) {
+        const faceData = new Uint8Array(size * size * 4);
+        let p = 0;
+        for (let y = 0; y < size; y++) {
+            const vv = 2 * ((y + 0.5) / size) - 1;
+            for (let x = 0; x < size; x++) {
+                const uu = 2 * ((x + 0.5) / size) - 1;
+                const dir = directionForCubeFace(face, uu, vv);
+                const phi = Math.atan2(dir[2], dir[0]);
+                const theta = Math.acos(Math.min(Math.max(dir[1], -1), 1));
+                const eu = phi / (2 * Math.PI) + 0.5;
+                const ev = theta / Math.PI;
+                const c = sampleEquirectHDR(hdr, eu, ev);
+
+                faceData[p++] = Math.max(0, Math.min(255, Math.floor(Math.min(Math.max(c[0], 0), 1) * 255)));
+                faceData[p++] = Math.max(0, Math.min(255, Math.floor(Math.min(Math.max(c[1], 0), 1) * 255)));
+                faceData[p++] = Math.max(0, Math.min(255, Math.floor(Math.min(Math.max(c[2], 0), 1) * 255)));
+                faceData[p++] = 255;
+            }
+        }
+
+        gl.texImage2D(face, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, faceData);
+    }
+
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    return tex;
+}
+
 function computeFlatNormals(positions, indices) {
     const normals = new Float32Array(positions.length);
 
@@ -145,11 +347,9 @@ function computeFlatNormals(positions, indices) {
             normals[i0] += n[0];
             normals[i0 + 1] += n[1];
             normals[i0 + 2] += n[2];
-
             normals[i1] += n[0];
             normals[i1 + 1] += n[1];
             normals[i1 + 2] += n[2];
-
             normals[i2] += n[0];
             normals[i2 + 1] += n[1];
             normals[i2 + 2] += n[2];
@@ -315,11 +515,11 @@ function createGroundMesh() {
     ]);
     const uvs = new Float32Array([
         0, 0,
-        2, 0,
-        2, 2,
+        8, 0,
+        8, 8,
         0, 0,
-        2, 2,
-        0, 2
+        8, 8,
+        0, 8
     ]);
     return createMeshBuffers(positions, normals, uvs, null);
 }
@@ -332,7 +532,7 @@ async function loadGLTF(url) {
     const buffers = [];
     for (const buf of gltf.buffers || []) {
         const bufferUrl = new URL(buf.uri, baseUrl).href;
-        const data = await fetch(bufferUrl).then(r => r.arrayBuffer());
+        const data = await fetch(bufferUrl).then((r) => r.arrayBuffer());
         buffers.push(new Uint8Array(data));
     }
 
@@ -378,11 +578,15 @@ async function loadMarbleTemplates() {
             let iridescenceThicknessMax = 400.0;
             let iridescenceTexture = null;
             let iridescenceThicknessTexture = null;
+            let metallic = 1.0;
+            let roughness = 0.2;
             if (primitive.material !== undefined) {
                 const material = gltf.materials[primitive.material];
                 if (material && material.pbrMetallicRoughness) {
                     const pbr = material.pbrMetallicRoughness;
                     if (pbr.baseColorFactor) baseColor = pbr.baseColorFactor;
+                    if (pbr.metallicFactor !== undefined) metallic = pbr.metallicFactor;
+                    if (pbr.roughnessFactor !== undefined) roughness = pbr.roughnessFactor;
                     if (pbr.baseColorTexture) {
                         const textureDef = gltf.textures[pbr.baseColorTexture.index];
                         const imageDef = gltf.images[textureDef.source];
@@ -439,14 +643,16 @@ async function loadMarbleTemplates() {
                 iridescenceThicknessMin,
                 iridescenceThicknessMax,
                 iridescenceTexture,
-                iridescenceThicknessTexture
+                iridescenceThicknessTexture,
+                metallic,
+                roughness
             });
         }
 
         meshRecords.push({ primitives, meshExtent });
     }
 
-    const sphereNodes = gltf.nodes.filter(n => n.mesh !== undefined && n.name && n.name.indexOf('Sphere') === 0);
+    const sphereNodes = gltf.nodes.filter((n) => n.mesh !== undefined && n.name && n.name.indexOf('Sphere') === 0);
     const selectedNodes = sphereNodes.slice(0, MAX_MARBLES);
 
     return selectedNodes.map((node) => {
@@ -528,8 +734,21 @@ function drawGround() {
 
     bindMesh(groundMesh);
     gl.uniformMatrix4fv(uniforms.model, false, model);
-    gl.uniform4fv(uniforms.baseColor, [0.9, 0.9, 0.9, 1.0]);
+    gl.uniform4fv(uniforms.baseColor, [0.74, 0.88, 0.74, 1.0]);
+    gl.uniform1f(uniforms.metallic, 0.0);
+    gl.uniform1f(uniforms.roughness, 1.0);
+    gl.uniform1f(uniforms.ior, 1.5);
+    gl.uniform1f(uniforms.iridescenceFactor, 0.0);
+    gl.uniform1f(uniforms.iridescenceIor, 1.3);
+    gl.uniform1f(uniforms.iridescenceThicknessMin, 100.0);
+    gl.uniform1f(uniforms.iridescenceThicknessMax, 400.0);
+    gl.uniform1f(uniforms.envIntensity, 0.55);
+    gl.uniform1f(uniforms.envExposure, 0.92);
+    gl.uniform1f(uniforms.envDiffuseStrength, 0.18);
+    gl.uniform1i(uniforms.unlitTextureOnly, 1);
     gl.uniform1i(uniforms.hasTexture, 1);
+    gl.uniform1i(uniforms.hasIridescenceMap, 0);
+    gl.uniform1i(uniforms.hasIridescenceThicknessMap, 0);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, groundTexture);
@@ -541,6 +760,11 @@ function drawGround() {
 }
 
 function drawMarbles() {
+    gl.uniform1f(uniforms.envIntensity, 1.0);
+    gl.uniform1f(uniforms.envExposure, 1.0);
+    gl.uniform1f(uniforms.envDiffuseStrength, 1.0);
+    gl.uniform1i(uniforms.unlitTextureOnly, 0);
+
     for (const marble of marbles) {
         const p = marble.body.getPosition();
         const q = marble.body.getQuaternion();
@@ -573,6 +797,8 @@ function drawMarbles() {
             gl.uniform1f(uniforms.iridescenceIor, prim.iridescenceIor);
             gl.uniform1f(uniforms.iridescenceThicknessMin, prim.iridescenceThicknessMin);
             gl.uniform1f(uniforms.iridescenceThicknessMax, prim.iridescenceThicknessMax);
+            gl.uniform1f(uniforms.metallic, prim.metallic);
+            gl.uniform1f(uniforms.roughness, prim.roughness);
 
             if (prim.iridescenceTexture) {
                 gl.uniform1i(uniforms.hasIridescenceMap, 1);
@@ -606,6 +832,73 @@ function drawMarbles() {
     }
 }
 
+function initSkybox() {
+    const skyboxVs = document.getElementById('skybox-vs').textContent;
+    const skyboxFs = document.getElementById('skybox-fs').textContent;
+    skyboxProgram = createProgram(skyboxVs, skyboxFs);
+
+    skyboxAttribs = {
+        position: gl.getAttribLocation(skyboxProgram, 'aPosition')
+    };
+
+    skyboxUniforms = {
+        projection: gl.getUniformLocation(skyboxProgram, 'uProjection'),
+        viewNoTranslation: gl.getUniformLocation(skyboxProgram, 'uViewNoTranslation'),
+        envCubeMap: gl.getUniformLocation(skyboxProgram, 'uEnvCubeMap'),
+        envExposure: gl.getUniformLocation(skyboxProgram, 'uEnvExposure')
+    };
+
+    const cubeVerts = new Float32Array([
+        -1, -1, -1,  1, -1, -1,  1,  1, -1,
+        -1, -1, -1,  1,  1, -1, -1,  1, -1,
+        -1, -1,  1,  1, -1,  1,  1,  1,  1,
+        -1, -1,  1,  1,  1,  1, -1,  1,  1,
+        -1, -1, -1, -1,  1, -1, -1,  1,  1,
+        -1, -1, -1, -1,  1,  1, -1, -1,  1,
+         1, -1, -1,  1,  1, -1,  1,  1,  1,
+         1, -1, -1,  1,  1,  1,  1, -1,  1,
+        -1, -1, -1, -1, -1,  1,  1, -1,  1,
+        -1, -1, -1,  1, -1,  1,  1, -1, -1,
+        -1,  1, -1, -1,  1,  1,  1,  1,  1,
+        -1,  1, -1,  1,  1,  1,  1,  1, -1
+    ]);
+
+    skyboxVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, skyboxVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, cubeVerts, gl.STATIC_DRAW);
+}
+
+function drawSkybox() {
+    if (!envCubeTexture) return;
+
+    mat4.copy(viewNoTranslation, view);
+    viewNoTranslation[12] = 0;
+    viewNoTranslation[13] = 0;
+    viewNoTranslation[14] = 0;
+
+    gl.depthMask(false);
+    gl.depthFunc(gl.LEQUAL);
+    gl.disable(gl.CULL_FACE);
+
+    gl.useProgram(skyboxProgram);
+    gl.uniformMatrix4fv(skyboxUniforms.projection, false, projection);
+    gl.uniformMatrix4fv(skyboxUniforms.viewNoTranslation, false, viewNoTranslation);
+    gl.uniform1f(skyboxUniforms.envExposure, 1.0);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, envCubeTexture);
+    gl.uniform1i(skyboxUniforms.envCubeMap, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, skyboxVbo);
+    gl.enableVertexAttribArray(skyboxAttribs.position);
+    gl.vertexAttribPointer(skyboxAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 36);
+
+    gl.depthMask(true);
+    gl.depthFunc(gl.LESS);
+    gl.enable(gl.CULL_FACE);
+}
+
 function render(timeMs) {
     world.step();
 
@@ -618,10 +911,25 @@ function render(timeMs) {
     gl.clearColor(0.12, 0.12, 0.14, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    drawSkybox();
+
     gl.useProgram(program);
     gl.uniformMatrix4fv(uniforms.viewProj, false, viewProj);
     gl.uniform3fv(uniforms.lightDir, [0.6, 1.0, 0.5]);
     gl.uniform3fv(uniforms.cameraPos, eye);
+
+    if (envCubeTexture) {
+        gl.uniform1i(uniforms.hasEnvCubeMap, 1);
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_CUBE_MAP, envCubeTexture);
+        gl.uniform1i(uniforms.envCubeMap, 3);
+        gl.uniform1f(uniforms.envIntensity, 1.0);
+        gl.uniform1f(uniforms.envExposure, 1.0);
+    } else {
+        gl.uniform1i(uniforms.hasEnvCubeMap, 0);
+        gl.uniform1f(uniforms.envIntensity, 0.0);
+        gl.uniform1f(uniforms.envExposure, 1.0);
+    }
 
     drawGround();
     drawMarbles();
@@ -654,9 +962,12 @@ async function main() {
         texture: gl.getUniformLocation(program, 'uTexture'),
         iridescenceMap: gl.getUniformLocation(program, 'uIridescenceMap'),
         iridescenceThicknessMap: gl.getUniformLocation(program, 'uIridescenceThicknessMap'),
+        envCubeMap: gl.getUniformLocation(program, 'uEnvCubeMap'),
         hasTexture: gl.getUniformLocation(program, 'uHasTexture'),
         hasIridescenceMap: gl.getUniformLocation(program, 'uHasIridescenceMap'),
         hasIridescenceThicknessMap: gl.getUniformLocation(program, 'uHasIridescenceThicknessMap'),
+        hasEnvCubeMap: gl.getUniformLocation(program, 'uHasEnvCubeMap'),
+        unlitTextureOnly: gl.getUniformLocation(program, 'uUnlitTextureOnly'),
         baseColor: gl.getUniformLocation(program, 'uBaseColor'),
         lightDir: gl.getUniformLocation(program, 'uLightDir'),
         cameraPos: gl.getUniformLocation(program, 'uCameraPos'),
@@ -664,7 +975,12 @@ async function main() {
         iridescenceFactor: gl.getUniformLocation(program, 'uIridescenceFactor'),
         iridescenceIor: gl.getUniformLocation(program, 'uIridescenceIor'),
         iridescenceThicknessMin: gl.getUniformLocation(program, 'uIridescenceThicknessMin'),
-        iridescenceThicknessMax: gl.getUniformLocation(program, 'uIridescenceThicknessMax')
+        iridescenceThicknessMax: gl.getUniformLocation(program, 'uIridescenceThicknessMax'),
+        envIntensity: gl.getUniformLocation(program, 'uEnvIntensity'),
+        envExposure: gl.getUniformLocation(program, 'uEnvExposure'),
+        envDiffuseStrength: gl.getUniformLocation(program, 'uEnvDiffuseStrength'),
+        metallic: gl.getUniformLocation(program, 'uMetallic'),
+        roughness: gl.getUniformLocation(program, 'uRoughness')
     };
 
     resize();
@@ -672,9 +988,17 @@ async function main() {
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
+    initSkybox();
 
     groundMesh = createGroundMesh();
     groundTexture = await loadTexture(GROUND_TEXTURE_FILE, { flipY: true });
+    try {
+        const hdr = await loadHDRTexture(ENV_HDR_URL);
+        envCubeTexture = createCubemapFromHDR(hdr, 192);
+    } catch (e) {
+        console.warn('HDR environment map load failed:', e);
+        envCubeTexture = null;
+    }
 
     const templates = await loadMarbleTemplates();
     initPhysics(templates);
