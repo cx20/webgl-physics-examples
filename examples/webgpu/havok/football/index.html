@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + Havok Falling Football Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/gl-matrix@3.4.4/gl-matrix-min.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    tintAlpha : vec4<f32>
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var texSampler : sampler;
+@group(0) @binding(2) var tex : texture_2d<f32>;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) vNormal : vec3<f32>,
+    @location(1) vTexCoord : vec2<f32>,
+    @location(2) vTint : vec4<f32>
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>
+) -> VSOut {
+    var out : VSOut;
+    let normalMatrix = mat3x3<f32>(
+        uniforms.model[0].xyz,
+        uniforms.model[1].xyz,
+        uniforms.model[2].xyz
+    );
+    out.vNormal = normalize(normalMatrix * normal);
+    out.vTexCoord = uv;
+    out.vTint = uniforms.tintAlpha;
+    out.Position = uniforms.viewProj * uniforms.model * vec4<f32>(position, 1.0);
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@group(0) @binding(1) var texSampler : sampler;
+@group(0) @binding(2) var tex : texture_2d<f32>;
+
+@fragment
+fn main(
+    @location(0) vNormal : vec3<f32>,
+    @location(1) vTexCoord : vec2<f32>,
+    @location(2) vTint : vec4<f32>
+) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 0.9, 0.4));
+    let diffuse = max(dot(normalize(vNormal), lightDir), 0.25);
+    let texColor = textureSample(tex, texSampler, vTexCoord);
+    return vec4<f32>(texColor.rgb * vTint.rgb * diffuse, vTint.a);
+}
+</script>
+
+<canvas id="c"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
