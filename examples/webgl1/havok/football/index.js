@@ -341,7 +341,7 @@ function initPhysics() {
     checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
     checkResult(HK.HP_World_SetIdealStepTime(worldId, 1 / 60), 'HP_World_SetIdealStepTime');
 
-    const groundShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [30, 0.4, 30]);
+    const groundShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [30, 2, 30]);
     checkResult(groundShapeResult[0], 'HP_Shape_CreateBox (ground)');
     HK.HP_Shape_SetMaterial(groundShapeResult[1], [0.6, 0.6, 0.3, HK.MaterialCombine.MINIMUM, HK.MaterialCombine.MAXIMUM]);
     groundBodyId = createBody(groundShapeResult[1], HK.MotionType.STATIC, [0, -2, 0], IDENTITY_QUATERNION, false);
@@ -466,7 +466,7 @@ async function init() {
     uniformAlpha = gl.getUniformLocation(program, 'uAlpha');
 
     sphereMesh = createSphereGeometry(0.5, 18, 24);
-    planeMesh = createPlaneGeometry(60, 6);
+    planeMesh = createPlaneGeometry(30, 6);
 
     footballTexture = await loadTexture(FOOTBALL_TEXTURE);
     grassTexture = await loadTexture(GROUND_TEXTURE);

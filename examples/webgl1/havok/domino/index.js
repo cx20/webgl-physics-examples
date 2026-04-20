@@ -63,6 +63,9 @@ const DOMINO_COUNT = 256;
 const DOMINO_W = 2;
 const DOMINO_H = 4;
 const DOMINO_D = 0.6;
+const GROUND_HALF_HEIGHT = 0.2;
+const GROUND_Y = -GROUND_HALF_HEIGHT;
+const DOMINO_START_CLEARANCE = 0.05;
 
 let HK;
 let worldId;
@@ -270,9 +273,9 @@ function initPhysics() {
     checkResult(HK.HP_World_SetIdealStepTime(worldId, 1 / 60), 'HP_World_SetIdealStepTime');
 
     // Ground
-    const groundShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [100, 0.2, 100]);
+    const groundShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [100, GROUND_HALF_HEIGHT, 100]);
     checkResult(groundShapeResult[0], 'HP_Shape_CreateBox (ground)');
-    createBody(groundShapeResult[1], HK.MotionType.STATIC, [0, -0.1, 0], IDENTITY_QUATERNION, false);
+    createBody(groundShapeResult[1], HK.MotionType.STATIC, [0, GROUND_Y, 0], IDENTITY_QUATERNION, false);
 
     // Domino shape (shared across all domino bodies)
     const dominoShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [DOMINO_W, DOMINO_H, DOMINO_D]);
@@ -287,7 +290,7 @@ function initPhysics() {
 
     for (let i = 0; i < DOMINO_COUNT; i++) {
         const x = (Math.floor(i / 16) - 8) * 3;
-        const y = DOMINO_H / 2;
+        const y = GROUND_Y + GROUND_HALF_HEIGHT + DOMINO_H + DOMINO_START_CLEARANCE;
         const z = (8 - (i % 16)) * 3;
 
         // First piece in each column (i % 16 === 0) is tilted to trigger the chain
@@ -335,7 +338,7 @@ function render(timeMs) {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 
     // Draw ground
-    drawBox([0, -0.1, 0], IDENTITY_QUATERNION, [100, 0.2, 100], [0.5, 0.45, 0.4]);
+    drawBox([0, GROUND_Y, 0], IDENTITY_QUATERNION, [100, GROUND_HALF_HEIGHT, 100], [0.5, 0.45, 0.4]);
 
     // Draw dominos
     for (let i = 0; i < DOMINO_COUNT; i++) {
