@@ -324,12 +324,14 @@ function initPhysics() {
 
     const groundShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [30, 0.4, 30]);
     checkResult(groundShapeResult[0], 'HP_Shape_CreateBox (ground)');
+    HK.HP_Shape_SetMaterial(groundShapeResult[1], [0.6, 0.6, 0.3, HK.MaterialCombine.MINIMUM, HK.MaterialCombine.MAXIMUM]);
     createBody(groundShapeResult[1], HK.MotionType.STATIC, [0, -2, 0], IDENTITY_QUATERNION, false);
 
     const ballShapeResult = HK.HP_Shape_CreateSphere([0, 0, 0], 0.5);
     checkResult(ballShapeResult[0], 'HP_Shape_CreateSphere (ball)');
     const ballShapeId = ballShapeResult[1];
     checkResult(HK.HP_Shape_SetDensity(ballShapeId, 1), 'HP_Shape_SetDensity');
+    HK.HP_Shape_SetMaterial(ballShapeId, [0.4, 0.4, 0.75, HK.MaterialCombine.MINIMUM, HK.MaterialCombine.MAXIMUM]);
 
     for (let y = 0; y < DOT_ROWS.length; y++) {
         const row = DOT_ROWS[y];
