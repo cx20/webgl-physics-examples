@@ -289,14 +289,16 @@ function initPhysics() {
     checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
     checkResult(HK.HP_World_SetIdealStepTime(worldId, 1 / 60), 'HP_World_SetIdealStepTime');
 
-    const groundShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [30, 0.4, 30]);
+    const groundShapeResult = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [30, 2, 30]);
     checkResult(groundShapeResult[0], 'HP_Shape_CreateBox (ground)');
+    HK.HP_Shape_SetMaterial(groundShapeResult[1], [0.6, 0.6, 0.3, HK.MaterialCombine.MINIMUM, HK.MaterialCombine.MAXIMUM]);
     createBody(groundShapeResult[1], HK.MotionType.STATIC, [0, -2, 0], IDENTITY_QUATERNION, false);
 
     const ballShapeResult = HK.HP_Shape_CreateSphere([0, 0, 0], 0.5);
     checkResult(ballShapeResult[0], 'HP_Shape_CreateSphere (ball)');
     const ballShapeId = ballShapeResult[1];
     checkResult(HK.HP_Shape_SetDensity(ballShapeId, 1), 'HP_Shape_SetDensity');
+    HK.HP_Shape_SetMaterial(ballShapeId, [0.4, 0.4, 0.75, HK.MaterialCombine.MINIMUM, HK.MaterialCombine.MAXIMUM]);
 
     for (let y = 0; y < DOT_ROWS.length; y++) {
         const row = DOT_ROWS[y];
@@ -463,7 +465,7 @@ async function init() {
     });
 
     sphereMesh = createMesh(createSphereGeometry(0.5, 18, 24));
-    planeMesh = createMesh(createPlaneGeometry(60, 6));
+    planeMesh = createMesh(createPlaneGeometry(30, 6));
 
     footballTextureView = await loadTextureView(FOOTBALL_TEXTURE);
     grassTextureView = await loadTextureView(GROUND_TEXTURE);
