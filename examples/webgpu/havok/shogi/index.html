@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGPU + Havok Falling Shogi Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+    <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    pMatrix: mat4x4<f32>
+};
+@binding(0) @group(0) var<uniform> uniforms: Uniforms;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) vTextureCoord: vec2<f32>,
+    @location(1) vColor: vec3<f32>
+}
+
+fn qtransform(q: vec4<f32>, p: vec3<f32>) -> vec3<f32> {
+    return p + 2.0 * cross(cross(p, q.xyz) - q.w * p, q.xyz);
+}
+
+@vertex
+fn main(
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) textureCoord: vec2<f32>,
+    @location(3) offset: vec3<f32>,
+    @location(4) rot: vec4<f32>
+) -> VertexOutput {
+    var output: VertexOutput;
+
+    let eye    = vec3<f32>(0.0, 0.0, 40.0);
+    let center = vec3<f32>(0.0, 0.0, 0.0);
+    let up     = vec3<f32>(0.0, 1.0, 0.0);
+
+    let ww = normalize(eye - center);
+    let uu = normalize(cross(up, ww));
+    let vv = normalize(cross(ww, uu));
+    let vMatrix = mat4x4<f32>(
+        uu.x, vv.x, ww.x, 0.0,
+        uu.y, vv.y, ww.y, 0.0,
+        uu.z, vv.z, ww.z, 0.0,
+        -dot(uu, eye), -dot(uu, eye), -dot(ww, eye), 1.0
+    );
+
+    let nor     = qtransform(rot, normal);
+    let col     = vec3<f32>(1.0, 1.0, 1.0);
+    let light   = normalize(vec3<f32>(1.0, 1.0, 1.0));
+    let lighting = max(dot(light, (vMatrix * vec4<f32>(nor, 0.0)).xyz), 0.4);
+    output.vColor = col * lighting;
+    output.vTextureCoord = textureCoord;
+
+    let pos = qtransform(rot, position) + offset;
+    output.position = uniforms.pMatrix * vMatrix * vec4<f32>(pos, 1.0);
+    return output;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@binding(1) @group(0) var mySampler: sampler;
+@binding(2) @group(0) var myTexture: texture_2d<f32>;
+
+@fragment
+fn main(
+    @location(0) vTextureCoord: vec2<f32>,
+    @location(1) vColor: vec3<f32>
+) -> @location(0) vec4<f32> {
+    let col = pow(vColor, vec3<f32>(0.6, 0.6, 0.6));
+    return textureSample(myTexture, mySampler, vTextureCoord) * vec4<f32>(col, 1.0);
+}
+</script>
+
+<script id="gvs" type="x-shader/x-vertex">
+struct GroundUniforms {
+    mvpMatrix: mat4x4<f32>
+};
+@binding(0) @group(0) var<uniform> groundUniforms: GroundUniforms;
+
+@vertex
+fn main(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+    return groundUniforms.mvpMatrix * vec4<f32>(position, 1.0);
+}
+</script>
+
+<script id="gfs" type="x-shader/x-fragment">
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.6, 0.6, 0.6, 1.0);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
