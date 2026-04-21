@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGL 2.0 + Havok Falling Shogi Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+    <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+#version 300 es
+#define PI 3.14159265359
+#define PI2 ( PI * 2.0 )
+
+in vec3 position;
+in vec3 normal;
+in vec2 textureCoord;
+in vec3 offset;
+in vec4 rot;
+uniform mat4 pMatrix;
+out vec3 vColor;
+out vec2 vTextureCoord;
+
+mat4 lookAt(in vec3 eye, in vec3 center, in vec3 up)
+{
+    vec3 w = normalize(eye - center);
+    vec3 u = normalize(cross(up, w));
+    vec3 v = normalize(cross(w, u));
+    return mat4(
+        u.x, v.x, w.x, 0.0,
+        u.y, v.y, w.y, 0.0,
+        u.z, v.z, w.z, 0.0,
+        -dot(u, eye), -dot(u, eye), -dot(w, eye), 1.0);    
+}    
+
+vec3 qtransform(in vec4 q, in vec3 p)
+{
+	return p + 2.0 * cross(cross(p, q.xyz) - q.w * p, q.xyz);
+}
+      
+void main()
+{
+    vTextureCoord = textureCoord;
+    mat4 vMatrix = lookAt(
+        vec3(0.0, 0.0, 40.0),
+        vec3(0.0), vec3(0.0, 1.0, 0.0));
+    vec3 nor = qtransform(rot, normal);
+    vec3 col = vec3(1.0, 1.0, 1.0);
+    vec3 light = normalize(vec3(1.0));
+    vColor = col * max(dot(light, (vMatrix * vec4(nor, 0.0)).xyz), 0.4);
+    vec3 pos = qtransform(rot, position);
+    pos += offset;
+    gl_Position = pMatrix * vMatrix * vec4(pos, 1.0);      
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+#version 300 es
+precision mediump float;
+uniform sampler2D uTexture;
+in vec3 vColor;
+in vec2 vTextureCoord;
+out vec4 fragColor;
+
+void main() 
+{
+    vec3 col = pow(vColor, vec3(0.6));
+    fragColor = texture(uTexture, vTextureCoord) * vec4(col, 1.0);
+}
+</script>
+
+<script id="gvs" type="x-shader/x-vertex">
+#version 300 es
+in vec3 position;
+uniform mat4 mvpMatrix;
+void main() {
+    gl_Position = mvpMatrix * vec4(position, 1.0);
+}
+</script>
+
+<script id="gfs" type="x-shader/x-fragment">
+#version 300 es
+precision mediump float;
+out vec4 fragColor;
+void main() {
+    fragColor = vec4(0.6, 0.6, 0.6, 1.0);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
