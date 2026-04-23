@@ -5,6 +5,9 @@ const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const SHOW_DEBUG_COLLIDERS = false;
 const RESET_Y_THRESHOLD = -20;
 
+const PHYSICS_SUBSTEPS = 4;
+const PHYSICS_DT = 1 / (60 * PHYSICS_SUBSTEPS);
+
 let canvas;
 let gl;
 let extUint;
@@ -851,6 +854,17 @@ function createBody(shapeId, motionType, position, rotation, setMass, motionDef,
     checkResult(HK.HP_Body_SetShape(bodyId, shapeId), 'HP_Body_SetShape');
     checkResult(HK.HP_Body_SetMotionType(bodyId, motionType), 'HP_Body_SetMotionType');
 
+    // Set body quality so Havok enables CCD for fast-moving dynamic bodies.
+    if (typeof HK.HP_Body_SetQuality === 'function') {
+        const isDynamic = motionType !== HK.MotionType.STATIC;
+        const quality = isDynamic
+            ? (HK.QualityType ? HK.QualityType.MOVING : 1)
+            : (HK.QualityType ? HK.QualityType.FIXED : 0);
+        if (quality !== undefined) {
+            checkResult(HK.HP_Body_SetQuality(bodyId, quality), 'HP_Body_SetQuality');
+        }
+    }
+
     if (setMass) {
         const massResult = HK.HP_Shape_BuildMassProperties(shapeId);
         checkResult(massResult[0], 'HP_Shape_BuildMassProperties');
@@ -860,6 +874,13 @@ function createBody(shapeId, motionType, position, rotation, setMass, motionDef,
 
     if (gravityFactor !== undefined && typeof HK.HP_Body_SetGravityFactor === 'function') {
         checkResult(HK.HP_Body_SetGravityFactor(bodyId, gravityFactor), 'HP_Body_SetGravityFactor');
+    }
+
+    if (motionDef && motionDef.linearVelocity && typeof HK.HP_Body_SetLinearVelocity === 'function') {
+        checkResult(HK.HP_Body_SetLinearVelocity(bodyId, motionDef.linearVelocity), 'HP_Body_SetLinearVelocity');
+    }
+    if (motionDef && motionDef.angularVelocity && typeof HK.HP_Body_SetAngularVelocity === 'function') {
+        checkResult(HK.HP_Body_SetAngularVelocity(bodyId, motionDef.angularVelocity), 'HP_Body_SetAngularVelocity');
     }
 
     checkResult(HK.HP_Body_SetPosition(bodyId, position), 'HP_Body_SetPosition');
@@ -883,8 +904,17 @@ function applyPhysicsMaterial(shapeId, materialDef) {
 }
 
 function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
-    const meshIndex = colliderGeom.mesh;
-    const isConvex = !!colliderGeom.convexHull;
+    let meshIndex = colliderGeom.mesh;
+    if (meshIndex === undefined && colliderGeom.node !== undefined) {
+        const colliderNode = modelAsset.nodes[colliderGeom.node];
+        if (colliderNode && colliderNode.mesh !== undefined) {
+            meshIndex = colliderNode.mesh;
+        }
+    }
+    if (meshIndex === undefined) {
+        throw new Error('Unsupported collider geometry. Expected geometry.mesh (new draft) or geometry.node (legacy).');
+    }
+    const isConvex = !!colliderGeom.convexHull || typeof HK.HP_Body_SetQuality !== 'function';
     const meshDef = modelAsset.gltf.meshes[meshIndex];
 
     const allPositions = [];
@@ -904,6 +934,11 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
             const indices = getAccessorData(modelAsset.gltf, modelAsset.buffers, primitive.indices);
             for (let i = 0; i < indices.length; i++) {
                 allIndices.push(indices[i] + vertexOffset);
+            }
+        } else if (!isConvex) {
+            const vertexCount = positions.length / 3;
+            for (let i = 0; i + 2 < vertexCount; i += 3) {
+                allIndices.push(vertexOffset + i, vertexOffset + i + 1, vertexOffset + i + 2);
             }
         }
         vertexOffset += positions.length / 3;
@@ -1030,7 +1065,7 @@ function initPhysics() {
     worldId = world[1];
 
     checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
-    checkResult(HK.HP_World_SetIdealStepTime(worldId, 1 / 60), 'HP_World_SetIdealStepTime');
+    checkResult(HK.HP_World_SetIdealStepTime(worldId, PHYSICS_DT), 'HP_World_SetIdealStepTime');
 
     const shapeDefs = (modelAsset.gltf.extensions && modelAsset.gltf.extensions.KHR_implicit_shapes && modelAsset.gltf.extensions.KHR_implicit_shapes.shapes) || [];
     const scenePhysics = (modelAsset.gltf.extensions && modelAsset.gltf.extensions.KHR_physics_rigid_bodies) || {};
@@ -1064,7 +1099,9 @@ function initPhysics() {
         node.initialRotation = [rotation[0], rotation[1], rotation[2], rotation[3]];
         node.debugSize = size;
 
-        const motionType = motionDef ? HK.MotionType.DYNAMIC : HK.MotionType.STATIC;
+        const motionType = !motionDef
+            ? HK.MotionType.STATIC
+            : (motionDef.isKinematic ? HK.MotionType.KINEMATIC : HK.MotionType.DYNAMIC);
         const gravityFactor = motionDef && motionDef.gravityFactor !== undefined ? motionDef.gravityFactor : undefined;
         node.bodyId = createBody(shapeId, motionType, node.initialPosition, node.initialRotation, !!motionDef, motionDef, gravityFactor);
         physicsNodes.push(node);
@@ -1133,7 +1170,9 @@ function drawPhysicsDebug() {
 }
 
 function renderFrame(timeSec) {
-    checkResult(HK.HP_World_Step(worldId, 1 / 60), 'HP_World_Step');
+    for (let i = 0; i < PHYSICS_SUBSTEPS; i++) {
+        checkResult(HK.HP_World_Step(worldId, PHYSICS_DT), 'HP_World_Step');
+    }
     resetDynamicBodiesIfNeeded();
     updatePhysicsTransforms();
 
@@ -1143,11 +1182,10 @@ function renderFrame(timeSec) {
     const aspect = canvas.width / canvas.height;
     mat4.perspective(projection, Math.PI / 4, aspect, 0.1, 2000);
 
-    const orbit = timeSec * 0.15;
     const eye = vec3.fromValues(
-        cameraCenter[0] + Math.sin(orbit) * cameraRadius,
+        cameraCenter[0],
         cameraCenter[1] + cameraHeight,
-        cameraCenter[2] + Math.cos(orbit) * cameraRadius
+        cameraCenter[2] + cameraRadius
     );
     mat4.lookAt(view, eye, cameraCenter, [0, 1, 0]);
     mat4.multiply(viewProj, projection, view);
