@@ -5,6 +5,9 @@ const SHOW_DEBUG_BBOX = false;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const RESET_Y_THRESHOLD = -20;
 
+const PHYSICS_SUBSTEPS = 4;
+const PHYSICS_DT = 1 / (60 * PHYSICS_SUBSTEPS);
+
 let canvas;
 let device;
 let context;
@@ -818,6 +821,15 @@ function createBody(shapeId, motionType, position, rotation, setMass, motionDef,
     checkResult(HK.HP_Body_SetShape(bodyId, shapeId), 'HP_Body_SetShape');
     checkResult(HK.HP_Body_SetMotionType(bodyId, motionType), 'HP_Body_SetMotionType');
 
+    // Set body quality so Havok enables CCD for fast-moving dynamic bodies.
+    if (typeof HK.HP_Body_SetQuality === 'function' && HK.QualityType) {
+        const isDynamic = motionType !== HK.MotionType.STATIC;
+        const quality = isDynamic ? HK.QualityType.MOVING : HK.QualityType.FIXED;
+        if (quality !== undefined) {
+            HK.HP_Body_SetQuality(bodyId, quality);
+        }
+    }
+
     if (setMass) {
         const massResult = HK.HP_Shape_BuildMassProperties(shapeId);
         checkResult(massResult[0], 'HP_Shape_BuildMassProperties');
@@ -827,6 +839,13 @@ function createBody(shapeId, motionType, position, rotation, setMass, motionDef,
 
     if (gravityFactor !== undefined && typeof HK.HP_Body_SetGravityFactor === 'function') {
         checkResult(HK.HP_Body_SetGravityFactor(bodyId, gravityFactor), 'HP_Body_SetGravityFactor');
+    }
+
+    if (motionDef && motionDef.linearVelocity && typeof HK.HP_Body_SetLinearVelocity === 'function') {
+        checkResult(HK.HP_Body_SetLinearVelocity(bodyId, motionDef.linearVelocity), 'HP_Body_SetLinearVelocity');
+    }
+    if (motionDef && motionDef.angularVelocity && typeof HK.HP_Body_SetAngularVelocity === 'function') {
+        checkResult(HK.HP_Body_SetAngularVelocity(bodyId, motionDef.angularVelocity), 'HP_Body_SetAngularVelocity');
     }
 
     checkResult(HK.HP_Body_SetPosition(bodyId, position), 'HP_Body_SetPosition');
@@ -998,7 +1017,7 @@ function initPhysics() {
     worldId = world[1];
 
     checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
-    checkResult(HK.HP_World_SetIdealStepTime(worldId, 1 / 60), 'HP_World_SetIdealStepTime');
+    checkResult(HK.HP_World_SetIdealStepTime(worldId, PHYSICS_DT), 'HP_World_SetIdealStepTime');
 
     const shapeDefs = (duckModel.gltf.extensions && duckModel.gltf.extensions.KHR_implicit_shapes && duckModel.gltf.extensions.KHR_implicit_shapes.shapes) || [];
     const scenePhysics = (duckModel.gltf.extensions && duckModel.gltf.extensions.KHR_physics_rigid_bodies) || {};
@@ -1033,7 +1052,9 @@ function initPhysics() {
         node.initialRotation = [q[0], q[1], q[2], q[3]];
         node.debugSize = size;
 
-        const motionType = motionDef ? HK.MotionType.DYNAMIC : HK.MotionType.STATIC;
+        const motionType = !motionDef
+            ? HK.MotionType.STATIC
+            : (motionDef.isKinematic ? HK.MotionType.ANIMATED : HK.MotionType.DYNAMIC);
         const gravityFactor = motionDef && motionDef.gravityFactor !== undefined ? motionDef.gravityFactor : undefined;
         node.bodyId = createBody(shapeId, motionType, node.initialPosition, node.initialRotation, !!motionDef, motionDef, gravityFactor);
         physicsNodes.push(node);
@@ -1135,15 +1156,17 @@ function drawDuckNodes(pass) {
 }
 
 function render(timeMs) {
-    checkResult(HK.HP_World_Step(worldId, 1 / 60), 'HP_World_Step');
+    for (let i = 0; i < PHYSICS_SUBSTEPS; i++) {
+        checkResult(HK.HP_World_Step(worldId, PHYSICS_DT), 'HP_World_Step');
+    }
     resetDynamicBodiesIfNeeded();
     updatePhysicsTransforms();
 
     const t = timeMs * 0.001;
     const eye = vec3.fromValues(
-        cameraCenter[0] + Math.sin(t * 0.2) * cameraRadius,
+        cameraCenter[0],
         cameraCenter[1] + cameraHeight,
-        cameraCenter[2] + Math.cos(t * 0.2) * cameraRadius
+        cameraCenter[2] + cameraRadius
     );
     mat4.lookAt(view, eye, cameraCenter, [0, 1, 0]);
     mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 2000);
