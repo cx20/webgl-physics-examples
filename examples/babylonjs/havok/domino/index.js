@@ -1,4 +1,5 @@
-﻿// ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
+// ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
 // ‥‥‥‥‥■■■□□■□‥■■■
@@ -58,7 +59,14 @@ const PHYSICS_SCALE = 1/10;
 async function init() {
 
     canvas = document.querySelector("#c");
-    globalThis.HK = await HavokPhysics();
+    globalThis.HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
     engine = new BABYLON.Engine(canvas, true);
 
     scene = createScene();

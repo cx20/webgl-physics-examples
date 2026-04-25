@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 let engine;
 let scene;
 let canvas;
@@ -15,7 +16,7 @@ function ensureRigidBodyLoader() {
     if (!rigidBodyLoaderPromise) {
         rigidBodyLoaderPromise = new Promise((resolve, reject) => {
             const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/babylon-gltf-rigid-body-loader@latest';
+            script.src = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/babylon-gltf-rigid-body-loader.js';
             script.onload = resolve;
             script.onerror = () => reject(new Error('Failed to load babylon-gltf-rigid-body-loader.'));
             document.head.appendChild(script);
@@ -43,7 +44,14 @@ function registerPhysicsExtensions() {
 
 async function init() {
     canvas = document.querySelector('#c');
-    globalThis.HK = await HavokPhysics();
+    globalThis.HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
     await ensureRigidBodyLoader();
     registerPhysicsExtensions();
 
