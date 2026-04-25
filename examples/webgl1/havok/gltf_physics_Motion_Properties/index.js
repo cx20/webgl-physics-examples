@@ -1321,7 +1321,7 @@ function renderFrame(timeSec) {
 
     gl.useProgram(program);
     gl.uniformMatrix4fv(uniforms.viewProj, false, viewProj);
-    gl.uniform3fv(uniforms.lightDir, [0.45, 1.0, 0.35]);
+    gl.uniform3fv(uniforms.lightDir, [0.45, 1.0, -0.35]);
     gl.uniform3fv(uniforms.eyePos, eye);
 
     drawModel();

@@ -34,6 +34,8 @@ let duckModel = null;
 const physicsNodes = [];
 const dynamicNodes = [];
 
+let eyePos = vec3.create();
+
 let debugBoxMesh;
 let debugLineUniformBuffer;
 let debugLineBindGroup;
@@ -988,29 +990,34 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
     }
 
     const posFloat32 = new Float32Array(allPositions);
+    const numVertices = allPositions.length / 3;
     let shapeId;
 
-    if (isConvex) {
-        const created = HK.HP_Shape_CreateConvexHull(posFloat32);
-        checkResult(created[0], 'HP_Shape_CreateConvexHull');
-        // Try to get shapeId - might be in created[1] directly OR created[1][0]
-        let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
-        // Convert BigInt to number if needed
-        if (typeof rawShapeId === 'bigint') {
-            rawShapeId = Number(rawShapeId);
+    // Havok WASM expects native heap memory offsets, not JavaScript TypedArrays.
+    const posBytes = posFloat32.length * 4;
+    const posOffset = HK._malloc(posBytes);
+    new Float32Array(HK.HEAPU8.buffer, posOffset, posFloat32.length).set(posFloat32);
+    try {
+        if (isConvex) {
+            const created = HK.HP_Shape_CreateConvexHull(posOffset, numVertices);
+            checkResult(created[0], 'HP_Shape_CreateConvexHull');
+            shapeId = created[1];
+        } else {
+            const numTriangles = allIndices.length / 3;
+            const triBytes = allIndices.length * 4;
+            const triOffset = HK._malloc(triBytes);
+            const triView = new Int32Array(HK.HEAPU8.buffer, triOffset, allIndices.length);
+            for (let i = 0; i < allIndices.length; i++) triView[i] = allIndices[i];
+            try {
+                const created = HK.HP_Shape_CreateMesh(posOffset, numVertices, triOffset, numTriangles);
+                checkResult(created[0], 'HP_Shape_CreateMesh');
+                shapeId = created[1];
+            } finally {
+                HK._free(triOffset);
+            }
         }
-        shapeId = rawShapeId;
-    } else {
-        const indicesUint32 = new Uint32Array(allIndices);
-        const created = HK.HP_Shape_CreateMesh(posFloat32, indicesUint32);
-        checkResult(created[0], 'HP_Shape_CreateMesh');
-        // Try to get shapeId - might be in created[1] directly OR created[1][0]
-        let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
-        // Convert BigInt to number if needed
-        if (typeof rawShapeId === 'bigint') {
-            rawShapeId = Number(rawShapeId);
-        }
-        shapeId = rawShapeId;
+    } finally {
+        HK._free(posOffset);
     }
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -1023,7 +1030,7 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
     let size = [maxX - minX, maxY - minY, maxZ - minZ];
     let volume = Math.max((maxX - minX) * (maxY - minY) * (maxZ - minZ), 0.0001);
 
-    if (!shapeId || shapeId <= 0 || shapeId === undefined || shapeId === null) {
+    if (shapeId == null) {
         console.warn(`  [WARN] Invalid shapeId=${shapeId}! Mesh shape creation FAILED.`);
         console.warn(`    This Havok WASM version may not support mesh shapes. Creating fallback approximation shape...`);
 
@@ -1297,7 +1304,7 @@ function drawDuckNodes(pass) {
         if (node.mesh !== undefined) {
             const mesh = duckModel.meshes[node.mesh];
             for (const prim of mesh.primitives) {
-                writeTriangleUniforms(prim.renderItem.uniformBuffer, worldMat, prim.baseColor, currentEyePos, prim.metallic ?? 0.0, prim.roughness ?? 0.5);
+                writeTriangleUniforms(prim.renderItem.uniformBuffer, worldMat, prim.baseColor, eyePos, prim.metallic ?? 0.0, prim.roughness ?? 0.5);
                 drawTriangleMesh(pass, prim.mesh, prim.renderItem.bindGroup);
             }
         }
@@ -1325,7 +1332,7 @@ function render(timeMs) {
         cameraCenter[1] + cameraHeight,
         cameraCenter[2] - cameraRadius
     );
-    const currentEyePos = eye;
+    vec3.copy(eyePos, eye);
     mat4.lookAt(view, eye, cameraCenter, [0, 1, 0]);
     mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 2000);
     mat4.multiply(viewProj, projection, view);

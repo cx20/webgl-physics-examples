@@ -58,7 +58,7 @@ struct Uniforms {
 @group(0) @binding(2) var tex  : texture_2d<f32>;
 
 const PI : f32 = 3.14159265359;
-const LIGHT_DIR : vec3<f32> = vec3<f32>(0.45, 1.0, 0.35);
+const LIGHT_DIR : vec3<f32> = vec3<f32>(0.45, 1.0, -0.35);
 
 fn distributionGGX(NdotH: f32, roughness: f32) -> f32 {
     let a  = roughness * roughness;
