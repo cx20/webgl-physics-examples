@@ -777,8 +777,30 @@ function setMassPropertyQuat(target, keys, value) {
     return false;
 }
 
+// KHR_physics_rigid_bodies spec: inertiaDiagonal component of 0 means "infinite inertia" (locked axis).
+// Havok cannot accept 0 inertia (causes 1/0=Infinity in the solver and breaks simulation).
+// Replace 0 components with a large value to represent "infinite" inertia.
+const INFINITE_INERTIA = 1e30;
+
+function toHavokInertiaDiagonal(specValue) {
+    if (!Array.isArray(specValue)) return specValue;
+    return [
+        specValue[0] === 0 ? INFINITE_INERTIA : specValue[0],
+        specValue[1] === 0 ? INFINITE_INERTIA : specValue[1],
+        specValue[2] === 0 ? INFINITE_INERTIA : specValue[2]
+    ];
+}
+
 function applyMotionMassProperties(bodyId, motionDef) {
     if (!motionDef || typeof HK.HP_Body_GetMassProperties !== 'function' || typeof HK.HP_Body_SetMassProperties !== 'function') {
+        return;
+    }
+
+    const hasInertiaDiagonal = Array.isArray(motionDef.inertiaDiagonal);
+    const hasInertiaOrientation = Array.isArray(motionDef.inertiaOrientation);
+    const hasCenterOfMass = Array.isArray(motionDef.centerOfMass);
+
+    if (!hasInertiaDiagonal && !hasInertiaOrientation && !hasCenterOfMass) {
         return;
     }
 
@@ -786,22 +808,23 @@ function applyMotionMassProperties(bodyId, motionDef) {
     checkResult(massPropResult[0], 'HP_Body_GetMassProperties');
     const massProperties = massPropResult[1];
 
+    console.log(`[applyMotionMassProperties] bodyId=${bodyId}`);
+    console.log(`  Input: mass=${motionDef.mass}, inertiaDiagonal=${JSON.stringify(motionDef.inertiaDiagonal)}, centerOfMass=${JSON.stringify(motionDef.centerOfMass)}`);
+
     let changed = false;
 
+    // Havok mass properties structure: [mass, centerOfMass[3], inertiaDiagonal[3], inertiaOrientation[4]]
     if (Array.isArray(massProperties)) {
+        console.log(`  massProperties is array, length=${massProperties.length}`);
         let vec3SlotCount = 0;
         for (let i = 0; i < massProperties.length; i++) {
             const slot = massProperties[i];
-            if (motionDef.mass !== undefined && typeof slot === 'number') {
-                massProperties[i] = motionDef.mass;
-                changed = true;
-                continue;
-            }
             if (!Array.isArray(slot)) {
                 continue;
             }
 
-            if (slot.length === 4 && motionDef.inertiaOrientation) {
+            if (slot.length === 4 && hasInertiaOrientation) {
+                console.log(`    Slot[${i}] (quat): Setting inertiaOrientation=${JSON.stringify(motionDef.inertiaOrientation)}`);
                 slot[0] = motionDef.inertiaOrientation[0];
                 slot[1] = motionDef.inertiaOrientation[1];
                 slot[2] = motionDef.inertiaOrientation[2];
@@ -811,39 +834,44 @@ function applyMotionMassProperties(bodyId, motionDef) {
             }
 
             if (slot.length === 3) {
-                const vecSource = vec3SlotCount === 0 ? motionDef.inertiaDiagonal : motionDef.centerOfMass;
-                if (vecSource) {
-                    slot[0] = vecSource[0];
-                    slot[1] = vecSource[1];
-                    slot[2] = vecSource[2];
+                // vec3SlotCount=0 → centerOfMass, vec3SlotCount=1 → inertiaDiagonal
+                if (vec3SlotCount === 0 && hasCenterOfMass) {
+                    console.log(`    Slot[${i}] (vec3, count=0): Setting centerOfMass=${JSON.stringify(motionDef.centerOfMass)}`);
+                    slot[0] = motionDef.centerOfMass[0];
+                    slot[1] = motionDef.centerOfMass[1];
+                    slot[2] = motionDef.centerOfMass[2];
+                    changed = true;
+                } else if (vec3SlotCount === 1 && hasInertiaDiagonal) {
+                    const hkInertia = toHavokInertiaDiagonal(motionDef.inertiaDiagonal);
+                    console.log(`    Slot[${i}] (vec3, count=1): Setting inertiaDiagonal spec=${JSON.stringify(motionDef.inertiaDiagonal)} -> havok=${JSON.stringify(hkInertia)}`);
+                    slot[0] = hkInertia[0];
+                    slot[1] = hkInertia[1];
+                    slot[2] = hkInertia[2];
                     changed = true;
                 }
                 vec3SlotCount++;
             }
         }
     } else if (massProperties && typeof massProperties === 'object') {
-        if (motionDef.mass !== undefined) {
-            if (typeof massProperties.mass === 'number') {
-                massProperties.mass = motionDef.mass;
-                changed = true;
-            } else if (typeof massProperties.m_mass === 'number') {
-                massProperties.m_mass = motionDef.mass;
-                changed = true;
-            }
+        console.log(`  massProperties is object:`, Object.keys(massProperties));
+        if (hasInertiaDiagonal) {
+            const hkInertia = toHavokInertiaDiagonal(motionDef.inertiaDiagonal);
+            console.log(`  Setting inertiaDiagonal spec=${JSON.stringify(motionDef.inertiaDiagonal)} -> havok=${JSON.stringify(hkInertia)}`);
+            changed = setMassPropertyVec3(massProperties, ['inertiaDiagonal', 'm_inertiaDiagonal', 'inertia', 'm_inertia'], hkInertia) || changed;
         }
-        if (motionDef.inertiaDiagonal) {
-            changed = setMassPropertyVec3(massProperties, ['inertiaDiagonal', 'm_inertiaDiagonal', 'inertia', 'm_inertia'], motionDef.inertiaDiagonal) || changed;
-        }
-        if (motionDef.inertiaOrientation) {
+        if (hasInertiaOrientation) {
             changed = setMassPropertyQuat(massProperties, ['inertiaOrientation', 'm_inertiaOrientation'], motionDef.inertiaOrientation) || changed;
         }
-        if (motionDef.centerOfMass) {
+        if (hasCenterOfMass) {
             changed = setMassPropertyVec3(massProperties, ['centerOfMass', 'm_centerOfMass', 'center', 'm_center'], motionDef.centerOfMass) || changed;
         }
     }
 
     if (changed) {
+        console.log(`  Setting mass properties (changed=true)`);
         checkResult(HK.HP_Body_SetMassProperties(bodyId, massProperties), 'HP_Body_SetMassProperties');
+    } else {
+        console.log(`  No changes to mass properties (changed=false)`);
     }
 }
 
@@ -854,17 +882,6 @@ function createBody(shapeId, motionType, position, rotation, setMass, motionDef,
 
     checkResult(HK.HP_Body_SetShape(bodyId, shapeId), 'HP_Body_SetShape');
     checkResult(HK.HP_Body_SetMotionType(bodyId, motionType), 'HP_Body_SetMotionType');
-
-    // Set body quality so Havok enables CCD for fast-moving dynamic bodies.
-    if (typeof HK.HP_Body_SetQuality === 'function') {
-        const isDynamic = motionType !== HK.MotionType.STATIC;
-        const quality = isDynamic
-            ? (HK.QualityType ? HK.QualityType.MOVING : 1)
-            : (HK.QualityType ? HK.QualityType.FIXED : 0);
-        if (quality !== undefined) {
-            checkResult(HK.HP_Body_SetQuality(bodyId, quality), 'HP_Body_SetQuality');
-        }
-    }
 
     if (setMass) {
         const massResult = HK.HP_Shape_BuildMassProperties(shapeId);
@@ -904,6 +921,46 @@ function applyPhysicsMaterial(shapeId, materialDef) {
     );
 }
 
+function buildCollisionLayerMask(layerNames, layerNameToBit) {
+    if (!Array.isArray(layerNames)) {
+        return 0;
+    }
+
+    let mask = 0;
+    for (const name of layerNames) {
+        if (layerNameToBit[name] === undefined) {
+            layerNameToBit[name] = Object.keys(layerNameToBit).length;
+        }
+        const bit = layerNameToBit[name];
+        if (bit < 32) {
+            mask |= (1 << bit) >>> 0;
+        }
+    }
+    return mask >>> 0;
+}
+
+function getCollisionFilterInfo(colliderDef, collisionFilterDefs, layerNameToBit) {
+    if (!colliderDef || colliderDef.collisionFilter === undefined) {
+        return null;
+    }
+
+    const filterDef = collisionFilterDefs[colliderDef.collisionFilter];
+    if (!filterDef) {
+        return null;
+    }
+
+    const membershipMask = buildCollisionLayerMask(filterDef.collisionSystems || [], layerNameToBit);
+
+    let collideMask = 0xffffffff;
+    if (Array.isArray(filterDef.collideWithSystems)) {
+        collideMask = buildCollisionLayerMask(filterDef.collideWithSystems, layerNameToBit);
+    } else if (Array.isArray(filterDef.notCollideWithSystems)) {
+        collideMask = (~buildCollisionLayerMask(filterDef.notCollideWithSystems, layerNameToBit)) >>> 0;
+    }
+
+    return [membershipMask >>> 0, collideMask >>> 0];
+}
+
 function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
     let meshIndex = colliderGeom.mesh;
     if (meshIndex === undefined && colliderGeom.node !== undefined) {
@@ -915,8 +972,10 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
     if (meshIndex === undefined) {
         throw new Error('Unsupported collider geometry. Expected geometry.mesh (new draft) or geometry.node (legacy).');
     }
-    const isConvex = !!colliderGeom.convexHull || typeof HK.HP_Body_SetQuality !== 'function';
+    const isConvex = !!colliderGeom.convexHull;
     const meshDef = modelAsset.gltf.meshes[meshIndex];
+    
+    console.log(`[createMeshPhysicsShape] node=${node.name}, meshIndex=${meshIndex}, isConvex=${isConvex}, convexHull=${colliderGeom.convexHull}`);
 
     const allPositions = [];
     const allIndices = [];
@@ -945,18 +1004,60 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
         vertexOffset += positions.length / 3;
     }
 
+    if (!isConvex && !motionDef) {
+        const baseIndexCount = allIndices.length;
+        for (let i = 0; i + 2 < baseIndexCount; i += 3) {
+            const i0 = allIndices[i];
+            const i1 = allIndices[i + 1];
+            const i2 = allIndices[i + 2];
+            allIndices.push(i0, i2, i1);
+        }
+        console.log(`  Added reverse triangles for double-sided TriMesh: ${allIndices.length} total indices`);
+    }
+
     const posFloat32 = new Float32Array(allPositions);
     let shapeId;
 
     if (isConvex) {
+        console.log(`  [DEBUG] Before HP_Shape_CreateConvexHull: positions=${posFloat32.length}`);
         const created = HK.HP_Shape_CreateConvexHull(posFloat32);
+        console.log(`  [DEBUG] HP_Shape_CreateConvexHull returned:`, created);
+        console.log(`  [DEBUG]   created[0]:`, created[0], `(type=${typeof created[0]})`);
+        console.log(`  [DEBUG]   created[1]:`, created[1], `(type=${typeof created[1]}, isArray=${Array.isArray(created[1])})`);
+        console.log(`  [DEBUG] Checking result code...`);
         checkResult(created[0], 'HP_Shape_CreateConvexHull');
-        shapeId = created[1];
+        console.log(`  [DEBUG] Result code check passed!`);
+        // Try to get shapeId - might be in created[1] directly OR created[1][0]
+        let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
+        // Convert BigInt to number if needed
+        if (typeof rawShapeId === 'bigint') {
+            rawShapeId = Number(rawShapeId);
+        }
+        shapeId = rawShapeId;
+        console.log(`  [DEBUG] Final shapeId=${shapeId} (type=${typeof shapeId})`);
+        console.log(`  Created ConvexHull: ${allPositions.length / 3} vertices, shapeId=${shapeId}`);
     } else {
         const indicesUint32 = new Uint32Array(allIndices);
+        console.log(`  [DEBUG] Before HP_Shape_CreateMesh: positions=${posFloat32.length}, indices=${indicesUint32.length}`);
         const created = HK.HP_Shape_CreateMesh(posFloat32, indicesUint32);
+        console.log(`  [DEBUG] HP_Shape_CreateMesh returned:`, created);
+        console.log(`  [DEBUG]   created[0]:`, created[0], `(type=${typeof created[0]})`);
+        console.log(`  [DEBUG]   created[1]:`, created[1], `(type=${typeof created[1]}, isArray=${Array.isArray(created[1])})`);
+        if (Array.isArray(created[1])) {
+            console.log(`  [DEBUG]   created[1][0]:`, created[1][0], `(type=${typeof created[1][0]})`);
+        }
+        console.log(`  [DEBUG] Checking result code...`);
         checkResult(created[0], 'HP_Shape_CreateMesh');
-        shapeId = created[1];
+        console.log(`  [DEBUG] Result code check passed!`);
+        // Try to get shapeId - might be in created[1] directly OR created[1][0]
+        let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
+        // Convert BigInt to number if needed
+        if (typeof rawShapeId === 'bigint') {
+            rawShapeId = Number(rawShapeId);
+        }
+        shapeId = rawShapeId;
+        console.log(`  [DEBUG] Final shapeId=${shapeId} (type=${typeof shapeId})`);
+        console.log(`  Created TriMesh: ${allPositions.length / 3} vertices, ${allIndices.length / 3} triangles, shapeId=${shapeId}`);
     }
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -966,12 +1067,42 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
         minY = Math.min(minY, allPositions[i + 1]); maxY = Math.max(maxY, allPositions[i + 1]);
         minZ = Math.min(minZ, allPositions[i + 2]); maxZ = Math.max(maxZ, allPositions[i + 2]);
     }
-    const size = [maxX - minX, maxY - minY, maxZ - minZ];
-    const volume = Math.max((maxX - minX) * (maxY - minY) * (maxZ - minZ), 0.0001);
+    let size = [maxX - minX, maxY - minY, maxZ - minZ];
+    let volume = Math.max((maxX - minX) * (maxY - minY) * (maxZ - minZ), 0.0001);
+
+    if (!shapeId || shapeId <= 0 || shapeId === undefined || shapeId === null) {
+        console.warn(`  [WARN] Invalid shapeId=${shapeId}! Mesh shape creation FAILED.`);
+        console.warn(`    This Havok WASM version may not support mesh shapes. Creating fallback approximation shape...`);
+
+        const bboxSize = size;
+        const bboxVolume = volume;
+
+        // For ConvexHull, use Sphere approximation; for TriMesh, use Box approximation
+        if (isConvex) {
+            // Use sphere with radius = average of half-extents
+            const avgRadius = Math.max((bboxSize[0] + bboxSize[1] + bboxSize[2]) / 6, 0.01);
+            console.warn(`  [FALLBACK] Creating Sphere with radius=${avgRadius} instead of ConvexHull`);
+            const created = HK.HP_Shape_CreateSphere([0, 0, 0], avgRadius);
+            checkResult(created[0], 'HP_Shape_CreateSphere (fallback)');
+            shapeId = created[1];
+            size = [avgRadius * 2, avgRadius * 2, avgRadius * 2];
+            volume = (4.0 / 3.0) * Math.PI * avgRadius * avgRadius * avgRadius;
+        } else {
+            // Use box with size = bounding box size
+            console.warn(`  [FALLBACK] Creating Box with size=${JSON.stringify(bboxSize)} instead of TriMesh`);
+            const created = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, bboxSize);
+            checkResult(created[0], 'HP_Shape_CreateBox (fallback)');
+            shapeId = created[1];
+            size = bboxSize;
+            volume = bboxVolume;
+        }
+        console.warn(`  [FALLBACK] Created fallback shape with shapeId=${shapeId}`);
+    }
 
     if (motionDef) {
         const density = motionDef.mass !== undefined ? motionDef.mass / volume : 1;
         checkResult(HK.HP_Shape_SetDensity(shapeId, density), 'HP_Shape_SetDensity');
+        console.log(`  Set density=${density} for dynamic body`);
     }
     applyPhysicsMaterial(shapeId, materialDef);
 
@@ -986,18 +1117,22 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
     let shapeId;
     let size;
     let volume = 0.0001;
+    
+    console.log(`[createPhysicsShape] node=${node.name}, type=${shapeDef.type}`);
 
     if (shapeDef.type === 'box' && shapeDef.box) {
+        const boxSize = shapeDef.box.size || [1, 1, 1];
         size = [
-            Math.abs(shapeDef.box.size[0] * node.worldScale[0]),
-            Math.abs(shapeDef.box.size[1] * node.worldScale[1]),
-            Math.abs(shapeDef.box.size[2] * node.worldScale[2])
+            Math.abs(boxSize[0] * node.worldScale[0]),
+            Math.abs(boxSize[1] * node.worldScale[1]),
+            Math.abs(boxSize[2] * node.worldScale[2])
         ];
 
         const created = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
         checkResult(created[0], 'HP_Shape_CreateBox');
         shapeId = created[1];
         volume = Math.max(size[0] * size[1] * size[2], 0.0001);
+        console.log(`  Created Box: size=${JSON.stringify(size)}, shapeId=${shapeId}`);
     } else if (shapeDef.type === 'sphere' && shapeDef.sphere) {
         const baseRadius = shapeDef.sphere.radius !== undefined ? shapeDef.sphere.radius : 0.5;
         const maxScale = Math.max(
@@ -1011,6 +1146,7 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         shapeId = created[1];
         size = [radius * 2, radius * 2, radius * 2];
         volume = Math.max((4.0 / 3.0) * Math.PI * radius * radius * radius, 0.0001);
+        console.log(`  Created Sphere: radius=${radius}, shapeId=${shapeId}`);
     } else if (shapeDef.type === 'capsule' && shapeDef.capsule) {
         const capsuleDef = shapeDef.capsule;
         const radiusTop = capsuleDef.radiusTop !== undefined ? capsuleDef.radiusTop : 0.5;
@@ -1025,6 +1161,7 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         shapeId = created[1];
         size = [scaledRadius * 2, scaledHalfShaft * 2 + scaledRadius * 2, scaledRadius * 2];
         volume = Math.max(Math.PI * scaledRadius * scaledRadius * (scaledHalfShaft * 2) + (4.0 / 3.0) * Math.PI * scaledRadius * scaledRadius * scaledRadius, 0.0001);
+        console.log(`  Created Capsule: radius=${scaledRadius}, halfHeight=${scaledHalfShaft}, shapeId=${shapeId}`);
     } else if (shapeDef.type === 'cylinder' && shapeDef.cylinder) {
         const cylDef = shapeDef.cylinder;
         const cRadiusTop = cylDef.radiusTop !== undefined ? cylDef.radiusTop : 0.5;
@@ -1046,6 +1183,7 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         }
         size = [scaledCylRadius * 2, scaledCylHalfHeight * 2, scaledCylRadius * 2];
         volume = Math.max(Math.PI * scaledCylRadius * scaledCylRadius * scaledCylHalfHeight * 2, 0.0001);
+        console.log(`  Created Cylinder: radius=${scaledCylRadius}, halfHeight=${scaledCylHalfHeight}, shapeId=${shapeId}`);
     } else {
         throw new Error('Unsupported KHR_implicit_shapes collider type: ' + String(shapeDef.type));
     }
@@ -1053,11 +1191,23 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
     if (motionDef) {
         const density = motionDef.mass !== undefined ? motionDef.mass / volume : 1;
         checkResult(HK.HP_Shape_SetDensity(shapeId, density), 'HP_Shape_SetDensity');
+        console.log(`  Set density=${density} for dynamic body (mass=${motionDef.mass}, volume=${volume})`);
     }
 
     applyPhysicsMaterial(shapeId, materialDef);
 
     return { shapeId, size };
+}
+
+function getParentRigidBody(node) {
+    let current = node.parent;
+    while (current) {
+        if (current.bodyId !== undefined && current.bodyId !== null) {
+            return current;
+        }
+        current = current.parent;
+    }
+    return null;
 }
 
 function initPhysics() {
@@ -1072,6 +1222,10 @@ function initPhysics() {
     const scenePhysics = (modelAsset.gltf.extensions && modelAsset.gltf.extensions.KHR_physics_rigid_bodies) || {};
     const materialDefs = scenePhysics.physicsMaterials || [];
 
+    console.log('=== Physics Initialization ===');
+    console.log('Nodes count:', modelAsset.nodes.length);
+
+    let staticBodyCount = 0;
     for (const node of modelAsset.nodes) {
         if (!node.physicsExt || !node.physicsExt.collider || !node.physicsExt.collider.geometry) {
             continue;
@@ -1083,6 +1237,15 @@ function initPhysics() {
             ? materialDefs[node.physicsExt.collider.physicsMaterial]
             : null;
 
+        console.log(`\n[Node] ${node.name}`);
+        console.log(`  motion: ${motionDef ? 'YES' : 'NO (static)'}`);
+        if (motionDef) {
+            console.log(`    mass=${motionDef.mass}, gravityFactor=${motionDef.gravityFactor}`);
+            console.log(`    inertiaDiagonal=${JSON.stringify(motionDef.inertiaDiagonal)}`);
+            console.log(`    centerOfMass=${JSON.stringify(motionDef.centerOfMass)}`);
+        }
+        console.log(`  collider.geometry.shape=${shapeIndex}`);
+
         let shapeResult;
         if (shapeIndex === undefined) {
             shapeResult = createMeshPhysicsShape(node, node.physicsExt.collider.geometry, motionDef, materialDef);
@@ -1090,7 +1253,15 @@ function initPhysics() {
             const shapeDef = shapeDefs[shapeIndex];
             shapeResult = createPhysicsShape(node, shapeDef, motionDef, materialDef);
         }
+
+        // If mesh shape creation failed, skip this body
+        if (!shapeResult) {
+            console.warn(`[initPhysics] Skipping body for ${node.name} due to shape creation failure.`);
+            continue;
+        }
+
         const { shapeId, size } = shapeResult;
+
         const position = vec3.create();
         const rotation = quat.create();
         mat4.getTranslation(position, node.restWorldMatrix);
@@ -1109,8 +1280,14 @@ function initPhysics() {
 
         if (motionDef) {
             dynamicNodes.push(node);
+            console.log(`  [Body] Dynamic: bodyId=${node.bodyId}, position=${JSON.stringify(node.initialPosition)}, gravityFactor=${gravityFactor}`);
+        } else {
+            staticBodyCount++;
+            console.log(`  [Body] Static: bodyId=${node.bodyId}, position=${JSON.stringify(node.initialPosition)}`);
         }
     }
+
+    console.log(`=== Physics initialized: ${physicsNodes.length} nodes, ${staticBodyCount} static bodies, ${dynamicNodes.length} dynamic bodies ===`);
 }
 
 function updatePhysicsTransforms() {
@@ -1186,7 +1363,7 @@ function renderFrame(timeSec) {
     const eye = vec3.fromValues(
         cameraCenter[0],
         cameraCenter[1] + cameraHeight,
-        cameraCenter[2] + cameraRadius
+        cameraCenter[2] - cameraRadius
     );
     mat4.lookAt(view, eye, cameraCenter, [0, 1, 0]);
     mat4.multiply(viewProj, projection, view);
@@ -1274,9 +1451,9 @@ async function main() {
     const sizeZ = bbox.max[2] - bbox.min[2];
     const diagonal = Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ);
 
-    vec3.set(cameraCenter, centerX, centerY + Math.max(sizeY * 0.15, 0.5), centerZ);
+    vec3.set(cameraCenter, centerX, centerY, centerZ);
     cameraRadius = Math.max(diagonal * 0.72, 5.8);
-    cameraHeight = Math.max(sizeY * 0.5, 3.2);
+    cameraHeight = Math.min(sizeY * 0.25, 2.0);
 
     initPhysics();
     updatePhysicsTransforms();
