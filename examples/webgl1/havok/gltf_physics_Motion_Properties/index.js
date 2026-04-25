@@ -806,7 +806,6 @@ function applyMotionMassProperties(bodyId, motionDef) {
 
     // Havok mass properties structure: [centerOfMass[3], mass, inertiaDiagonal[3], inertiaOrientation[4]]
     if (Array.isArray(massProperties)) {
-        console.log(`  massProperties is array, length=${massProperties.length}`);
         let vec3SlotCount = 0;
         for (let i = 0; i < massProperties.length; i++) {
             const slot = massProperties[i];
@@ -820,7 +819,6 @@ function applyMotionMassProperties(bodyId, motionDef) {
             }
 
             if (slot.length === 4 && hasInertiaOrientation) {
-                console.log(`    Slot[${i}] (quat): Setting inertiaOrientation=${JSON.stringify(motionDef.inertiaOrientation)}`);
                 slot[0] = motionDef.inertiaOrientation[0];
                 slot[1] = motionDef.inertiaOrientation[1];
                 slot[2] = motionDef.inertiaOrientation[2];
@@ -832,14 +830,12 @@ function applyMotionMassProperties(bodyId, motionDef) {
             if (slot.length === 3) {
                 // vec3SlotCount=0 → centerOfMass, vec3SlotCount=1 → inertiaDiagonal
                 if (vec3SlotCount === 0 && hasCenterOfMass) {
-                    console.log(`    Slot[${i}] (vec3, count=0): Setting centerOfMass=${JSON.stringify(motionDef.centerOfMass)}`);
                     slot[0] = motionDef.centerOfMass[0];
                     slot[1] = motionDef.centerOfMass[1];
                     slot[2] = motionDef.centerOfMass[2];
                     changed = true;
                 } else if (vec3SlotCount === 1 && hasInertiaDiagonal) {
                     const hkInertia = toHavokInertiaDiagonal(motionDef.inertiaDiagonal);
-                    console.log(`    Slot[${i}] (vec3, count=1): Setting inertiaDiagonal spec=${JSON.stringify(motionDef.inertiaDiagonal)} -> havok=${JSON.stringify(hkInertia)}`);
                     slot[0] = hkInertia[0];
                     slot[1] = hkInertia[1];
                     slot[2] = hkInertia[2];
@@ -849,10 +845,8 @@ function applyMotionMassProperties(bodyId, motionDef) {
             }
         }
     } else if (massProperties && typeof massProperties === 'object') {
-        console.log(`  massProperties is object:`, Object.keys(massProperties));
         if (hasInertiaDiagonal) {
             const hkInertia = toHavokInertiaDiagonal(motionDef.inertiaDiagonal);
-            console.log(`  Setting inertiaDiagonal spec=${JSON.stringify(motionDef.inertiaDiagonal)} -> havok=${JSON.stringify(hkInertia)}`);
             changed = setMassPropertyVec3(massProperties, ['inertiaDiagonal', 'm_inertiaDiagonal', 'inertia', 'm_inertia'], hkInertia) || changed;
         }
         if (hasInertiaOrientation) {
@@ -864,10 +858,7 @@ function applyMotionMassProperties(bodyId, motionDef) {
     }
 
     if (changed) {
-        console.log(`  Setting mass properties (changed=true)`);
         checkResult(HK.HP_Body_SetMassProperties(bodyId, massProperties), 'HP_Body_SetMassProperties');
-    } else {
-        console.log(`  No changes to mass properties (changed=false)`);
     }
 }
 
@@ -971,7 +962,6 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
     const isConvex = !!colliderGeom.convexHull;
     const meshDef = modelAsset.gltf.meshes[meshIndex];
     
-    console.log(`[createMeshPhysicsShape] node=${node.name}, meshIndex=${meshIndex}, isConvex=${isConvex}, convexHull=${colliderGeom.convexHull}`);
 
     const allPositions = [];
     const allIndices = [];
@@ -1008,21 +998,14 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
             const i2 = allIndices[i + 2];
             allIndices.push(i0, i2, i1);
         }
-        console.log(`  Added reverse triangles for double-sided TriMesh: ${allIndices.length} total indices`);
     }
 
     const posFloat32 = new Float32Array(allPositions);
     let shapeId;
 
     if (isConvex) {
-        console.log(`  [DEBUG] Before HP_Shape_CreateConvexHull: positions=${posFloat32.length}`);
         const created = HK.HP_Shape_CreateConvexHull(posFloat32);
-        console.log(`  [DEBUG] HP_Shape_CreateConvexHull returned:`, created);
-        console.log(`  [DEBUG]   created[0]:`, created[0], `(type=${typeof created[0]})`);
-        console.log(`  [DEBUG]   created[1]:`, created[1], `(type=${typeof created[1]}, isArray=${Array.isArray(created[1])})`);
-        console.log(`  [DEBUG] Checking result code...`);
         checkResult(created[0], 'HP_Shape_CreateConvexHull');
-        console.log(`  [DEBUG] Result code check passed!`);
         // Try to get shapeId - might be in created[1] directly OR created[1][0]
         let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
         // Convert BigInt to number if needed
@@ -1030,21 +1013,10 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
             rawShapeId = Number(rawShapeId);
         }
         shapeId = rawShapeId;
-        console.log(`  [DEBUG] Final shapeId=${shapeId} (type=${typeof shapeId})`);
-        console.log(`  Created ConvexHull: ${allPositions.length / 3} vertices, shapeId=${shapeId}`);
     } else {
         const indicesUint32 = new Uint32Array(allIndices);
-        console.log(`  [DEBUG] Before HP_Shape_CreateMesh: positions=${posFloat32.length}, indices=${indicesUint32.length}`);
         const created = HK.HP_Shape_CreateMesh(posFloat32, indicesUint32);
-        console.log(`  [DEBUG] HP_Shape_CreateMesh returned:`, created);
-        console.log(`  [DEBUG]   created[0]:`, created[0], `(type=${typeof created[0]})`);
-        console.log(`  [DEBUG]   created[1]:`, created[1], `(type=${typeof created[1]}, isArray=${Array.isArray(created[1])})`);
-        if (Array.isArray(created[1])) {
-            console.log(`  [DEBUG]   created[1][0]:`, created[1][0], `(type=${typeof created[1][0]})`);
-        }
-        console.log(`  [DEBUG] Checking result code...`);
         checkResult(created[0], 'HP_Shape_CreateMesh');
-        console.log(`  [DEBUG] Result code check passed!`);
         // Try to get shapeId - might be in created[1] directly OR created[1][0]
         let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
         // Convert BigInt to number if needed
@@ -1052,8 +1024,6 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
             rawShapeId = Number(rawShapeId);
         }
         shapeId = rawShapeId;
-        console.log(`  [DEBUG] Final shapeId=${shapeId} (type=${typeof shapeId})`);
-        console.log(`  Created TriMesh: ${allPositions.length / 3} vertices, ${allIndices.length / 3} triangles, shapeId=${shapeId}`);
     }
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -1100,7 +1070,6 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
         const specMass = motionDef.mass !== undefined ? motionDef.mass : undefined;
         const density = (specMass !== undefined && specMass > 0) ? specMass / volume : 1;
         checkResult(HK.HP_Shape_SetDensity(shapeId, density), 'HP_Shape_SetDensity');
-        console.log(`  Set density=${density} for dynamic body`);
     }
     applyPhysicsMaterial(shapeId, materialDef);
 
@@ -1115,8 +1084,6 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
     let shapeId;
     let size;
     let volume = 0.0001;
-    
-    console.log(`[createPhysicsShape] node=${node.name}, type=${shapeDef.type}`);
 
     if (shapeDef.type === 'box' && shapeDef.box) {
         const boxSize = shapeDef.box.size || [1, 1, 1];
@@ -1130,7 +1097,6 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         checkResult(created[0], 'HP_Shape_CreateBox');
         shapeId = created[1];
         volume = Math.max(size[0] * size[1] * size[2], 0.0001);
-        console.log(`  Created Box: size=${JSON.stringify(size)}, shapeId=${shapeId}`);
     } else if (shapeDef.type === 'sphere' && shapeDef.sphere) {
         const baseRadius = shapeDef.sphere.radius !== undefined ? shapeDef.sphere.radius : 0.5;
         const maxScale = Math.max(
@@ -1144,7 +1110,6 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         shapeId = created[1];
         size = [radius * 2, radius * 2, radius * 2];
         volume = Math.max((4.0 / 3.0) * Math.PI * radius * radius * radius, 0.0001);
-        console.log(`  Created Sphere: radius=${radius}, shapeId=${shapeId}`);
     } else if (shapeDef.type === 'capsule' && shapeDef.capsule) {
         const capsuleDef = shapeDef.capsule;
         const radiusTop = capsuleDef.radiusTop !== undefined ? capsuleDef.radiusTop : 0.5;
@@ -1159,15 +1124,14 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         shapeId = created[1];
         size = [scaledRadius * 2, scaledHalfShaft * 2 + scaledRadius * 2, scaledRadius * 2];
         volume = Math.max(Math.PI * scaledRadius * scaledRadius * (scaledHalfShaft * 2) + (4.0 / 3.0) * Math.PI * scaledRadius * scaledRadius * scaledRadius, 0.0001);
-        console.log(`  Created Capsule: radius=${scaledRadius}, halfHeight=${scaledHalfShaft}, shapeId=${shapeId}`);
     } else if (shapeDef.type === 'cylinder' && shapeDef.cylinder) {
         const cylDef = shapeDef.cylinder;
         const cRadiusTop = cylDef.radiusTop !== undefined ? cylDef.radiusTop : 0.5;
         const cRadiusBottom = cylDef.radiusBottom !== undefined ? cylDef.radiusBottom : 0.5;
         const cHeight = cylDef.height !== undefined ? cylDef.height : 1.0;
-        const avgCylRadius = Math.max((cRadiusTop + cRadiusBottom) * 0.5, 0.0001);
+        const maxCylRadius = Math.max(Math.max(cRadiusTop, cRadiusBottom), 0.0001);
         const scaleXZ = Math.max(Math.abs(node.worldScale[0]), Math.abs(node.worldScale[2]));
-        const scaledCylRadius = Math.max(avgCylRadius * scaleXZ, 0.0001);
+        const scaledCylRadius = Math.max(maxCylRadius * scaleXZ, 0.0001);
         const scaledCylHalfHeight = Math.max(cHeight * Math.abs(node.worldScale[1]) * 0.5, 0.0001);
         if (typeof HK.HP_Shape_CreateCylinder === 'function') {
             const created = HK.HP_Shape_CreateCylinder([0, -scaledCylHalfHeight, 0], [0, scaledCylHalfHeight, 0], scaledCylRadius);
@@ -1181,7 +1145,6 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         }
         size = [scaledCylRadius * 2, scaledCylHalfHeight * 2, scaledCylRadius * 2];
         volume = Math.max(Math.PI * scaledCylRadius * scaledCylRadius * scaledCylHalfHeight * 2, 0.0001);
-        console.log(`  Created Cylinder: radius=${scaledCylRadius}, halfHeight=${scaledCylHalfHeight}, shapeId=${shapeId}`);
     } else {
         throw new Error('Unsupported KHR_implicit_shapes collider type: ' + String(shapeDef.type));
     }
@@ -1191,7 +1154,6 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         const specMass = motionDef.mass !== undefined ? motionDef.mass : undefined;
         const density = (specMass !== undefined && specMass > 0) ? specMass / volume : 1;
         checkResult(HK.HP_Shape_SetDensity(shapeId, density), 'HP_Shape_SetDensity');
-        console.log(`  Set density=${density} for dynamic body (mass=${motionDef.mass}, volume=${volume})`);
     }
 
     applyPhysicsMaterial(shapeId, materialDef);
@@ -1222,9 +1184,6 @@ function initPhysics() {
     const scenePhysics = (modelAsset.gltf.extensions && modelAsset.gltf.extensions.KHR_physics_rigid_bodies) || {};
     const materialDefs = scenePhysics.physicsMaterials || [];
 
-    console.log('=== Physics Initialization ===');
-    console.log('Nodes count:', modelAsset.nodes.length);
-
     let staticBodyCount = 0;
     for (const node of modelAsset.nodes) {
         if (!node.physicsExt || !node.physicsExt.collider || !node.physicsExt.collider.geometry) {
@@ -1237,15 +1196,6 @@ function initPhysics() {
             ? materialDefs[node.physicsExt.collider.physicsMaterial]
             : null;
 
-        console.log(`\n[Node] ${node.name}`);
-        console.log(`  motion: ${motionDef ? 'YES' : 'NO (static)'}`);
-        if (motionDef) {
-            console.log(`    mass=${motionDef.mass}, gravityFactor=${motionDef.gravityFactor}`);
-            console.log(`    inertiaDiagonal=${JSON.stringify(motionDef.inertiaDiagonal)}`);
-            console.log(`    centerOfMass=${JSON.stringify(motionDef.centerOfMass)}`);
-        }
-        console.log(`  collider.geometry.shape=${shapeIndex}`);
-
         let shapeResult;
         if (shapeIndex === undefined) {
             shapeResult = createMeshPhysicsShape(node, node.physicsExt.collider.geometry, motionDef, materialDef);
@@ -1256,7 +1206,6 @@ function initPhysics() {
 
         // If mesh shape creation failed, skip this body
         if (!shapeResult) {
-            console.warn(`[initPhysics] Skipping body for ${node.name} due to shape creation failure.`);
             continue;
         }
 
@@ -1280,14 +1229,10 @@ function initPhysics() {
 
         if (motionDef) {
             dynamicNodes.push(node);
-            console.log(`  [Body] Dynamic: bodyId=${node.bodyId}, position=${JSON.stringify(node.initialPosition)}, gravityFactor=${gravityFactor}`);
         } else {
             staticBodyCount++;
-            console.log(`  [Body] Static: bodyId=${node.bodyId}, position=${JSON.stringify(node.initialPosition)}`);
         }
     }
-
-    console.log(`=== Physics initialized: ${physicsNodes.length} nodes, ${staticBodyCount} static bodies, ${dynamicNodes.length} dynamic bodies ===`);
 }
 
 function updatePhysicsTransforms() {
