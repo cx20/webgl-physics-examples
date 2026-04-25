@@ -777,18 +777,11 @@ function setMassPropertyQuat(target, keys, value) {
     return false;
 }
 
-// KHR_physics_rigid_bodies spec: inertiaDiagonal component of 0 means "infinite inertia" (locked axis).
-// Havok cannot accept 0 inertia (causes 1/0=Infinity in the solver and breaks simulation).
-// Replace 0 components with a large value to represent "infinite" inertia.
-const INFINITE_INERTIA = 1e30;
-
+// KHR_physics_rigid_bodies spec: mass=0 and inertiaDiagonal component=0 each mean infinity.
+// Pass these 0 values directly to HP_Body_SetMassProperties — Havok handles them correctly.
 function toHavokInertiaDiagonal(specValue) {
     if (!Array.isArray(specValue)) return specValue;
-    return [
-        specValue[0] === 0 ? INFINITE_INERTIA : specValue[0],
-        specValue[1] === 0 ? INFINITE_INERTIA : specValue[1],
-        specValue[2] === 0 ? INFINITE_INERTIA : specValue[2]
-    ];
+    return [specValue[0], specValue[1], specValue[2]];
 }
 
 function applyMotionMassProperties(bodyId, motionDef) {
@@ -796,11 +789,12 @@ function applyMotionMassProperties(bodyId, motionDef) {
         return;
     }
 
+    const hasMass = motionDef.mass !== undefined;
     const hasInertiaDiagonal = Array.isArray(motionDef.inertiaDiagonal);
     const hasInertiaOrientation = Array.isArray(motionDef.inertiaOrientation);
     const hasCenterOfMass = Array.isArray(motionDef.centerOfMass);
 
-    if (!hasInertiaDiagonal && !hasInertiaOrientation && !hasCenterOfMass) {
+    if (!hasMass && !hasInertiaDiagonal && !hasInertiaOrientation && !hasCenterOfMass) {
         return;
     }
 
@@ -808,18 +802,20 @@ function applyMotionMassProperties(bodyId, motionDef) {
     checkResult(massPropResult[0], 'HP_Body_GetMassProperties');
     const massProperties = massPropResult[1];
 
-    console.log(`[applyMotionMassProperties] bodyId=${bodyId}`);
-    console.log(`  Input: mass=${motionDef.mass}, inertiaDiagonal=${JSON.stringify(motionDef.inertiaDiagonal)}, centerOfMass=${JSON.stringify(motionDef.centerOfMass)}`);
-
     let changed = false;
 
-    // Havok mass properties structure: [mass, centerOfMass[3], inertiaDiagonal[3], inertiaOrientation[4]]
+    // Havok mass properties structure: [centerOfMass[3], mass, inertiaDiagonal[3], inertiaOrientation[4]]
     if (Array.isArray(massProperties)) {
         console.log(`  massProperties is array, length=${massProperties.length}`);
         let vec3SlotCount = 0;
         for (let i = 0; i < massProperties.length; i++) {
             const slot = massProperties[i];
             if (!Array.isArray(slot)) {
+                // scalar slot = mass
+                if (hasMass) {
+                    massProperties[i] = motionDef.mass;
+                    changed = true;
+                }
                 continue;
             }
 
@@ -1100,7 +1096,9 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
     }
 
     if (motionDef) {
-        const density = motionDef.mass !== undefined ? motionDef.mass / volume : 1;
+        // density is only used for HP_Shape_BuildMassProperties; mass=0 is overridden in applyMotionMassProperties
+        const specMass = motionDef.mass !== undefined ? motionDef.mass : undefined;
+        const density = (specMass !== undefined && specMass > 0) ? specMass / volume : 1;
         checkResult(HK.HP_Shape_SetDensity(shapeId, density), 'HP_Shape_SetDensity');
         console.log(`  Set density=${density} for dynamic body`);
     }
@@ -1189,7 +1187,9 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
     }
 
     if (motionDef) {
-        const density = motionDef.mass !== undefined ? motionDef.mass / volume : 1;
+        // density is only used for HP_Shape_BuildMassProperties; mass=0 is overridden in applyMotionMassProperties
+        const specMass = motionDef.mass !== undefined ? motionDef.mass : undefined;
+        const density = (specMass !== undefined && specMass > 0) ? specMass / volume : 1;
         checkResult(HK.HP_Shape_SetDensity(shapeId, density), 'HP_Shape_SetDensity');
         console.log(`  Set density=${density} for dynamic body (mass=${motionDef.mass}, volume=${volume})`);
     }
