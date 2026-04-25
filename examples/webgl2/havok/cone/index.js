@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 const { mat4, vec3, quat } = glMatrix;
 
 const CONE_COUNT = 140;
@@ -484,7 +485,14 @@ async function main() {
     coneTexture = await loadTexture(CONE_TEXTURE);
     whiteTexture = createSolidTexture(255, 255, 255, 255);
 
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
     initPhysics();
     requestAnimationFrame(render);
 }

@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 const { mat4 } = glMatrix;
 
 const DOT_ROWS = [
@@ -423,7 +424,14 @@ async function init() {
         throw new Error('WebGPU is not supported in this browser.');
     }
 
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
 
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) {

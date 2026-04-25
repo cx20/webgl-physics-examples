@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 import Module from 'https://esm.run/manifold-3d';
 
 const { mat4, vec3, quat } = glMatrix;
@@ -476,7 +477,14 @@ async function main() {
     textureViews = textures.map((texture) => texture.createView());
     whiteTextureView = createSolidTextureView(255, 255, 255, 255);
 
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
     initPhysics();
     initRenderItems();
 
