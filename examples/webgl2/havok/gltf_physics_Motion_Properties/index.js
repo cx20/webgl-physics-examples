@@ -1015,14 +1015,8 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
     let shapeId;
 
     if (isConvex) {
-        console.log(`  [DEBUG] Before HP_Shape_CreateConvexHull: positions=${posFloat32.length}`);
         const created = HK.HP_Shape_CreateConvexHull(posFloat32);
-        console.log(`  [DEBUG] HP_Shape_CreateConvexHull returned:`, created);
-        console.log(`  [DEBUG]   created[0]:`, created[0], `(type=${typeof created[0]})`);
-        console.log(`  [DEBUG]   created[1]:`, created[1], `(type=${typeof created[1]}, isArray=${Array.isArray(created[1])})`);
-        console.log(`  [DEBUG] Checking result code...`);
         checkResult(created[0], 'HP_Shape_CreateConvexHull');
-        console.log(`  [DEBUG] Result code check passed!`);
         // Try to get shapeId - might be in created[1] directly OR created[1][0]
         let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
         // Convert BigInt to number if needed
@@ -1030,21 +1024,10 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
             rawShapeId = Number(rawShapeId);
         }
         shapeId = rawShapeId;
-        console.log(`  [DEBUG] Final shapeId=${shapeId} (type=${typeof shapeId})`);
-        console.log(`  Created ConvexHull: ${allPositions.length / 3} vertices, shapeId=${shapeId}`);
     } else {
         const indicesUint32 = new Uint32Array(allIndices);
-        console.log(`  [DEBUG] Before HP_Shape_CreateMesh: positions=${posFloat32.length}, indices=${indicesUint32.length}`);
         const created = HK.HP_Shape_CreateMesh(posFloat32, indicesUint32);
-        console.log(`  [DEBUG] HP_Shape_CreateMesh returned:`, created);
-        console.log(`  [DEBUG]   created[0]:`, created[0], `(type=${typeof created[0]})`);
-        console.log(`  [DEBUG]   created[1]:`, created[1], `(type=${typeof created[1]}, isArray=${Array.isArray(created[1])})`);
-        if (Array.isArray(created[1])) {
-            console.log(`  [DEBUG]   created[1][0]:`, created[1][0], `(type=${typeof created[1][0]})`);
-        }
-        console.log(`  [DEBUG] Checking result code...`);
         checkResult(created[0], 'HP_Shape_CreateMesh');
-        console.log(`  [DEBUG] Result code check passed!`);
         // Try to get shapeId - might be in created[1] directly OR created[1][0]
         let rawShapeId = Array.isArray(created[1]) && created[1].length > 0 ? created[1][0] : created[1];
         // Convert BigInt to number if needed
@@ -1052,8 +1035,6 @@ function createMeshPhysicsShape(node, colliderGeom, motionDef, materialDef) {
             rawShapeId = Number(rawShapeId);
         }
         shapeId = rawShapeId;
-        console.log(`  [DEBUG] Final shapeId=${shapeId} (type=${typeof shapeId})`);
-        console.log(`  Created TriMesh: ${allPositions.length / 3} vertices, ${allIndices.length / 3} triangles, shapeId=${shapeId}`);
     }
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -1159,9 +1140,9 @@ function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
         const cRadiusTop = cylDef.radiusTop !== undefined ? cylDef.radiusTop : 0.5;
         const cRadiusBottom = cylDef.radiusBottom !== undefined ? cylDef.radiusBottom : 0.5;
         const cHeight = cylDef.height !== undefined ? cylDef.height : 1.0;
-        const avgCylRadius = Math.max((cRadiusTop + cRadiusBottom) * 0.5, 0.0001);
+        const maxCylRadius = Math.max(Math.max(cRadiusTop, cRadiusBottom), 0.0001);
         const scaleXZ = Math.max(Math.abs(node.worldScale[0]), Math.abs(node.worldScale[2]));
-        const scaledCylRadius = Math.max(avgCylRadius * scaleXZ, 0.0001);
+        const scaledCylRadius = Math.max(maxCylRadius * scaleXZ, 0.0001);
         const scaledCylHalfHeight = Math.max(cHeight * Math.abs(node.worldScale[1]) * 0.5, 0.0001);
         if (typeof HK.HP_Shape_CreateCylinder === 'function') {
             const created = HK.HP_Shape_CreateCylinder([0, -scaledCylHalfHeight, 0], [0, scaledCylHalfHeight, 0], scaledCylRadius);
@@ -1213,9 +1194,6 @@ function initPhysics() {
     const scenePhysics = (modelAsset.gltf.extensions && modelAsset.gltf.extensions.KHR_physics_rigid_bodies) || {};
     const materialDefs = scenePhysics.physicsMaterials || [];
 
-    console.log('=== Physics Initialization ===');
-    console.log('Nodes count:', modelAsset.nodes.length);
-
     let staticBodyCount = 0;
     for (const node of modelAsset.nodes) {
         if (!node.physicsExt || !node.physicsExt.collider || !node.physicsExt.collider.geometry) {
@@ -1228,15 +1206,6 @@ function initPhysics() {
             ? materialDefs[node.physicsExt.collider.physicsMaterial]
             : null;
 
-        console.log(`\n[Node] ${node.name}`);
-        console.log(`  motion: ${motionDef ? 'YES' : 'NO (static)'}`);
-        if (motionDef) {
-            console.log(`    mass=${motionDef.mass}, gravityFactor=${motionDef.gravityFactor}`);
-            console.log(`    inertiaDiagonal=${JSON.stringify(motionDef.inertiaDiagonal)}`);
-            console.log(`    centerOfMass=${JSON.stringify(motionDef.centerOfMass)}`);
-        }
-        console.log(`  collider.geometry.shape=${shapeIndex}`);
-
         let shapeResult;
         if (shapeIndex === undefined) {
             shapeResult = createMeshPhysicsShape(node, node.physicsExt.collider.geometry, motionDef, materialDef);
@@ -1247,7 +1216,6 @@ function initPhysics() {
 
         // If mesh shape creation failed, skip this body
         if (!shapeResult) {
-            console.warn(`[initPhysics] Skipping body for ${node.name} due to shape creation failure.`);
             continue;
         }
 
@@ -1271,14 +1239,10 @@ function initPhysics() {
 
         if (motionDef) {
             dynamicNodes.push(node);
-            console.log(`  [Body] Dynamic: bodyId=${node.bodyId}, position=${JSON.stringify(node.initialPosition)}, gravityFactor=${gravityFactor}`);
         } else {
             staticBodyCount++;
-            console.log(`  [Body] Static: bodyId=${node.bodyId}, position=${JSON.stringify(node.initialPosition)}`);
         }
     }
-
-    console.log(`=== Physics initialized: ${physicsNodes.length} nodes, ${staticBodyCount} static bodies, ${dynamicNodes.length} dynamic bodies ===`);
 }
 
 function updatePhysicsTransforms() {
