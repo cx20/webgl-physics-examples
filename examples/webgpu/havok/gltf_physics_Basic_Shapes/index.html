@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGPU + Havok Basic Shapes glTF Physics Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/gl-matrix@3.4.4/gl-matrix-min.js"></script>
+    <script src="https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>
+) -> VSOut {
+    var out : VSOut;
+    out.Position = uniforms.viewProj * uniforms.model * vec4<f32>(position, 1.0);
+    out.normal = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    out.uv = uv;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var samp : sampler;
+@group(0) @binding(2) var tex : texture_2d<f32>;
+
+@fragment
+fn main(
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>
+) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
+    let diffuse = max(dot(normalize(normal), lightDir), 0.25);
+    let texColor = textureSample(tex, samp, uv);
+    let base = uniforms.baseColor * texColor;
+    return vec4<f32>(base.rgb * diffuse, base.a);
+}
+</script>
+
+<script id="vs-line" type="x-shader/x-vertex">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@vertex
+fn main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
+    return uniforms.viewProj * uniforms.model * vec4<f32>(position, 1.0);
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return uniforms.color;
+}
+</script>
+
+<canvas id="c"></canvas>
+
+<script type="module" src="index.js"></script>
+</body>
+</html>
