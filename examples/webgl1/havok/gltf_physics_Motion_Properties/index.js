@@ -550,6 +550,8 @@ async function buildModel(url) {
 
             let texture = null;
             let baseColor = [1, 1, 1, 1];
+            let metallic = 0.0;
+            let roughness = 0.5;
             let doubleSided = false;
 
             if (primitive.material !== undefined) {
@@ -564,11 +566,13 @@ async function buildModel(url) {
                         if (pbr.baseColorTexture) {
                             texture = await loadMaterialTexture(gltf, buffers, baseUrl, pbr.baseColorTexture.index);
                         }
+                        if (pbr.metallicFactor !== undefined)  metallic  = pbr.metallicFactor;
+                        if (pbr.roughnessFactor !== undefined) roughness = pbr.roughnessFactor;
                     }
                 }
             }
 
-            primitives.push({ ...gpu, bbox, texture, baseColor, doubleSided });
+            primitives.push({ ...gpu, bbox, texture, baseColor, metallic, roughness, doubleSided });
         }
 
         let meshBbox = primitives[0].bbox;
@@ -645,6 +649,8 @@ function drawPrimitive(primitive, modelMatrix) {
 
     gl.uniformMatrix4fv(uniforms.model, false, modelMatrix);
     gl.uniform4fv(uniforms.baseColor, primitive.baseColor);
+    gl.uniform1f(uniforms.metallic,  primitive.metallic  !== undefined ? primitive.metallic  : 0.0);
+    gl.uniform1f(uniforms.roughness, primitive.roughness !== undefined ? primitive.roughness : 0.5);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, primitive.texture || whiteTexture);
@@ -1316,6 +1322,7 @@ function renderFrame(timeSec) {
     gl.useProgram(program);
     gl.uniformMatrix4fv(uniforms.viewProj, false, viewProj);
     gl.uniform3fv(uniforms.lightDir, [0.45, 1.0, 0.35]);
+    gl.uniform3fv(uniforms.eyePos, eye);
 
     drawModel();
     drawPhysicsDebug();
@@ -1347,12 +1354,15 @@ async function main() {
     };
 
     uniforms = {
-        viewProj: gl.getUniformLocation(program, 'uViewProj'),
-        model: gl.getUniformLocation(program, 'uModel'),
-        texture: gl.getUniformLocation(program, 'uTexture'),
+        viewProj:   gl.getUniformLocation(program, 'uViewProj'),
+        model:      gl.getUniformLocation(program, 'uModel'),
+        texture:    gl.getUniformLocation(program, 'uTexture'),
         hasTexture: gl.getUniformLocation(program, 'uHasTexture'),
-        baseColor: gl.getUniformLocation(program, 'uBaseColor'),
-        lightDir: gl.getUniformLocation(program, 'uLightDir')
+        baseColor:  gl.getUniformLocation(program, 'uBaseColor'),
+        lightDir:   gl.getUniformLocation(program, 'uLightDir'),
+        eyePos:     gl.getUniformLocation(program, 'uEyePos'),
+        metallic:   gl.getUniformLocation(program, 'uMetallic'),
+        roughness:  gl.getUniformLocation(program, 'uRoughness')
     };
 
     lineAttribs = {
