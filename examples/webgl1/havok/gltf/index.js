@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 const { mat4, mat3, vec3, quat } = glMatrix;
 
 const DUCK_GLTF_URL = 'https://rawcdn.githack.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
@@ -910,7 +911,14 @@ async function main() {
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
 
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
 
     groundMesh = createGroundMesh();
     groundTexture = createSolidTexture(255, 255, 255, 255);

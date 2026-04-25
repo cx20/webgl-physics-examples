@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 const { mat4, vec3, quat } = glMatrix;
 
 const MARBLES_GLTF_URL = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
@@ -1066,7 +1067,14 @@ async function main() {
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
     initSkybox();
 
     groundMesh = createGroundMesh();

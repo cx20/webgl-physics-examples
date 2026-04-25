@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 let c = document.getElementById("c");
 let gl = c.getContext("webgl2");
 gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -494,7 +495,14 @@ function render() {
 }
 
 async function initHavokAndStart() {
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
     bodys = initPhysics();
     data2buf();
     startPhysicsLoop();

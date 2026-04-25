@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 const { mat4, vec3, quat } = glMatrix;
 
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Restitution/Materials_Restitution.glb';
@@ -1010,7 +1011,14 @@ async function main() {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
 
     whiteTexture = createSolidTexture(255, 255, 255, 255);
     debugBoxMesh = createDebugWireframeBoxMesh();

@@ -1,3 +1,4 @@
+const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 const vertexShaderWGSL   = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
 const groundVertWGSL     = document.getElementById('gvs').textContent;
@@ -393,7 +394,14 @@ async function init() {
     depthTexture = createDepthTexture();
 
     // Physics
-    HK = await HavokPhysics();
+    HK = await HavokPhysics({
+        locateFile: function (path) {
+            if (path && path.endsWith('.wasm')) {
+                return HAVOK_WASM_URL;
+            }
+            return path;
+        }
+    });
     const worldResult = HK.HP_World_Create();
     checkResult(worldResult[0], 'HP_World_Create');
     worldId = worldResult[1];
