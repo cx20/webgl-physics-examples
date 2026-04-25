@@ -464,7 +464,7 @@ function expandToTriangles(positions, normals, uvs, indices) {
 
 function createTriangleRenderItem(textureView) {
     const uniformBuffer = device.createBuffer({
-        size: 144,
+        size: 176,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -480,10 +480,14 @@ function createTriangleRenderItem(textureView) {
     return { uniformBuffer, bindGroup };
 }
 
-function writeTriangleUniforms(buffer, modelMatrix, baseColor) {
-    device.queue.writeBuffer(buffer, 0, viewProj);
-    device.queue.writeBuffer(buffer, 64, modelMatrix);
+function writeTriangleUniforms(buffer, modelMatrix, baseColor, eyePos, metallic, roughness) {
+    device.queue.writeBuffer(buffer, 0,   viewProj);
+    device.queue.writeBuffer(buffer, 64,  modelMatrix);
     device.queue.writeBuffer(buffer, 128, new Float32Array(baseColor));
+    // offset 144: eyePos(vec3) + metallic(f32)
+    device.queue.writeBuffer(buffer, 144, new Float32Array([eyePos[0], eyePos[1], eyePos[2], metallic]));
+    // offset 160: roughness(f32)
+    device.queue.writeBuffer(buffer, 160, new Float32Array([roughness]));
 }
 
 function writeLineUniforms(buffer, modelMatrix, color) {
@@ -566,6 +570,8 @@ async function buildDuckModel(url) {
 
             let textureView = whiteTextureView;
             let baseColor = [1, 1, 1, 1];
+            let metallic  = 0.0;
+            let roughness = 0.5;
             if (primitive.material !== undefined) {
                 const material = gltf.materials[primitive.material];
                 if (material && material.pbrMetallicRoughness) {
@@ -576,11 +582,13 @@ async function buildDuckModel(url) {
                     if (pbr.baseColorTexture) {
                         textureView = textureViews[pbr.baseColorTexture.index] || whiteTextureView;
                     }
+                    if (pbr.metallicFactor  !== undefined) metallic  = pbr.metallicFactor;
+                    if (pbr.roughnessFactor !== undefined) roughness = pbr.roughnessFactor;
                 }
             }
 
             const renderItem = createTriangleRenderItem(textureView);
-            primitives.push({ mesh, renderItem, baseColor, bbox });
+            primitives.push({ mesh, renderItem, baseColor, metallic, roughness, bbox });
         }
 
         let meshBbox = primitives[0].bbox;
@@ -1289,7 +1297,7 @@ function drawDuckNodes(pass) {
         if (node.mesh !== undefined) {
             const mesh = duckModel.meshes[node.mesh];
             for (const prim of mesh.primitives) {
-                writeTriangleUniforms(prim.renderItem.uniformBuffer, worldMat, prim.baseColor);
+                writeTriangleUniforms(prim.renderItem.uniformBuffer, worldMat, prim.baseColor, currentEyePos, prim.metallic ?? 0.0, prim.roughness ?? 0.5);
                 drawTriangleMesh(pass, prim.mesh, prim.renderItem.bindGroup);
             }
         }
@@ -1317,6 +1325,7 @@ function render(timeMs) {
         cameraCenter[1] + cameraHeight,
         cameraCenter[2] - cameraRadius
     );
+    const currentEyePos = eye;
     mat4.lookAt(view, eye, cameraCenter, [0, 1, 0]);
     mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 2000);
     mat4.multiply(viewProj, projection, view);
