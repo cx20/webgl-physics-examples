@@ -268,6 +268,31 @@ async function loadModelAndBuildPhysics() {
         const av = motion.angularVelocity;
         bodyDesc.setAngvel({ x: av[0], y: av[1], z: av[2] });
       }
+      // inertiaDiagonal: 0 = infinite inertia on that axis → lock rotation on that axis.
+      // Find which world axes correspond to the non-zero (rotatable) principal axes.
+      if (motion.inertiaDiagonal) {
+        const [ix, iy, iz] = motion.inertiaDiagonal;
+        if (ix === 0 || iy === 0 || iz === 0) {
+          let bodyQuat = tmpWorldQuaternion.clone();
+          if (motion.inertiaOrientation) {
+            const io = motion.inertiaOrientation;
+            bodyQuat.multiply(new THREE.Quaternion(io[0], io[1], io[2], io[3]));
+          }
+          const diag = [ix, iy, iz];
+          const localAxes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+          let allowX = false, allowY = false, allowZ = false;
+          for (let j = 0; j < 3; j++) {
+            if (diag[j] !== 0) {
+              const v = new THREE.Vector3(...localAxes[j]).applyQuaternion(bodyQuat);
+              const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+              if (ax >= ay && ax >= az) allowX = true;
+              else if (ay >= ax && ay >= az) allowY = true;
+              else allowZ = true;
+            }
+          }
+          bodyDesc.enabledRotations(allowX, allowY, allowZ);
+        }
+      }
     }
 
     const body = world.createRigidBody(bodyDesc);
