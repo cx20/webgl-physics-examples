@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.12.0';
+import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 
 let world, body;
 let camera, scene, renderer, duck, plane;
@@ -91,8 +91,7 @@ async function init() {
     controls = new OrbitControls(camera, renderer.domElement);
 
     // Rapier physics
-    const gravity = new RAPIER.Vector3(0, -9.8, 0);
-    world = new RAPIER.World(gravity);
+    world = new RAPIER.World({ x: 0, y: -9.8, z: 0 });
 
     // Ground
     const groundBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, -5, 0);
