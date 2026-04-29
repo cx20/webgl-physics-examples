@@ -201,25 +201,22 @@ async function loadModelAndBuildPhysics() {
       w: tmpWorldQuaternion.w
     });
 
-    const body = world.createRigidBody(bodyDesc);
-    world.createCollider(colliderDesc, body);
-
     if (motion) {
-      if (motion.mass !== undefined) {
-        body.setAdditionalMass(motion.mass, true);
+      if (motion.gravityFactor !== undefined) {
+        bodyDesc.setGravityScale(motion.gravityFactor);
       }
       if (motion.linearVelocity) {
         const lv = motion.linearVelocity;
-        body.setLinvel({ x: lv[0], y: lv[1], z: lv[2] }, true);
+        bodyDesc.setLinvel(lv[0], lv[1], lv[2]);
       }
       if (motion.angularVelocity) {
         const av = motion.angularVelocity;
-        body.setAngvel({ x: av[0], y: av[1], z: av[2] }, true);
-      }
-      if (motion.gravityFactor !== undefined) {
-        body.setGravityScale(motion.gravityFactor, true);
+        bodyDesc.setAngvel({ x: av[0], y: av[1], z: av[2] });
       }
     }
+
+    const body = world.createRigidBody(bodyDesc);
+    world.createCollider(colliderDesc, body);
 
     const node = {
       object,
@@ -261,19 +258,12 @@ function resetDynamicBodiesIfNeeded() {
     }
     node.body.setTranslation(node.initialPosition, true);
     node.body.setRotation(node.initialQuaternion, true);
-    node.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    node.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
 
-    if (node.motion) {
-      if (node.motion.linearVelocity) {
-        const lv = node.motion.linearVelocity;
-        node.body.setLinvel({ x: lv[0], y: lv[1], z: lv[2] }, true);
-      }
-      if (node.motion.angularVelocity) {
-        const av = node.motion.angularVelocity;
-        node.body.setAngvel({ x: av[0], y: av[1], z: av[2] }, true);
-      }
-    }
+    const lv = node.motion?.linearVelocity;
+    node.body.setLinvel(lv ? { x: lv[0], y: lv[1], z: lv[2] } : { x: 0, y: 0, z: 0 }, true);
+
+    const av = node.motion?.angularVelocity;
+    node.body.setAngvel(av ? { x: av[0], y: av[1], z: av[2] } : { x: 0, y: 0, z: 0 }, true);
   }
 }
 

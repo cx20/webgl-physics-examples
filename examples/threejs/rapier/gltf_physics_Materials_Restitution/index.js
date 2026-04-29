@@ -52,6 +52,47 @@ async function fetchGltfJsonFromGlb(url) {
   throw new Error('GLB JSON chunk is missing.');
 }
 
+function buildColliderDesc(shapeDef, worldScale, friction, restitution) {
+  if (!shapeDef) return null;
+
+  let colliderDesc = null;
+
+  if (shapeDef.type === 'box' && shapeDef.box) {
+    const size = shapeDef.box.size || [1, 1, 1];
+    colliderDesc = RAPIER.ColliderDesc.cuboid(
+      Math.max(Math.abs(size[0] * worldScale.x) * 0.5, 0.0001),
+      Math.max(Math.abs(size[1] * worldScale.y) * 0.5, 0.0001),
+      Math.max(Math.abs(size[2] * worldScale.z) * 0.5, 0.0001)
+    );
+  } else if (shapeDef.type === 'sphere' && shapeDef.sphere) {
+    const baseRadius = shapeDef.sphere.radius !== undefined ? shapeDef.sphere.radius : 0.5;
+    const maxScale = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.y), Math.abs(worldScale.z));
+    colliderDesc = RAPIER.ColliderDesc.ball(Math.max(baseRadius * maxScale, 0.0001));
+  } else if (shapeDef.type === 'capsule' && shapeDef.capsule) {
+    const cd = shapeDef.capsule;
+    const avgRadius = ((cd.radiusTop ?? 0.5) + (cd.radiusBottom ?? 0.5)) * 0.5;
+    const scaleXZ = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.z));
+    colliderDesc = RAPIER.ColliderDesc.capsule(
+      Math.max((cd.height ?? 1.0) * Math.abs(worldScale.y) * 0.5, 0),
+      Math.max(avgRadius * scaleXZ, 0.0001)
+    );
+  } else if (shapeDef.type === 'cylinder' && shapeDef.cylinder) {
+    const cd = shapeDef.cylinder;
+    const maxRadius = Math.max(cd.radiusTop ?? 0.5, cd.radiusBottom ?? 0.5);
+    const scaleXZ = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.z));
+    colliderDesc = RAPIER.ColliderDesc.cylinder(
+      Math.max((cd.height ?? 1.0) * Math.abs(worldScale.y) * 0.5, 0.0001),
+      Math.max(maxRadius * scaleXZ, 0.0001)
+    );
+  } else {
+    return null;
+  }
+
+  colliderDesc.setFriction(friction);
+  colliderDesc.setRestitution(restitution);
+  return colliderDesc;
+}
+
 function setObjectWorldTransform(object, worldPosition, worldQuaternion) {
   if (!object.parent) {
     object.position.copy(worldPosition);
@@ -117,20 +158,18 @@ async function loadModelAndBuildPhysics() {
       continue;
     }
 
-    const shapeDef = shapeDefs[physicsExt.collider.geometry.shape];
-    if (!shapeDef || shapeDef.type !== 'box' || !shapeDef.box) {
+    const shapeIndex = physicsExt.collider.geometry.shape;
+    if (shapeIndex === undefined) {
+      continue;
+    }
+
+    const shapeDef = shapeDefs[shapeIndex];
+    if (!shapeDef) {
       continue;
     }
 
     object.updateWorldMatrix(true, false);
     object.matrixWorld.decompose(tmpWorldPosition, tmpWorldQuaternion, tmpWorldScale);
-
-    const size = shapeDef.box.size || [1, 1, 1];
-    const halfExtents = [
-      Math.abs(size[0] * tmpWorldScale.x) * 0.5,
-      Math.abs(size[1] * tmpWorldScale.y) * 0.5,
-      Math.abs(size[2] * tmpWorldScale.z) * 0.5
-    ];
 
     const motion = physicsExt.motion || null;
     const materialDef = physicsExt.collider.physicsMaterial !== undefined
@@ -139,6 +178,11 @@ async function loadModelAndBuildPhysics() {
 
     const friction = materialDef?.dynamicFriction !== undefined ? materialDef.dynamicFriction : 0.5;
     const restitution = materialDef?.restitution !== undefined ? materialDef.restitution : 0.0;
+
+    const colliderDesc = buildColliderDesc(shapeDef, tmpWorldScale, friction, restitution);
+    if (!colliderDesc) {
+      continue;
+    }
 
     const bodyDesc = motion
       ? RAPIER.RigidBodyDesc.dynamic()
@@ -152,13 +196,7 @@ async function loadModelAndBuildPhysics() {
     });
 
     const body = world.createRigidBody(bodyDesc);
-
-    world.createCollider(
-      RAPIER.ColliderDesc.cuboid(halfExtents[0], halfExtents[1], halfExtents[2])
-        .setFriction(friction)
-        .setRestitution(restitution),
-      body
-    );
+    world.createCollider(colliderDesc, body);
 
     const node = {
       object,

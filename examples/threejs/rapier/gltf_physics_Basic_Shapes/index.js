@@ -120,6 +120,40 @@ function buildColliderDesc(shapeDef, worldScale, friction, restitution) {
   return colliderDesc;
 }
 
+function getMeshColliderDesc(object, worldScale) {
+  let posAttr = null;
+  let indexArray = null;
+
+  object.traverse((child) => {
+    if (posAttr !== null) return;
+    if (!child.isMesh || !child.geometry) return;
+    const attr = child.geometry.getAttribute('position');
+    if (!attr) return;
+    posAttr = attr;
+    indexArray = child.geometry.index ? child.geometry.index.array : null;
+  });
+
+  if (!posAttr) return null;
+
+  const count = posAttr.count;
+  const scaledPos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    scaledPos[i * 3]     = posAttr.getX(i) * worldScale.x;
+    scaledPos[i * 3 + 1] = posAttr.getY(i) * worldScale.y;
+    scaledPos[i * 3 + 2] = posAttr.getZ(i) * worldScale.z;
+  }
+
+  let indices;
+  if (indexArray) {
+    indices = new Uint32Array(indexArray);
+  } else {
+    indices = new Uint32Array(count);
+    for (let i = 0; i < count; i++) indices[i] = i;
+  }
+
+  return RAPIER.ColliderDesc.trimesh(scaledPos, indices);
+}
+
 async function loadModelAndBuildPhysics() {
   const loader = new GLTFLoader();
   const [gltf, gltfJson] = await Promise.all([
@@ -164,14 +198,7 @@ async function loadModelAndBuildPhysics() {
     }
 
     const shapeIndex = physicsExt.collider.geometry.shape;
-    if (shapeIndex === undefined) {
-      continue;
-    }
-
-    const shapeDef = shapeDefs[shapeIndex];
-    if (!shapeDef) {
-      continue;
-    }
+    const shapeDef = shapeIndex !== undefined ? shapeDefs[shapeIndex] : null;
 
     const object = await gltf.parser.getDependency('node', nodeIndex);
     if (!object) {
@@ -189,7 +216,16 @@ async function loadModelAndBuildPhysics() {
     const friction = materialDef?.dynamicFriction !== undefined ? materialDef.dynamicFriction : 0.5;
     const restitution = materialDef?.restitution !== undefined ? materialDef.restitution : 0.0;
 
-    const colliderDesc = buildColliderDesc(shapeDef, tmpWorldScale, friction, restitution);
+    let colliderDesc;
+    if (shapeDef) {
+      colliderDesc = buildColliderDesc(shapeDef, tmpWorldScale, friction, restitution);
+    } else if (!motion) {
+      colliderDesc = getMeshColliderDesc(object, tmpWorldScale);
+      if (colliderDesc) {
+        colliderDesc.setFriction(friction).setRestitution(restitution);
+      }
+    }
+
     if (!colliderDesc) {
       continue;
     }
