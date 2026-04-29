@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.12.0';
+import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/MotionProperties/MotionProperties.glb';
 const FIXED_TIMESTEP = 1 / 60;
@@ -312,8 +312,7 @@ async function main() {
 
   window.addEventListener('resize', onWindowResize);
 
-  const gravity = new RAPIER.Vector3(0, -9.8, 0);
-  world = new RAPIER.World(gravity);
+  world = new RAPIER.World({ x: 0, y: -9.8, z: 0 });
   world.timestep = FIXED_TIMESTEP;
 
   await loadModelAndBuildPhysics();

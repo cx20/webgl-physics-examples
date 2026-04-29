@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.12.0';
+import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/ShapeTypes/ShapeTypes.glb';
 const FIXED_TIMESTEP = 1 / 60;
@@ -154,6 +154,38 @@ function getMeshColliderDesc(object, worldScale) {
   return RAPIER.ColliderDesc.trimesh(scaledPos, indices);
 }
 
+function getConvexPoints(object, worldScale) {
+  let posAttr = null;
+  object.traverse((child) => {
+    if (posAttr !== null) return;
+    if (!child.isMesh || !child.geometry) return;
+    posAttr = child.geometry.getAttribute('position');
+  });
+  if (!posAttr) return null;
+  const count = posAttr.count;
+  const points = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    points[i * 3]     = posAttr.getX(i) * worldScale.x;
+    points[i * 3 + 1] = posAttr.getY(i) * worldScale.y;
+    points[i * 3 + 2] = posAttr.getZ(i) * worldScale.z;
+  }
+  return points;
+}
+
+function collectCompoundChildren(nodeIndex, gltfJson, result, excluded) {
+  const nd = gltfJson.nodes[nodeIndex];
+  for (const childIndex of (nd.children || [])) {
+    const childNd = gltfJson.nodes[childIndex];
+    const childExt = childNd?.extensions?.KHR_physics_rigid_bodies;
+    if (childExt?.motion) continue;
+    if (childExt?.collider?.geometry) {
+      result.push(childIndex);
+      excluded.add(childIndex);
+    }
+    collectCompoundChildren(childIndex, gltfJson, result, excluded);
+  }
+}
+
 async function loadModelAndBuildPhysics() {
   const loader = new GLTFLoader();
   const [gltf, gltfJson] = await Promise.all([
@@ -186,24 +218,110 @@ async function loadModelAndBuildPhysics() {
   const scenePhysics = gltfJson.extensions?.KHR_physics_rigid_bodies || {};
   const materialDefs = scenePhysics.physicsMaterials || [];
 
+  // Pass 1: compound bodies — parent has motion but no self-collider; children supply the colliders
   for (let nodeIndex = 0; nodeIndex < gltfJson.nodes.length; nodeIndex++) {
-    if (processedNodeIndices.has(nodeIndex)) {
-      continue;
+    const nodeDef = gltfJson.nodes[nodeIndex];
+    const physicsExt = nodeDef?.extensions?.KHR_physics_rigid_bodies;
+    if (!physicsExt?.motion || physicsExt.collider?.geometry) continue;
+
+    const childIndices = [];
+    collectCompoundChildren(nodeIndex, gltfJson, childIndices, processedNodeIndices);
+    if (childIndices.length === 0) continue;
+
+    const parentObject = await gltf.parser.getDependency('node', nodeIndex);
+    if (!parentObject) continue;
+
+    parentObject.updateWorldMatrix(true, false);
+    parentObject.matrixWorld.decompose(tmpWorldPosition, tmpWorldQuaternion, tmpWorldScale);
+
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic();
+    bodyDesc.setTranslation(tmpWorldPosition.x, tmpWorldPosition.y, tmpWorldPosition.z);
+    bodyDesc.setRotation({
+      x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
+      z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
+    });
+
+    const motion = physicsExt.motion;
+    if (motion.gravityFactor !== undefined) bodyDesc.setGravityScale(motion.gravityFactor);
+    if (motion.linearVelocity) {
+      const lv = motion.linearVelocity;
+      bodyDesc.setLinvel(lv[0], lv[1], lv[2]);
     }
+    if (motion.angularVelocity) {
+      const av = motion.angularVelocity;
+      bodyDesc.setAngvel({ x: av[0], y: av[1], z: av[2] });
+    }
+
+    const body = world.createRigidBody(bodyDesc);
+
+    const parentInvQuat = tmpWorldQuaternion.clone().invert();
+    const parentPos = tmpWorldPosition.clone();
+
+    for (const childIndex of childIndices) {
+      const childNd = gltfJson.nodes[childIndex];
+      const childExt = childNd.extensions.KHR_physics_rigid_bodies;
+      const shapeIndex = childExt.collider.geometry.shape;
+      const shapeDef = shapeIndex !== undefined ? shapeDefs[shapeIndex] : null;
+
+      const childObject = await gltf.parser.getDependency('node', childIndex);
+      if (!childObject) continue;
+
+      childObject.updateWorldMatrix(true, false);
+      const childWorldPos = new THREE.Vector3();
+      const childWorldQuat = new THREE.Quaternion();
+      const childWorldScale = new THREE.Vector3();
+      childObject.matrixWorld.decompose(childWorldPos, childWorldQuat, childWorldScale);
+
+      const matIdx = childExt.collider.physicsMaterial;
+      const matDef = matIdx !== undefined ? materialDefs[matIdx] : null;
+      const friction = matDef?.dynamicFriction !== undefined ? matDef.dynamicFriction : 0.5;
+      const restitution = matDef?.restitution !== undefined ? matDef.restitution : 0.0;
+
+      let colliderDesc;
+      if (shapeDef) {
+        colliderDesc = buildColliderDesc(shapeDef, childWorldScale, friction, restitution);
+      } else {
+        const points = getConvexPoints(childObject, childWorldScale);
+        if (points) {
+          colliderDesc = RAPIER.ColliderDesc.convexHull(points);
+          if (colliderDesc) colliderDesc.setFriction(friction).setRestitution(restitution);
+        }
+      }
+      if (!colliderDesc) continue;
+
+      const relPos = childWorldPos.clone().sub(parentPos).applyQuaternion(parentInvQuat);
+      const relQuat = parentInvQuat.clone().multiply(childWorldQuat);
+      colliderDesc.setTranslation(relPos.x, relPos.y, relPos.z);
+      colliderDesc.setRotation({ x: relQuat.x, y: relQuat.y, z: relQuat.z, w: relQuat.w });
+      world.createCollider(colliderDesc, body);
+    }
+
+    physicsNodes.push({
+      object: parentObject,
+      body,
+      initialPosition: { x: tmpWorldPosition.x, y: tmpWorldPosition.y, z: tmpWorldPosition.z },
+      initialQuaternion: {
+        x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
+        z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
+      }
+    });
+    dynamicNodes.push(physicsNodes[physicsNodes.length - 1]);
+    processedNodeIndices.add(nodeIndex);
+  }
+
+  // Pass 2: single-body nodes (explicit shape, convex hull for dynamic mesh, trimesh for static mesh)
+  for (let nodeIndex = 0; nodeIndex < gltfJson.nodes.length; nodeIndex++) {
+    if (processedNodeIndices.has(nodeIndex)) continue;
 
     const nodeDef = gltfJson.nodes[nodeIndex];
     const physicsExt = nodeDef?.extensions?.KHR_physics_rigid_bodies;
-    if (!physicsExt || !physicsExt.collider?.geometry) {
-      continue;
-    }
+    if (!physicsExt || !physicsExt.collider?.geometry) continue;
 
     const shapeIndex = physicsExt.collider.geometry.shape;
     const shapeDef = shapeIndex !== undefined ? shapeDefs[shapeIndex] : null;
 
     const object = await gltf.parser.getDependency('node', nodeIndex);
-    if (!object) {
-      continue;
-    }
+    if (!object) continue;
 
     object.updateWorldMatrix(true, false);
     object.matrixWorld.decompose(tmpWorldPosition, tmpWorldQuaternion, tmpWorldScale);
@@ -219,26 +337,26 @@ async function loadModelAndBuildPhysics() {
     let colliderDesc;
     if (shapeDef) {
       colliderDesc = buildColliderDesc(shapeDef, tmpWorldScale, friction, restitution);
-    } else if (!motion) {
-      colliderDesc = getMeshColliderDesc(object, tmpWorldScale);
-      if (colliderDesc) {
-        colliderDesc.setFriction(friction).setRestitution(restitution);
+    } else if (motion) {
+      const points = getConvexPoints(object, tmpWorldScale);
+      if (points) {
+        colliderDesc = RAPIER.ColliderDesc.convexHull(points);
+        if (colliderDesc) colliderDesc.setFriction(friction).setRestitution(restitution);
       }
+    } else {
+      colliderDesc = getMeshColliderDesc(object, tmpWorldScale);
+      if (colliderDesc) colliderDesc.setFriction(friction).setRestitution(restitution);
     }
 
-    if (!colliderDesc) {
-      continue;
-    }
+    if (!colliderDesc) continue;
 
     const bodyDesc = motion
       ? RAPIER.RigidBodyDesc.dynamic()
       : RAPIER.RigidBodyDesc.fixed();
     bodyDesc.setTranslation(tmpWorldPosition.x, tmpWorldPosition.y, tmpWorldPosition.z);
     bodyDesc.setRotation({
-      x: tmpWorldQuaternion.x,
-      y: tmpWorldQuaternion.y,
-      z: tmpWorldQuaternion.z,
-      w: tmpWorldQuaternion.w
+      x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
+      z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
     });
 
     const body = world.createRigidBody(bodyDesc);
@@ -249,18 +367,12 @@ async function loadModelAndBuildPhysics() {
       body,
       initialPosition: { x: tmpWorldPosition.x, y: tmpWorldPosition.y, z: tmpWorldPosition.z },
       initialQuaternion: {
-        x: tmpWorldQuaternion.x,
-        y: tmpWorldQuaternion.y,
-        z: tmpWorldQuaternion.z,
-        w: tmpWorldQuaternion.w
+        x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
+        z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
       }
     };
-
     physicsNodes.push(node);
-    if (motion) {
-      dynamicNodes.push(node);
-    }
-
+    if (motion) dynamicNodes.push(node);
     processedNodeIndices.add(nodeIndex);
   }
 }
@@ -333,8 +445,7 @@ async function main() {
 
   window.addEventListener('resize', onWindowResize);
 
-  const gravity = new RAPIER.Vector3(0, -9.8, 0);
-  world = new RAPIER.World(gravity);
+  world = new RAPIER.World({ x: 0, y: -9.8, z: 0 });
   world.timestep = FIXED_TIMESTEP;
 
   await loadModelAndBuildPhysics();
