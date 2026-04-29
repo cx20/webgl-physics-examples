@@ -277,6 +277,7 @@ async function init() {
 
     setInterval(updatePhysics, 1000 / 60);
     window.addEventListener('resize', onWindowResize, false);
+    loop();
 }
 
 function updatePhysics() {
@@ -317,4 +318,3 @@ function onWindowResize() {
 }
 
 init();
-loop();
