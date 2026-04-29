@@ -94,6 +94,67 @@ function buildColliderDesc(shapeDef, worldScale, friction, restitution) {
   return colliderDesc;
 }
 
+function getMeshColliderDesc(object, worldScale) {
+  let posAttr = null;
+  let indexArray = null;
+  object.traverse((child) => {
+    if (posAttr !== null) return;
+    if (!child.isMesh || !child.geometry) return;
+    const attr = child.geometry.getAttribute('position');
+    if (!attr) return;
+    posAttr = attr;
+    indexArray = child.geometry.index ? child.geometry.index.array : null;
+  });
+  if (!posAttr) return null;
+  const count = posAttr.count;
+  const scaledPos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    scaledPos[i * 3]     = posAttr.getX(i) * worldScale.x;
+    scaledPos[i * 3 + 1] = posAttr.getY(i) * worldScale.y;
+    scaledPos[i * 3 + 2] = posAttr.getZ(i) * worldScale.z;
+  }
+  let indices;
+  if (indexArray) {
+    indices = new Uint32Array(indexArray);
+  } else {
+    indices = new Uint32Array(count);
+    for (let i = 0; i < count; i++) indices[i] = i;
+  }
+  return RAPIER.ColliderDesc.trimesh(scaledPos, indices);
+}
+
+function getConvexPoints(object, worldScale) {
+  let posAttr = null;
+  object.traverse((child) => {
+    if (posAttr !== null) return;
+    if (!child.isMesh || !child.geometry) return;
+    posAttr = child.geometry.getAttribute('position');
+  });
+  if (!posAttr) return null;
+  const count = posAttr.count;
+  const points = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    points[i * 3]     = posAttr.getX(i) * worldScale.x;
+    points[i * 3 + 1] = posAttr.getY(i) * worldScale.y;
+    points[i * 3 + 2] = posAttr.getZ(i) * worldScale.z;
+  }
+  return points;
+}
+
+function collectCompoundChildren(nodeIndex, gltfJson, result, excluded) {
+  const nd = gltfJson.nodes[nodeIndex];
+  for (const childIndex of (nd.children || [])) {
+    const childNd = gltfJson.nodes[childIndex];
+    const childExt = childNd?.extensions?.KHR_physics_rigid_bodies;
+    if (childExt?.motion) continue;
+    if (childExt?.collider?.geometry) {
+      result.push(childIndex);
+      excluded.add(childIndex);
+    }
+    collectCompoundChildren(childIndex, gltfJson, result, excluded);
+  }
+}
+
 function setObjectWorldTransform(object, worldPosition, worldQuaternion) {
   if (!object.parent) {
     object.position.copy(worldPosition);
@@ -143,31 +204,138 @@ async function loadModelAndBuildPhysics() {
   const scenePhysics = gltfJson.extensions?.KHR_physics_rigid_bodies || {};
   const materialDefs = scenePhysics.physicsMaterials || [];
 
+  // Pass 1: compound bodies — parent has motion but no self-collider; children supply colliders
   for (let nodeIndex = 0; nodeIndex < gltfJson.nodes.length; nodeIndex++) {
-    if (processedNodeIndices.has(nodeIndex)) {
-      continue;
+    const nodeDef = gltfJson.nodes[nodeIndex];
+    const physicsExt = nodeDef?.extensions?.KHR_physics_rigid_bodies;
+    if (!physicsExt?.motion || physicsExt.collider?.geometry) continue;
+
+    const childIndices = [];
+    collectCompoundChildren(nodeIndex, gltfJson, childIndices, processedNodeIndices);
+    if (childIndices.length === 0) continue;
+
+    const parentObject = await gltf.parser.getDependency('node', nodeIndex);
+    if (!parentObject) continue;
+
+    parentObject.updateWorldMatrix(true, false);
+    parentObject.matrixWorld.decompose(tmpWorldPosition, tmpWorldQuaternion, tmpWorldScale);
+
+    const motion = physicsExt.motion;
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic();
+    bodyDesc.setTranslation(tmpWorldPosition.x, tmpWorldPosition.y, tmpWorldPosition.z);
+    bodyDesc.setRotation({
+      x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
+      z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
+    });
+
+    if (motion.mass === 0) bodyDesc.lockTranslations();
+    if (motion.gravityFactor !== undefined) bodyDesc.setGravityScale(motion.gravityFactor);
+    if (motion.linearVelocity) {
+      const lv = motion.linearVelocity;
+      bodyDesc.setLinvel(lv[0], lv[1], lv[2]);
     }
+    if (motion.angularVelocity) {
+      const av = motion.angularVelocity;
+      bodyDesc.setAngvel({ x: av[0], y: av[1], z: av[2] });
+    }
+    if (motion.inertiaDiagonal) {
+      const [ix, iy, iz] = motion.inertiaDiagonal;
+      if (ix === 0 || iy === 0 || iz === 0) {
+        let bodyQuat = tmpWorldQuaternion.clone();
+        if (motion.inertiaOrientation) {
+          const io = motion.inertiaOrientation;
+          bodyQuat.multiply(new THREE.Quaternion(io[0], io[1], io[2], io[3]));
+        }
+        const diag = [ix, iy, iz];
+        const localAxes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let allowX = false, allowY = false, allowZ = false;
+        for (let j = 0; j < 3; j++) {
+          if (diag[j] !== 0) {
+            const v = new THREE.Vector3(...localAxes[j]).applyQuaternion(bodyQuat);
+            const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+            if (ax >= ay && ax >= az) allowX = true;
+            else if (ay >= ax && ay >= az) allowY = true;
+            else allowZ = true;
+          }
+        }
+        bodyDesc.enabledRotations(allowX, allowY, allowZ);
+      }
+    }
+
+    const body = world.createRigidBody(bodyDesc);
+
+    const parentInvQuat = tmpWorldQuaternion.clone().invert();
+    const parentPos = tmpWorldPosition.clone();
+
+    for (const childIndex of childIndices) {
+      const childNd = gltfJson.nodes[childIndex];
+      const childExt = childNd.extensions.KHR_physics_rigid_bodies;
+      const shapeIndex = childExt.collider.geometry.shape;
+      const shapeDef = shapeIndex !== undefined ? shapeDefs[shapeIndex] : null;
+
+      const childObject = await gltf.parser.getDependency('node', childIndex);
+      if (!childObject) continue;
+
+      childObject.updateWorldMatrix(true, false);
+      const childWorldPos = new THREE.Vector3();
+      const childWorldQuat = new THREE.Quaternion();
+      const childWorldScale = new THREE.Vector3();
+      childObject.matrixWorld.decompose(childWorldPos, childWorldQuat, childWorldScale);
+
+      const matIdx = childExt.collider.physicsMaterial;
+      const matDef = matIdx !== undefined ? materialDefs[matIdx] : null;
+      const friction = matDef?.dynamicFriction !== undefined ? matDef.dynamicFriction : 0.5;
+      const restitution = matDef?.restitution !== undefined ? matDef.restitution : 0.0;
+
+      let colliderDesc;
+      if (shapeDef) {
+        colliderDesc = buildColliderDesc(shapeDef, childWorldScale, friction, restitution);
+      } else {
+        const points = getConvexPoints(childObject, childWorldScale);
+        if (points) {
+          colliderDesc = RAPIER.ColliderDesc.convexHull(points);
+          if (colliderDesc) {
+            colliderDesc.setFriction(friction).setRestitution(restitution);
+            colliderDesc.setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max);
+          }
+        }
+      }
+      if (!colliderDesc) continue;
+
+      const relPos = childWorldPos.clone().sub(parentPos).applyQuaternion(parentInvQuat);
+      const relQuat = parentInvQuat.clone().multiply(childWorldQuat);
+      colliderDesc.setTranslation(relPos.x, relPos.y, relPos.z);
+      colliderDesc.setRotation({ x: relQuat.x, y: relQuat.y, z: relQuat.z, w: relQuat.w });
+      world.createCollider(colliderDesc, body);
+    }
+
+    physicsNodes.push({
+      object: parentObject,
+      body,
+      initialPosition: { x: tmpWorldPosition.x, y: tmpWorldPosition.y, z: tmpWorldPosition.z },
+      initialQuaternion: {
+        x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
+        z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
+      },
+      motion
+    });
+    dynamicNodes.push(physicsNodes[physicsNodes.length - 1]);
+    processedNodeIndices.add(nodeIndex);
+  }
+
+  // Pass 2: single-body nodes
+  for (let nodeIndex = 0; nodeIndex < gltfJson.nodes.length; nodeIndex++) {
+    if (processedNodeIndices.has(nodeIndex)) continue;
 
     const nodeDef = gltfJson.nodes[nodeIndex];
     const physicsExt = nodeDef?.extensions?.KHR_physics_rigid_bodies;
-    if (!physicsExt || !physicsExt.collider?.geometry) {
-      continue;
-    }
-
-    const object = await gltf.parser.getDependency('node', nodeIndex);
-    if (!object) {
-      continue;
-    }
+    if (!physicsExt || !physicsExt.collider?.geometry) continue;
 
     const shapeIndex = physicsExt.collider.geometry.shape;
-    if (shapeIndex === undefined) {
-      continue;
-    }
+    const shapeDef = shapeIndex !== undefined ? shapeDefs[shapeIndex] : null;
 
-    const shapeDef = shapeDefs[shapeIndex];
-    if (!shapeDef) {
-      continue;
-    }
+    const object = await gltf.parser.getDependency('node', nodeIndex);
+    if (!object) continue;
 
     object.updateWorldMatrix(true, false);
     object.matrixWorld.decompose(tmpWorldPosition, tmpWorldQuaternion, tmpWorldScale);
@@ -180,10 +348,28 @@ async function loadModelAndBuildPhysics() {
     const friction = materialDef?.dynamicFriction !== undefined ? materialDef.dynamicFriction : 0.5;
     const restitution = materialDef?.restitution !== undefined ? materialDef.restitution : 0.0;
 
-    const colliderDesc = buildColliderDesc(shapeDef, tmpWorldScale, friction, restitution);
-    if (!colliderDesc) {
-      continue;
+    let colliderDesc;
+    if (shapeDef) {
+      colliderDesc = buildColliderDesc(shapeDef, tmpWorldScale, friction, restitution);
+    } else if (physicsExt.collider.geometry.mesh !== undefined) {
+      if (motion) {
+        const points = getConvexPoints(object, tmpWorldScale);
+        if (points) {
+          colliderDesc = RAPIER.ColliderDesc.convexHull(points);
+          if (colliderDesc) {
+            colliderDesc.setFriction(friction).setRestitution(restitution);
+            colliderDesc.setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max);
+          }
+        }
+      } else {
+        colliderDesc = getMeshColliderDesc(object, tmpWorldScale);
+        if (colliderDesc) {
+          colliderDesc.setFriction(friction).setRestitution(restitution);
+          colliderDesc.setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max);
+        }
+      }
     }
+    if (!colliderDesc) continue;
 
     const bodyDesc = motion
       ? RAPIER.RigidBodyDesc.dynamic()
@@ -195,6 +381,42 @@ async function loadModelAndBuildPhysics() {
       z: tmpWorldQuaternion.z,
       w: tmpWorldQuaternion.w
     });
+
+    if (motion) {
+      if (motion.mass === 0) bodyDesc.lockTranslations();
+      if (motion.gravityFactor !== undefined) bodyDesc.setGravityScale(motion.gravityFactor);
+      if (motion.linearVelocity) {
+        const lv = motion.linearVelocity;
+        bodyDesc.setLinvel(lv[0], lv[1], lv[2]);
+      }
+      if (motion.angularVelocity) {
+        const av = motion.angularVelocity;
+        bodyDesc.setAngvel({ x: av[0], y: av[1], z: av[2] });
+      }
+      if (motion.inertiaDiagonal) {
+        const [ix, iy, iz] = motion.inertiaDiagonal;
+        if (ix === 0 || iy === 0 || iz === 0) {
+          let bodyQuat = tmpWorldQuaternion.clone();
+          if (motion.inertiaOrientation) {
+            const io = motion.inertiaOrientation;
+            bodyQuat.multiply(new THREE.Quaternion(io[0], io[1], io[2], io[3]));
+          }
+          const diag = [ix, iy, iz];
+          const localAxes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+          let allowX = false, allowY = false, allowZ = false;
+          for (let j = 0; j < 3; j++) {
+            if (diag[j] !== 0) {
+              const v = new THREE.Vector3(...localAxes[j]).applyQuaternion(bodyQuat);
+              const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+              if (ax >= ay && ax >= az) allowX = true;
+              else if (ay >= ax && ay >= az) allowY = true;
+              else allowZ = true;
+            }
+          }
+          bodyDesc.enabledRotations(allowX, allowY, allowZ);
+        }
+      }
+    }
 
     const body = world.createRigidBody(bodyDesc);
     world.createCollider(colliderDesc, body);
@@ -208,7 +430,8 @@ async function loadModelAndBuildPhysics() {
         y: tmpWorldQuaternion.y,
         z: tmpWorldQuaternion.z,
         w: tmpWorldQuaternion.w
-      }
+      },
+      motion
     };
 
     physicsNodes.push(node);
@@ -238,8 +461,12 @@ function resetDynamicBodiesIfNeeded() {
     }
     node.body.setTranslation(node.initialPosition, true);
     node.body.setRotation(node.initialQuaternion, true);
-    node.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    node.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
+    const lv = node.motion?.linearVelocity;
+    node.body.setLinvel(lv ? { x: lv[0], y: lv[1], z: lv[2] } : { x: 0, y: 0, z: 0 }, true);
+
+    const av = node.motion?.angularVelocity;
+    node.body.setAngvel(av ? { x: av[0], y: av[1], z: av[2] } : { x: 0, y: 0, z: 0 }, true);
   }
 }
 

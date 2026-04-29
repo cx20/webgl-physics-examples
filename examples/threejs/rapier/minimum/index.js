@@ -1,6 +1,6 @@
 ﻿import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.12.0';
+import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 
 let container;
 let camera, scene, renderer;
@@ -10,8 +10,7 @@ let controls;
 
 async function initRapier() {
     await RAPIER.init();
-    const gravity = new RAPIER.Vector3(0, -9.81, 0);
-    world = new RAPIER.World(gravity);
+    world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 
     const groundColliderDesc = RAPIER.ColliderDesc.cuboid(2, 0.05, 2).setRestitution(0.1).setFriction(0.5);
     const groundBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, 0, 0);
@@ -23,9 +22,11 @@ async function initRapier() {
     boxBody = world.createRigidBody(boxBodyDesc);
     world.createCollider(boxColliderDesc, boxBody);
 
-    const rotationAxis = new RAPIER.Vector3(1, 0, 1);
-    const angle = Math.PI * 10 / 180;
-    boxBody.setRotation(rotationAxis, angle);
+    const rotQuat = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1, 0, 1).normalize(),
+        Math.PI * 10 / 180
+    );
+    boxBody.setRotation({ x: rotQuat.x, y: rotQuat.y, z: rotQuat.z, w: rotQuat.w }, true);
 }
 
 function initThree() {

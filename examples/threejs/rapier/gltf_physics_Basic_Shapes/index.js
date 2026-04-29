@@ -251,6 +251,32 @@ async function loadModelAndBuildPhysics() {
       const av = motion.angularVelocity;
       bodyDesc.setAngvel({ x: av[0], y: av[1], z: av[2] });
     }
+    if (motion.mass === 0) {
+      bodyDesc.lockTranslations();
+    }
+    if (motion.inertiaDiagonal) {
+      const [ix, iy, iz] = motion.inertiaDiagonal;
+      if (ix === 0 || iy === 0 || iz === 0) {
+        let bodyQuat = tmpWorldQuaternion.clone();
+        if (motion.inertiaOrientation) {
+          const io = motion.inertiaOrientation;
+          bodyQuat.multiply(new THREE.Quaternion(io[0], io[1], io[2], io[3]));
+        }
+        const diag = [ix, iy, iz];
+        const localAxes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let allowX = false, allowY = false, allowZ = false;
+        for (let j = 0; j < 3; j++) {
+          if (diag[j] !== 0) {
+            const v = new THREE.Vector3(...localAxes[j]).applyQuaternion(bodyQuat);
+            const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+            if (ax >= ay && ax >= az) allowX = true;
+            else if (ay >= ax && ay >= az) allowY = true;
+            else allowZ = true;
+          }
+        }
+        bodyDesc.enabledRotations(allowX, allowY, allowZ);
+      }
+    }
 
     const body = world.createRigidBody(bodyDesc);
 
@@ -303,7 +329,8 @@ async function loadModelAndBuildPhysics() {
       initialQuaternion: {
         x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
         z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
-      }
+      },
+      motion
     });
     dynamicNodes.push(physicsNodes[physicsNodes.length - 1]);
     processedNodeIndices.add(nodeIndex);
@@ -359,6 +386,46 @@ async function loadModelAndBuildPhysics() {
       z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
     });
 
+    if (motion) {
+      if (motion.mass === 0) {
+        bodyDesc.lockTranslations();
+      }
+      if (motion.gravityFactor !== undefined) {
+        bodyDesc.setGravityScale(motion.gravityFactor);
+      }
+      if (motion.linearVelocity) {
+        const lv = motion.linearVelocity;
+        bodyDesc.setLinvel(lv[0], lv[1], lv[2]);
+      }
+      if (motion.angularVelocity) {
+        const av = motion.angularVelocity;
+        bodyDesc.setAngvel({ x: av[0], y: av[1], z: av[2] });
+      }
+      if (motion.inertiaDiagonal) {
+        const [ix, iy, iz] = motion.inertiaDiagonal;
+        if (ix === 0 || iy === 0 || iz === 0) {
+          let bodyQuat = tmpWorldQuaternion.clone();
+          if (motion.inertiaOrientation) {
+            const io = motion.inertiaOrientation;
+            bodyQuat.multiply(new THREE.Quaternion(io[0], io[1], io[2], io[3]));
+          }
+          const diag = [ix, iy, iz];
+          const localAxes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+          let allowX = false, allowY = false, allowZ = false;
+          for (let j = 0; j < 3; j++) {
+            if (diag[j] !== 0) {
+              const v = new THREE.Vector3(...localAxes[j]).applyQuaternion(bodyQuat);
+              const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+              if (ax >= ay && ax >= az) allowX = true;
+              else if (ay >= ax && ay >= az) allowY = true;
+              else allowZ = true;
+            }
+          }
+          bodyDesc.enabledRotations(allowX, allowY, allowZ);
+        }
+      }
+    }
+
     const body = world.createRigidBody(bodyDesc);
     world.createCollider(colliderDesc, body);
 
@@ -369,7 +436,8 @@ async function loadModelAndBuildPhysics() {
       initialQuaternion: {
         x: tmpWorldQuaternion.x, y: tmpWorldQuaternion.y,
         z: tmpWorldQuaternion.z, w: tmpWorldQuaternion.w
-      }
+      },
+      motion
     };
     physicsNodes.push(node);
     if (motion) dynamicNodes.push(node);
@@ -395,8 +463,12 @@ function resetDynamicBodiesIfNeeded() {
     }
     node.body.setTranslation(node.initialPosition, true);
     node.body.setRotation(node.initialQuaternion, true);
-    node.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    node.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
+    const lv = node.motion?.linearVelocity;
+    node.body.setLinvel(lv ? { x: lv[0], y: lv[1], z: lv[2] } : { x: 0, y: 0, z: 0 }, true);
+
+    const av = node.motion?.angularVelocity;
+    node.body.setAngvel(av ? { x: av[0], y: av[1], z: av[2] } : { x: 0, y: 0, z: 0 }, true);
   }
 }
 

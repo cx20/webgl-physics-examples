@@ -1,6 +1,6 @@
 ﻿import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.12.0';
+import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -73,8 +73,7 @@ async function init() {
     controls.autoRotate = true;
 
     // Rapier の物理ワールド初期化
-    const gravity = new RAPIER.Vector3(0, -10, 0);
-    world = new RAPIER.World(gravity);
+    world = new RAPIER.World({ x: 0, y: -10, z: 0 });
 
     initLights();
     initGround();
