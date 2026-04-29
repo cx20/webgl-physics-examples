@@ -254,6 +254,9 @@ async function loadModelAndBuildPhysics() {
     });
 
     if (motion) {
+      if (motion.mass === 0) {
+        bodyDesc.lockTranslations();
+      }
       if (motion.gravityFactor !== undefined) {
         bodyDesc.setGravityScale(motion.gravityFactor);
       }
