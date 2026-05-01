@@ -73,12 +73,6 @@ function createStaticBody(shapeSize, position) {
   HK.HP_World_AddBody(worldId, bodyId, false);
 }
 
-function createMaterial(engine, color) {
-  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-  mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
-  return mat;
-}
-
 const load = async function() {
   HK = await HavokPhysics();
 
@@ -117,7 +111,7 @@ const load = async function() {
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([100, 0.2, 100]);
   entities.push(groundEntity);
 
-  // Shared domino shape
+  // Shared domino physics shape
   const dsRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [DOMINO_W, DOMINO_H, DOMINO_D]);
   checkResult(dsRes[0], 'HP_Shape_CreateBox domino');
   const dominoShapeId = dsRes[1];
@@ -125,7 +119,7 @@ const load = async function() {
   checkResult(dmRes[0], 'HP_Shape_BuildMassProperties domino');
   const dominoMassProps = dmRes[1];
 
-  // Shared ball shape
+  // Shared ball physics shape
   const bsRes = HK.HP_Shape_CreateSphere([0, 0, 0], BALL_RADIUS);
   checkResult(bsRes[0], 'HP_Shape_CreateSphere ball');
   const ballShapeId = bsRes[1];
@@ -135,10 +129,30 @@ const load = async function() {
 
   const footballTex = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/football.png');
 
+  // Pre-build one cube mesh per unique color key
+  const cubeMeshByKey = {};
+  for (const [key, color] of Object.entries(colorHash)) {
+    const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+    mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
+    const helper = Rn.MeshHelper.createCube(engine, { material: mat });
+    cubeMeshByKey[key] = helper.getMesh().mesh;
+  }
+
+  // Pre-build shared sphere mesh for balls
+  const ballMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+  ballMat.setTextureParameter('baseColorTexture', footballTex, sampler);
+  const ballHelper = Rn.MeshHelper.createSphere(engine, {
+    radius: BALL_RADIUS,
+    widthSegments: 16,
+    heightSegments: 16,
+    material: ballMat,
+  });
+  const sharedBallMesh = ballHelper.getMesh().mesh;
+
   // 16x16 dominos
   for (let row = 0; row < 16; row++) {
     for (let col = 0; col < 16; col++) {
-      const color = colorHash[dataSet[row * 16 + col]];
+      const colorKey = dataSet[row * 16 + col];
       const x1 = -8 * BOX_SIZE + col * BOX_SIZE;
       const y1 = BOX_SIZE;
       const z1 = -8 * BOX_SIZE + row * BOX_SIZE * 1.2;
@@ -154,16 +168,14 @@ const load = async function() {
       HK.HP_World_AddBody(worldId, bodyId, false);
       bodyIds.push(bodyId);
 
-      const mat = createMaterial(engine, color);
-      const entity = Rn.MeshHelper.createCube(engine, { material: mat });
+      const entity = Rn.createMeshEntity(engine);
+      entity.getMesh().setMesh(cubeMeshByKey[colorKey]);
       entity.getTransform().localScale = Rn.Vector3.fromCopyArray([DOMINO_W, DOMINO_H, DOMINO_D]);
       entities.push(entity);
     }
   }
 
   // 16 balls
-  const ballMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-  ballMat.setTextureParameter('baseColorTexture', footballTex, sampler);
   for (let i = 0; i < 16; i++) {
     const x1 = -8 * BOX_SIZE - 0.5;
     const y1 = 8;
@@ -180,12 +192,8 @@ const load = async function() {
     HK.HP_World_AddBody(worldId, bodyId, false);
     bodyIds.push(bodyId);
 
-    const entity = Rn.MeshHelper.createSphere(engine, {
-      radius: BALL_RADIUS,
-      widthSegments: 16,
-      heightSegments: 16,
-      material: ballMat,
-    });
+    const entity = Rn.createMeshEntity(engine);
+    entity.getMesh().setMesh(sharedBallMesh);
     entities.push(entity);
   }
 

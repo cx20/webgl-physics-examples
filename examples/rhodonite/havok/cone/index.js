@@ -93,15 +93,13 @@ function buildConeGeometry(halfHeight, radius, segments = 20) {
   const uvArr = [];
   const idxArr = [];
 
-  // Tip vertex
-  posArr.push(0, halfHeight, 0);
-  normArr.push(0, 1, 0);
-  uvArr.push(0.5, 0);
-
-  // Base rim vertices
   const slopeLen = Math.sqrt(radius * radius + (2 * halfHeight) * (2 * halfHeight));
   const ny = radius / slopeLen;
   const nr = (2 * halfHeight) / slopeLen;
+
+  posArr.push(0, halfHeight, 0);
+  normArr.push(0, 1, 0);
+  uvArr.push(0.5, 0);
 
   for (let i = 0; i <= segments; i++) {
     const a = (i / segments) * Math.PI * 2;
@@ -112,18 +110,15 @@ function buildConeGeometry(halfHeight, radius, segments = 20) {
     uvArr.push(i / segments, 1);
   }
 
-  // Side triangles
   for (let i = 0; i < segments; i++) {
     idxArr.push(0, i + 1, i + 2);
   }
 
-  // Base cap center
   const capCenter = posArr.length / 3;
   posArr.push(0, -halfHeight, 0);
   normArr.push(0, -1, 0);
   uvArr.push(0.5, 0.5);
 
-  // Base cap rim
   for (let i = 0; i <= segments; i++) {
     const a = (i / segments) * Math.PI * 2;
     posArr.push(radius * Math.cos(a), -halfHeight, radius * Math.sin(a));
@@ -188,10 +183,10 @@ const load = async function() {
     { size: [1, 10, 10], pos: [-5, 5, 0] },
     { size: [1, 10, 10], pos: [ 5, 5, 0] },
   ];
+  const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+  wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 0.4]));
   for (const { size, pos } of wallDefs) {
     createStaticBody(size, pos);
-    const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-    wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 0.4]));
     const wallEntity = Rn.MeshHelper.createCube(engine, { material: wallMat });
     wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
     wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
@@ -204,8 +199,24 @@ const load = async function() {
   checkResult(cmRes[0], 'HP_Shape_BuildMassProperties cone');
   const coneMassProps = cmRes[1];
 
-  // Cone geometry
+  // Shared material, primitive, mesh — created ONCE for all cones
+  const sharedMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+  sharedMat.setTextureParameter('baseColorTexture', carrotTex, sampler);
+
   const coneGeo = buildConeGeometry(CONE_HALF_HEIGHT, CONE_RADIUS, 20);
+  const sharedPrimitive = Rn.Primitive.createPrimitive(engine, {
+    indices: coneGeo.indices,
+    attributeSemantics: [
+      Rn.VertexAttribute.Position.XYZ,
+      Rn.VertexAttribute.Normal.XYZ,
+      Rn.VertexAttribute.Texcoord0.XY,
+    ],
+    attributes: [coneGeo.positions, coneGeo.normals, coneGeo.texcoords],
+    material: sharedMat,
+    primitiveMode: Rn.PrimitiveMode.Triangles,
+  });
+  const sharedMesh = new Rn.Mesh(engine);
+  sharedMesh.addPrimitive(sharedPrimitive);
 
   for (let i = 0; i < CONE_COUNT; i++) {
     const x = -3.5 + Math.random() * 7;
@@ -223,25 +234,8 @@ const load = async function() {
     HK.HP_World_AddBody(worldId, bodyId, false);
     bodyIds.push(bodyId);
 
-    const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-    mat.setTextureParameter('baseColorTexture', carrotTex, sampler);
-
-    const primitive = Rn.Primitive.createPrimitive(engine, {
-      indices: coneGeo.indices,
-      attributeSemantics: [
-        Rn.VertexAttribute.Position.XYZ,
-        Rn.VertexAttribute.Normal.XYZ,
-        Rn.VertexAttribute.Texcoord0.XY,
-      ],
-      attributes: [coneGeo.positions, coneGeo.normals, coneGeo.texcoords],
-      material: mat,
-      primitiveMode: Rn.PrimitiveMode.Triangles,
-    });
-
-    const mesh = new Rn.Mesh(engine);
-    mesh.addPrimitive(primitive);
     const entity = Rn.createMeshEntity(engine);
-    entity.getMesh().setMesh(mesh);
+    entity.getMesh().setMesh(sharedMesh);
     entities.push(entity);
   }
 

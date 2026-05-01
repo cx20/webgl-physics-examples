@@ -105,7 +105,7 @@ const load = async function() {
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([20, 0.4, 20]);
   entities.push(groundEntity);
 
-  // Shared ball shape
+  // Shared ball physics shape
   const radius = BALL_SIZE / 2;
   const bsRes = HK.HP_Shape_CreateSphere([0, 0, 0], radius);
   checkResult(bsRes[0], 'HP_Shape_CreateSphere ball');
@@ -114,9 +114,24 @@ const load = async function() {
   checkResult(bmRes[0], 'HP_Shape_BuildMassProperties ball');
   const ballMassProps = bmRes[1];
 
+  // Pre-build one sphere mesh per unique color key (all share the football texture)
+  const sphereMeshByKey = {};
+  for (const [key, color] of Object.entries(colorHash)) {
+    const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+    mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
+    mat.setTextureParameter('baseColorTexture', footballTex, sampler);
+    const helper = Rn.MeshHelper.createSphere(engine, {
+      radius,
+      widthSegments: 16,
+      heightSegments: 16,
+      material: mat,
+    });
+    sphereMeshByKey[key] = helper.getMesh().mesh;
+  }
+
   for (let x = 0; x < 16; x++) {
     for (let y = 0; y < 16; y++) {
-      const color = colorHash[dataSet[y * 16 + x]];
+      const colorKey = dataSet[y * 16 + x];
       const x1 = -10 + x * BALL_SIZE * 1.5 + Math.random() * 0.1;
       const y1 = (15 - y) * BALL_SIZE * 1.2 + 2 + Math.random() * 0.1;
       const z1 = Math.random() * 0.1;
@@ -132,15 +147,8 @@ const load = async function() {
       HK.HP_World_AddBody(worldId, bodyId, false);
       bodyIds.push(bodyId);
 
-      const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-      mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
-      mat.setTextureParameter('baseColorTexture', footballTex, sampler);
-      const entity = Rn.MeshHelper.createSphere(engine, {
-        radius,
-        widthSegments: 16,
-        heightSegments: 16,
-        material: mat,
-      });
+      const entity = Rn.createMeshEntity(engine);
+      entity.getMesh().setMesh(sphereMeshByKey[colorKey]);
       entities.push(entity);
     }
   }

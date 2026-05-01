@@ -104,7 +104,7 @@ const load = async function() {
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([30, 0.4, 30]);
   entities.push(groundEntity);
 
-  // Shared box shape
+  // Shared box physics shape
   const bsRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [BOX_SIZE, BOX_SIZE, BOX_SIZE]);
   checkResult(bsRes[0], 'HP_Shape_CreateBox box');
   const boxShapeId = bsRes[1];
@@ -112,9 +112,18 @@ const load = async function() {
   checkResult(bmRes[0], 'HP_Shape_BuildMassProperties box');
   const boxMassProps = bmRes[1];
 
+  // Pre-build one cube mesh per unique color key
+  const cubeMeshByKey = {};
+  for (const [key, color] of Object.entries(colorHash)) {
+    const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+    mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
+    const helper = Rn.MeshHelper.createCube(engine, { material: mat });
+    cubeMeshByKey[key] = helper.getMesh().mesh;
+  }
+
   for (let x = 0; x < 16; x++) {
     for (let y = 0; y < 16; y++) {
-      const color = colorHash[dataSet[y * 16 + x]];
+      const colorKey = dataSet[y * 16 + x];
       const x1 = -12 + x * BOX_SIZE * 1.5 + Math.random() * 0.1;
       const y1 = (15 - y) * BOX_SIZE * 1.2 + Math.random() * 0.1;
       const z1 = Math.random() * 0.1;
@@ -130,9 +139,8 @@ const load = async function() {
       HK.HP_World_AddBody(worldId, bodyId, false);
       bodyIds.push(bodyId);
 
-      const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-      mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
-      const entity = Rn.MeshHelper.createCube(engine, { material: mat });
+      const entity = Rn.createMeshEntity(engine);
+      entity.getMesh().setMesh(cubeMeshByKey[colorKey]);
       entity.getTransform().localScale = Rn.Vector3.fromCopyArray([BOX_SIZE, BOX_SIZE, BOX_SIZE]);
       entities.push(entity);
     }

@@ -139,10 +139,10 @@ const load = async function() {
     { size: [1, 10, 10], pos: [-5, 5, 0] },
     { size: [1, 10, 10], pos: [ 5, 5, 0] },
   ];
+  const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+  wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 0.4]));
   for (const { size, pos } of wallDefs) {
     createStaticBody(size, pos);
-    const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-    wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 0.4]));
     const wallEntity = Rn.MeshHelper.createCube(engine, { material: wallMat });
     wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
     wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
@@ -161,8 +161,24 @@ const load = async function() {
   checkResult(pmRes[0], 'HP_Shape_BuildMassProperties shogi');
   const pieceMassProps = pmRes[1];
 
-  // Shared geometry data
+  // Shared material, primitive, mesh — created ONCE for all pieces
+  const sharedMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+  sharedMat.setTextureParameter('baseColorTexture', shogiTex, sampler);
+
   const geo = createShogiGeometry(pieceW, pieceH, pieceD);
+  const sharedPrimitive = Rn.Primitive.createPrimitive(engine, {
+    indices: geo.indices,
+    attributeSemantics: [
+      Rn.VertexAttribute.Position.XYZ,
+      Rn.VertexAttribute.Normal.XYZ,
+      Rn.VertexAttribute.Texcoord0.XY,
+    ],
+    attributes: [geo.positions, geo.normals, geo.texcoords],
+    material: sharedMat,
+    primitiveMode: Rn.PrimitiveMode.Triangles,
+  });
+  const sharedMesh = new Rn.Mesh(engine);
+  sharedMesh.addPrimitive(sharedPrimitive);
 
   for (let i = 0; i < PIECE_COUNT; i++) {
     const x = (Math.random() - 0.5) * 8;
@@ -185,25 +201,8 @@ const load = async function() {
     HK.HP_World_AddBody(worldId, bodyId, false);
     bodyIds.push(bodyId);
 
-    const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-    mat.setTextureParameter('baseColorTexture', shogiTex, sampler);
-
-    const primitive = Rn.Primitive.createPrimitive(engine, {
-      indices: geo.indices,
-      attributeSemantics: [
-        Rn.VertexAttribute.Position.XYZ,
-        Rn.VertexAttribute.Normal.XYZ,
-        Rn.VertexAttribute.Texcoord0.XY,
-      ],
-      attributes: [geo.positions, geo.normals, geo.texcoords],
-      material: mat,
-      primitiveMode: Rn.PrimitiveMode.Triangles,
-    });
-
-    const mesh = new Rn.Mesh(engine);
-    mesh.addPrimitive(primitive);
     const entity = Rn.createMeshEntity(engine);
-    entity.getMesh().setMesh(mesh);
+    entity.getMesh().setMesh(sharedMesh);
     entities.push(entity);
   }
 

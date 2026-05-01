@@ -87,7 +87,9 @@ const load = async function() {
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([20, 2, 20]);
   entities.push(groundEntity);
 
-  // Walls (transparent)
+  // Walls (shared material)
+  const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+  wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 0.4]));
   const wallDefs = [
     { size: [5, 5, 0.5], pos: [0, 1.5, -2.5] },
     { size: [5, 5, 0.5], pos: [0, 1.5,  2.5] },
@@ -96,51 +98,58 @@ const load = async function() {
   ];
   for (const { size, pos } of wallDefs) {
     createStaticBody(size, pos);
-    const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-    wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 0.4]));
     const wallEntity = Rn.MeshHelper.createCube(engine, { material: wallMat });
     wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
     wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
     entities.push(wallEntity);
   }
 
-  // Balls
-  for (let i = 0; i < 200; i++) {
-    const x = -5 + Math.random() * 10;
-    const y = 6 + Math.random() * 13;
-    const z = -5 + Math.random() * 10;
-    const idx = Math.floor(Math.random() * dataSet.length);
-    const scale = dataSet[idx].scale;
-    const radius = scale * 0.5;
-
-    const ssRes = HK.HP_Shape_CreateSphere([0, 0, 0], radius);
-    checkResult(ssRes[0], 'HP_Shape_CreateSphere ball');
+  // Pre-build 5 type-specific physics shapes and sphere meshes
+  const typeData = dataSet.map((d, idx) => {
+    const radius = d.scale * 0.5;
+    const sRes = HK.HP_Shape_CreateSphere([0, 0, 0], radius);
+    checkResult(sRes[0], 'HP_Shape_CreateSphere type ' + idx);
     if (typeof HK.HP_Shape_SetMaterial === 'function') {
-      HK.HP_Shape_SetMaterial(ssRes[1], [0.5, 0.5, dataSet[idx].restitution, HK.MaterialCombine.MAXIMUM, HK.MaterialCombine.MAXIMUM]);
+      HK.HP_Shape_SetMaterial(sRes[1], [0.5, 0.5, d.restitution, HK.MaterialCombine.MAXIMUM, HK.MaterialCombine.MAXIMUM]);
     }
-    const smRes = HK.HP_Shape_BuildMassProperties(ssRes[1]);
-    checkResult(smRes[0], 'HP_Shape_BuildMassProperties ball');
-    const sbRes = HK.HP_Body_Create();
-    checkResult(sbRes[0], 'HP_Body_Create ball');
-    const bodyId = sbRes[1];
-    HK.HP_Body_SetShape(bodyId, ssRes[1]);
-    HK.HP_Body_SetMotionType(bodyId, HK.MotionType.DYNAMIC);
-    HK.HP_Body_SetMassProperties(bodyId, smRes[1]);
-    HK.HP_Body_SetPosition(bodyId, [x, y, z]);
-    HK.HP_Body_SetOrientation(bodyId, IDENTITY_QUATERNION);
-    HK.HP_World_AddBody(worldId, bodyId, false);
-    bodyIds.push(bodyId);
-    ballScales.push(scale);
+    const smRes = HK.HP_Shape_BuildMassProperties(sRes[1]);
+    checkResult(smRes[0], 'HP_Shape_BuildMassProperties type ' + idx);
 
     const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
     mat.setTextureParameter('baseColorTexture', textures[idx], sampler);
-    const entity = Rn.MeshHelper.createSphere(engine, {
+    const helper = Rn.MeshHelper.createSphere(engine, {
       radius: 0.5,
       widthSegments: 20,
       heightSegments: 10,
       material: mat,
     });
-    entity.getTransform().localScale = Rn.Vector3.fromCopyArray([scale, scale, scale]);
+
+    return { shapeId: sRes[1], massProps: smRes[1], mesh: helper.getMesh().mesh, scale: d.scale };
+  });
+
+  // Balls
+  for (let i = 0; i < 200; i++) {
+    const x = -5 + Math.random() * 10;
+    const y = 6 + Math.random() * 13;
+    const z = -5 + Math.random() * 10;
+    const typeIdx = Math.floor(Math.random() * dataSet.length);
+    const td = typeData[typeIdx];
+
+    const sbRes = HK.HP_Body_Create();
+    checkResult(sbRes[0], 'HP_Body_Create ball');
+    const bodyId = sbRes[1];
+    HK.HP_Body_SetShape(bodyId, td.shapeId);
+    HK.HP_Body_SetMotionType(bodyId, HK.MotionType.DYNAMIC);
+    HK.HP_Body_SetMassProperties(bodyId, td.massProps);
+    HK.HP_Body_SetPosition(bodyId, [x, y, z]);
+    HK.HP_Body_SetOrientation(bodyId, IDENTITY_QUATERNION);
+    HK.HP_World_AddBody(worldId, bodyId, false);
+    bodyIds.push(bodyId);
+    ballScales.push(td.scale);
+
+    const entity = Rn.createMeshEntity(engine);
+    entity.getMesh().setMesh(td.mesh);
+    entity.getTransform().localScale = Rn.Vector3.fromCopyArray([td.scale, td.scale, td.scale]);
     entities.push(entity);
   }
 
