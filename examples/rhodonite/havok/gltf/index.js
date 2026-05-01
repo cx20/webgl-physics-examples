@@ -31,6 +31,19 @@ function checkResult(result, label) {
   console.warn('[Havok] ' + label + ' returned:', result);
 }
 
+function rotateVec3ByQuat(v, q) {
+  const [vx, vy, vz] = v;
+  const [qx, qy, qz, qw] = q;
+  const tx = 2 * (qy * vz - qz * vy);
+  const ty = 2 * (qz * vx - qx * vz);
+  const tz = 2 * (qx * vy - qy * vx);
+  return [
+    vx + qw * tx + qy * tz - qz * ty,
+    vy + qw * ty + qz * tx - qx * tz,
+    vz + qw * tz + qx * ty - qy * tx,
+  ];
+}
+
 function initPhysics() {
   const worldRes = HK.HP_World_Create();
   checkResult(worldRes[0], 'HP_World_Create');
@@ -100,8 +113,8 @@ const load = async function() {
 
   // Camera
   const cameraEntity = Rn.createCameraControllerEntity(engine);
-  cameraEntity.localPosition = Rn.Vector3.fromCopyArray([20, 3, 20]);
-  cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.1, -0.8, 0]);
+  cameraEntity.localPosition = Rn.Vector3.fromCopyArray([20, 20, 30]);
+  cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.27, 0.59, 0]);
   const cameraComponent = cameraEntity.getCamera();
   cameraComponent.zNear = 1;
   cameraComponent.zFar = 10000;
@@ -162,7 +175,8 @@ const load = async function() {
     duckRenderPassObj.entities.forEach(entity => {
       const sg = entity.getSceneGraph ? entity.getSceneGraph() : null;
       if (sg && !sg.parent) {
-        entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1] - 100, pos[2]]);
+        const [ox, oy, oz] = rotateVec3ByQuat([0, -cubeSizeY, 0], ori);
+        entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0] + ox, pos[1] + oy, pos[2] + oz]);
         entity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
       }
     });
