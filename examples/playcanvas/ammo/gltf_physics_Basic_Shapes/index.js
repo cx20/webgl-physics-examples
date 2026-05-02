@@ -4,6 +4,9 @@ import { loadWasmModuleAsync } from 'https://rawcdn.githack.com/playcanvas/engin
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/ShapeTypes/ShapeTypes.glb';
 const RESET_Y_THRESHOLD = -20;
 
+const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
+const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
+
 loadWasmModuleAsync(
     'Ammo',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
@@ -175,12 +178,154 @@ function initPhysics(gltfJson, entityMap) {
         if (info.mat.restitution     !== undefined) info.entity.rigidbody.restitution = info.mat.restitution;
     }
 
-    return dynamicInfos.map(info => ({
-        entity: info.entity,
-        initialPosition: info.entity.getPosition().clone(),
-        initialRotation: info.entity.getRotation().clone()
-    }));
+    // Collect all leaf collision entities for debug drawing (exclude compound wrappers).
+    const debugEntities = [];
+    const visitForDebug = (e) => {
+        if (e.collision && e.collision.type && e.collision.type !== 'compound') debugEntities.push(e);
+        for (const c of e.children) visitForDebug(c);
+    };
+    for (const info of dynamicInfos) visitForDebug(info.entity);
+    for (const info of staticInfos)  visitForDebug(info.entity);
+
+    return {
+        dynamicBodies: dynamicInfos.map(info => ({
+            entity: info.entity,
+            initialPosition: info.entity.getPosition().clone(),
+            initialRotation: info.entity.getRotation().clone()
+        })),
+        debugEntities
+    };
 }
+
+// --- Physics debug wireframe helpers ---
+
+function _ringPoints(axis, radius, segments, out, mat) {
+    const tmp = new pc.Vec3();
+    const transformed = new pc.Vec3();
+    let prev = null;
+    for (let i = 0; i <= segments; i++) {
+        const t = (i / segments) * Math.PI * 2;
+        const c = Math.cos(t) * radius;
+        const s = Math.sin(t) * radius;
+        if      (axis === 0) tmp.set(0, c, s);
+        else if (axis === 1) tmp.set(c, 0, s);
+        else                 tmp.set(c, s, 0);
+        mat.transformPoint(tmp, transformed);
+        const cur = transformed.clone();
+        if (prev) { out.push(prev); out.push(cur); }
+        prev = cur;
+    }
+}
+
+function _drawWireSphereLocal(app, mat, radius, color) {
+    const pts = [];
+    const segs = 16;
+    _ringPoints(0, radius, segs, pts, mat);
+    _ringPoints(1, radius, segs, pts, mat);
+    _ringPoints(2, radius, segs, pts, mat);
+    const colors = pts.map(() => color);
+    app.drawLines(pts, colors, false);
+}
+
+function _drawWireBoxLocal(app, mat, hx, hy, hz, color) {
+    app.drawWireAlignedBox(
+        new pc.Vec3(-hx, -hy, -hz),
+        new pc.Vec3( hx,  hy,  hz),
+        color, false, undefined, mat
+    );
+}
+
+function _drawWireCylinderLocal(app, mat, radius, halfHeight, axis, color) {
+    const pts = [];
+    const segs = 16;
+    const offsetA = new pc.Vec3();
+    const offsetB = new pc.Vec3();
+    if      (axis === 0) { offsetA.set(-halfHeight, 0, 0); offsetB.set(halfHeight, 0, 0); }
+    else if (axis === 1) { offsetA.set(0, -halfHeight, 0); offsetB.set(0, halfHeight, 0); }
+    else                 { offsetA.set(0, 0, -halfHeight); offsetB.set(0, 0, halfHeight); }
+
+    const tmp = new pc.Vec3();
+    const transformed = new pc.Vec3();
+    const verts = [];
+    for (const off of [offsetA, offsetB]) {
+        const ring = [];
+        for (let i = 0; i <= segs; i++) {
+            const t = (i / segs) * Math.PI * 2;
+            const c = Math.cos(t) * radius;
+            const s = Math.sin(t) * radius;
+            if      (axis === 0) tmp.set(off.x, c, s);
+            else if (axis === 1) tmp.set(c, off.y, s);
+            else                 tmp.set(c, s, off.z);
+            mat.transformPoint(tmp, transformed);
+            ring.push(transformed.clone());
+        }
+        verts.push(ring);
+        for (let i = 0; i < segs; i++) { pts.push(ring[i]); pts.push(ring[i + 1]); }
+    }
+    const stepIdx = Math.floor(segs / 4);
+    for (let k = 0; k < 4; k++) {
+        const idx = k * stepIdx;
+        pts.push(verts[0][idx]);
+        pts.push(verts[1][idx]);
+    }
+    const colors = pts.map(() => color);
+    app.drawLines(pts, colors, false);
+}
+
+function _drawWireCapsuleLocal(app, mat, radius, cylinderHalfHeight, axis, color) {
+    _drawWireCylinderLocal(app, mat, radius, cylinderHalfHeight, axis, color);
+    const off = new pc.Vec3();
+    for (const sign of [-1, 1]) {
+        if      (axis === 0) off.set(sign * cylinderHalfHeight, 0, 0);
+        else if (axis === 1) off.set(0, sign * cylinderHalfHeight, 0);
+        else                 off.set(0, 0, sign * cylinderHalfHeight);
+        const local = new pc.Mat4().setTranslate(off.x, off.y, off.z);
+        const world = new pc.Mat4().mul2(mat, local);
+        _drawWireSphereLocal(app, world, radius, color);
+    }
+}
+
+function _getPosRotMat(entity) {
+    return new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
+}
+
+function drawPhysicsDebug(app, entities) {
+    for (const entity of entities) {
+        const col = entity.collision;
+        if (!col || !col.type) continue;
+        let rbOwner = entity;
+        while (rbOwner && !rbOwner.rigidbody) rbOwner = rbOwner.parent;
+        const isDynamic = rbOwner?.rigidbody?.type === pc.BODYTYPE_DYNAMIC;
+        const color = isDynamic ? _DBG_COLOR_DYNAMIC : _DBG_COLOR_STATIC;
+        switch (col.type) {
+            case 'box': {
+                const mat = _getPosRotMat(entity);
+                const h = col.halfExtents;
+                _drawWireBoxLocal(app, mat, h.x, h.y, h.z, color);
+                break;
+            }
+            case 'sphere': {
+                const mat = _getPosRotMat(entity);
+                _drawWireSphereLocal(app, mat, col.radius, color);
+                break;
+            }
+            case 'capsule': {
+                const mat = _getPosRotMat(entity);
+                const r = col.radius;
+                const cylHalf = Math.max(0, (col.height - 2 * r) * 0.5);
+                _drawWireCapsuleLocal(app, mat, r, cylHalf, col.axis ?? 1, color);
+                break;
+            }
+            case 'cylinder': {
+                const mat = _getPosRotMat(entity);
+                _drawWireCylinderLocal(app, mat, col.radius, col.height * 0.5, col.axis ?? 1, color);
+                break;
+            }
+        }
+    }
+}
+
+// ---
 
 function enableShadows(e) {
     if (e.render) { e.render.castShadows = true; e.render.receiveShadows = true; }
@@ -229,6 +374,7 @@ function init() {
     app.root.addChild(camera);
 
     let dynamicBodies = [];
+    let debugEntities = [];
 
     Promise.all([
         fetchGltfJsonFromGlb(MODEL_URL),
@@ -243,7 +389,9 @@ function init() {
         enableShadows(root);
 
         const entityMap = buildEntityMap(gltfJson, root);
-        dynamicBodies = initPhysics(gltfJson, entityMap);
+        const result = initPhysics(gltfJson, entityMap);
+        dynamicBodies = result.dynamicBodies;
+        debugEntities = result.debugEntities;
 
         const { center, radius } = computeWorldBounds(root);
         let angle = 0;
@@ -257,6 +405,8 @@ function init() {
                 center.z + Math.cos(Math.PI * angle / 180) * radius
             );
             camera.lookAt(center);
+
+            drawPhysicsDebug(app, debugEntities);
 
             for (const body of dynamicBodies) {
                 if (body.entity.getPosition().y >= RESET_Y_THRESHOLD) continue;
