@@ -267,9 +267,11 @@ function init() {
 
         app.on('update', dt => {
             angle += 0.25 * dt / (1 / expectedFps);
+            // Height multiplier kept small (0.2) so the camera stays below the
+            // scene ceiling (bottom face at y ≈ 4.89) for enclosed-room scenes.
             camera.setLocalPosition(
                 center.x + Math.sin(Math.PI * angle / 180) * radius,
-                center.y + radius * 0.4,
+                center.y + radius * 0.2,
                 center.z + Math.cos(Math.PI * angle / 180) * radius
             );
             camera.lookAt(center);
