@@ -124,10 +124,7 @@ function initPhysics(gltfJson, entityMap) {
     for (let i = 0; i < nodes.length; i++) {
         const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
         if (!physExt?.collider?.geometry) continue;
-        const shapeIdx = physExt.collider.geometry.shape;
-        if (shapeIdx === undefined) continue;
-        const shapeDef = shapeDefs[shapeIdx];
-        if (!shapeDef) continue;
+        const geom = physExt.collider.geometry;
 
         const ownerIdx = findBodyOwner(i);
         if (ownerIdx === i) {
@@ -135,12 +132,24 @@ function initPhysics(gltfJson, entityMap) {
             if (!parent) continue;
             const child = new pc.Entity('__khrCollider');
             parent.addChild(child);
-            const cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
+            let cd = null;
+            if (geom.shape !== undefined) {
+                const shapeDef = shapeDefs[geom.shape];
+                if (shapeDef) cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
+            } else if (geom.mesh !== undefined) {
+                cd = { type: 'mesh', convexHull: !!geom.convexHull };
+            }
             if (cd) child.addComponent('collision', cd);
         } else {
             const e = entityMap[i];
             if (!e) continue;
-            const cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
+            let cd = null;
+            if (geom.shape !== undefined) {
+                const shapeDef = shapeDefs[geom.shape];
+                if (shapeDef) cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
+            } else if (geom.mesh !== undefined) {
+                cd = { type: 'mesh', convexHull: !!geom.convexHull };
+            }
             if (!cd) continue;
             e.addComponent('collision', cd);
             if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
