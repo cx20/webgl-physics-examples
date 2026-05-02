@@ -76,6 +76,7 @@ const load = async function() {
     // camera
     const cameraEntity = Rn.createCameraControllerEntity(engine);
     cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0, 3, 6]);
+    cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.4, 0, 0]);
     const cameraComponent = cameraEntity.getCamera();
     cameraComponent.zNear = 0.1;
     cameraComponent.zFar = 100;
