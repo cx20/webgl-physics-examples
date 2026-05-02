@@ -11,165 +11,240 @@ loadWasmModuleAsync(
     init
 );
 
-async function fetchGltfJsonFromGlb(url) {
-    const response = await fetch(url);
-    const data = await response.arrayBuffer();
-    const header = new Uint32Array(data, 0, 3);
-
-    if (header[0] !== 0x46546c67) {
-        throw new Error('Invalid GLB header.');
+function buildEntityMap(data, clonedRoot) {
+    const map = new Array(data.gltf.nodes.length).fill(null);
+    const sceneRoots = data.scenes.length === 1 ? [clonedRoot] : clonedRoot.children;
+    for (let s = 0; s < data.scenes.length; s++) {
+        zipChildren(data.scenes[s], sceneRoots[s], data.nodes, map);
     }
+    return map;
+}
 
-    let offset = 12;
-    const decoder = new TextDecoder();
-
-    while (offset < data.byteLength) {
-        const view = new DataView(data, offset, 8);
-        const chunkLength = view.getUint32(0, true);
-        const chunkType = view.getUint32(4, true);
-
-        if (chunkType === 0x4e4f534a) {
-            const chunkData = data.slice(offset + 8, offset + 8 + chunkLength);
-            return JSON.parse(decoder.decode(chunkData).replace(/\0+$/, ''));
+function zipChildren(orig, clone, dataNodes, map) {
+    if (!orig || !clone) return;
+    let cursor = 0;
+    for (const oc of orig.children) {
+        let matched = null;
+        for (let j = cursor; j < clone.children.length; j++) {
+            if (clone.children[j].name === oc.name) {
+                matched = clone.children[j];
+                cursor = j + 1;
+                break;
+            }
         }
+        if (!matched) continue;
+        const idx = dataNodes.indexOf(oc);
+        if (idx >= 0) map[idx] = matched;
+        zipChildren(oc, matched, dataNodes, map);
+    }
+}
 
-        offset += 8 + chunkLength;
+function getCollisionDataFromImplicit(shapeDef, worldScale) {
+    const sx = Math.abs(worldScale.x);
+    const sy = Math.abs(worldScale.y);
+    const sz = Math.abs(worldScale.z);
+    if (shapeDef.sphere) {
+        const r = (shapeDef.sphere.radius ?? 0.5) * Math.max(sx, sy, sz);
+        return { type: 'sphere', radius: r };
+    }
+    if (shapeDef.box) {
+        const s = shapeDef.box.size ?? [1, 1, 1];
+        return {
+            type: 'box',
+            halfExtents: new pc.Vec3(
+                Math.abs(s[0] * sx) / 2,
+                Math.abs(s[1] * sy) / 2,
+                Math.abs(s[2] * sz) / 2
+            )
+        };
+    }
+    if (shapeDef.capsule) {
+        const r = ((shapeDef.capsule.radiusTop ?? shapeDef.capsule.radius ?? 0.5) +
+                   (shapeDef.capsule.radiusBottom ?? shapeDef.capsule.radius ?? 0.5)) / 2 *
+                  Math.max(sx, sz);
+        const h = (shapeDef.capsule.height ?? 1.0) * sy + 2 * r;
+        return { type: 'capsule', radius: r, height: h, axis: 1 };
+    }
+    if (shapeDef.cylinder) {
+        const r = Math.max(
+            shapeDef.cylinder.radiusTop    ?? shapeDef.cylinder.radius ?? 0.5,
+            shapeDef.cylinder.radiusBottom ?? shapeDef.cylinder.radius ?? 0.5
+        ) * Math.max(sx, sz);
+        const h = (shapeDef.cylinder.height ?? 1.0) * sy;
+        return { type: 'cylinder', radius: r, height: h, axis: 1 };
+    }
+    console.warn('[Physics] Unsupported implicit shape:', shapeDef);
+    return null;
+}
+
+// KHR combine rule priority: average < minimum < maximum < multiply.
+// Ammo uses multiplicative combine (MULTIPLY) as its only mode, so we
+// pre-combine the material values and set static bodies to 1 (identity).
+const COMBINE_PRIORITY = { average: 1, minimum: 2, maximum: 3, multiply: 4 };
+function pickCombineRule(rule0, rule1) {
+    const r0 = rule0 || 'average';
+    const r1 = rule1 || 'average';
+    return (COMBINE_PRIORITY[r1] > COMBINE_PRIORITY[r0]) ? r1 : r0;
+}
+function applyCombine(rule, a, b) {
+    switch (rule) {
+        case 'minimum':  return Math.min(a, b);
+        case 'maximum':  return Math.max(a, b);
+        case 'multiply': return a * b;
+        default:         return (a + b) * 0.5;
+    }
+}
+
+function initPhysics(gltfJson, entityMap) {
+    const matDefs   = gltfJson.extensions?.KHR_physics_rigid_bodies?.physicsMaterials ?? [];
+    const shapeDefs = gltfJson.extensions?.KHR_implicit_shapes?.shapes ?? [];
+    const nodes     = gltfJson.nodes ?? [];
+
+    const parentOf = new Array(nodes.length).fill(-1);
+    for (let i = 0; i < nodes.length; i++) {
+        const ch = nodes[i].children;
+        if (!ch) continue;
+        for (const c of ch) parentOf[c] = i;
+    }
+    const hasMotion = (i) => !!nodes[i]?.extensions?.KHR_physics_rigid_bodies?.motion;
+    function findBodyOwner(nodeIdx) {
+        let cur = nodeIdx;
+        while (cur >= 0) {
+            if (hasMotion(cur)) return cur;
+            cur = parentOf[cur];
+        }
+        return -1;
     }
 
-    throw new Error('GLB JSON chunk is missing.');
+    // Pass 1: compound collision for body-owner nodes.
+    const bodyOwnerNodes = [];
+    for (let i = 0; i < nodes.length; i++) {
+        if (!hasMotion(i)) continue;
+        const entity = entityMap[i];
+        if (!entity) continue;
+        entity.addComponent('collision', { type: 'compound' });
+        bodyOwnerNodes.push(i);
+    }
+
+    const standaloneStatics = [];
+    for (let i = 0; i < nodes.length; i++) {
+        const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
+        if (!physExt?.collider) continue;
+        const collider = physExt.collider;
+        const geomDef = collider.geometry;
+        if (!geomDef || geomDef.shape === undefined) continue;
+        const shapeDef = shapeDefs[geomDef.shape];
+        if (!shapeDef) continue;
+
+        const ownerIdx = findBodyOwner(i);
+
+        if (ownerIdx === i) {
+            const parentEntity = entityMap[i];
+            if (!parentEntity) continue;
+            const child = new pc.Entity('__khrCollider');
+            parentEntity.addChild(child);
+            const ws = parentEntity.getWorldTransform().getScale();
+            const cd = getCollisionDataFromImplicit(shapeDef, ws);
+            if (!cd) continue;
+            child.addComponent('collision', cd);
+        } else {
+            const entity = entityMap[i];
+            if (!entity) continue;
+            const ws = entity.getWorldTransform().getScale();
+            const cd = getCollisionDataFromImplicit(shapeDef, ws);
+            if (!cd) continue;
+            entity.addComponent('collision', cd);
+            if (ownerIdx < 0) standaloneStatics.push({ entity, collider });
+        }
+    }
+
+    // Pass 2: rigidbody components.
+    const dynamicInfos = [];
+    const staticInfos  = [];
+
+    for (const i of bodyOwnerNodes) {
+        const entity    = entityMap[i];
+        const motionDef = nodes[i].extensions.KHR_physics_rigid_bodies.motion;
+        const isKinematic = !!motionDef?.isKinematic;
+        const rbConfig = { type: isKinematic ? 'kinematic' : 'dynamic' };
+        if (!isKinematic) rbConfig.mass = motionDef?.mass ?? 1;
+        entity.addComponent('rigidbody', rbConfig);
+
+        const ownCollider = nodes[i].extensions.KHR_physics_rigid_bodies.collider;
+        const mat = (ownCollider?.physicsMaterial !== undefined)
+            ? (matDefs[ownCollider.physicsMaterial] ?? {})
+            : {};
+        if (!isKinematic) dynamicInfos.push({ entity, mat });
+        else staticInfos.push({ entity, mat });
+    }
+    for (const { entity, collider } of standaloneStatics) {
+        entity.addComponent('rigidbody', { type: 'static' });
+        const mat = (collider.physicsMaterial !== undefined)
+            ? (matDefs[collider.physicsMaterial] ?? {})
+            : {};
+        staticInfos.push({ entity, mat });
+    }
+
+    // Apply KHR combine rules. Ammo only has multiplicative combine, so we
+    // pre-combine each dynamic body's values against the static ground material,
+    // then set all static bodies to friction=1, restitution=1 (identities).
+    const ground = staticInfos[0]?.mat ?? {};
+    const getFriction = (m) => m.dynamicFriction ?? m.staticFriction;
+    for (const info of dynamicInfos) {
+        const dynFr = getFriction(info.mat);
+        const grdFr = getFriction(ground);
+        if (dynFr !== undefined || grdFr !== undefined) {
+            const rule = pickCombineRule(info.mat.frictionCombine, ground.frictionCombine);
+            info.entity.rigidbody.friction = applyCombine(rule, dynFr ?? 0.5, grdFr ?? 0.5);
+        }
+        const dynRe = info.mat.restitution;
+        const grdRe = ground.restitution;
+        if (dynRe !== undefined || grdRe !== undefined) {
+            const rule = pickCombineRule(info.mat.restitutionCombine, ground.restitutionCombine);
+            info.entity.rigidbody.restitution = applyCombine(rule, dynRe ?? 0, grdRe ?? 0);
+        }
+    }
+    for (const info of staticInfos) {
+        info.entity.rigidbody.friction    = 1;
+        info.entity.rigidbody.restitution = 1;
+    }
+
+    return dynamicInfos.map(info => ({
+        entity: info.entity,
+        initialPosition: info.entity.getPosition().clone(),
+        initialRotation: info.entity.getRotation().clone()
+    }));
 }
 
 function enableShadows(entity) {
-    if (entity.render) {
-        entity.render.castShadows = true;
-        entity.render.receiveShadows = true;
-    }
-    if (entity.model) {
-        entity.model.castShadows = true;
-        entity.model.receiveShadows = true;
-    }
-
-    for (const child of entity.children) {
-        enableShadows(child);
-    }
-}
-
-function collectEntitiesByName(entity, map) {
-    if (!map.has(entity.name)) {
-        map.set(entity.name, []);
-    }
-    map.get(entity.name).push(entity);
-
-    for (const child of entity.children) {
-        collectEntitiesByName(child, map);
-    }
+    if (entity.render) { entity.render.castShadows = true; entity.render.receiveShadows = true; }
+    if (entity.model)  { entity.model.castShadows  = true; entity.model.receiveShadows  = true; }
+    for (const child of entity.children) enableShadows(child);
 }
 
 function computeWorldBounds(root) {
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let minZ = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    let maxZ = Number.NEGATIVE_INFINITY;
+    let minX =  Infinity, minY =  Infinity, minZ =  Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
     function visit(node) {
-        const render = node.render;
-        if (!render) {
-            for (const child of node.children) {
-                visit(child);
+        if (node.render) {
+            for (const mi of node.render.meshInstances) {
+                const c = mi.aabb.center, h = mi.aabb.halfExtents;
+                minX = Math.min(minX, c.x - h.x); maxX = Math.max(maxX, c.x + h.x);
+                minY = Math.min(minY, c.y - h.y); maxY = Math.max(maxY, c.y + h.y);
+                minZ = Math.min(minZ, c.z - h.z); maxZ = Math.max(maxZ, c.z + h.z);
             }
-            return;
         }
-
-        for (const meshInstance of render.meshInstances) {
-            const aabb = meshInstance.aabb;
-            const c = aabb.center;
-            const h = aabb.halfExtents;
-
-            minX = Math.min(minX, c.x - h.x);
-            minY = Math.min(minY, c.y - h.y);
-            minZ = Math.min(minZ, c.z - h.z);
-            maxX = Math.max(maxX, c.x + h.x);
-            maxY = Math.max(maxY, c.y + h.y);
-            maxZ = Math.max(maxZ, c.z + h.z);
-        }
-
-        for (const child of node.children) {
-            visit(child);
-        }
+        for (const child of node.children) visit(child);
     }
 
     visit(root);
 
-    if (!Number.isFinite(minX)) {
-        return {
-            center: new pc.Vec3(0, 0, 0),
-            radius: 8
-        };
-    }
+    if (!Number.isFinite(minX)) return { center: new pc.Vec3(0, 0, 0), radius: 8 };
 
-    const center = new pc.Vec3(
-        (minX + maxX) * 0.5,
-        (minY + maxY) * 0.5,
-        (minZ + maxZ) * 0.5
-    );
-
-    const dx = maxX - minX;
-    const dy = maxY - minY;
-    const dz = maxZ - minZ;
-    const radius = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5, 6);
-
-    return { center, radius };
-}
-
-function createCollisionFromShape(entity, shapeDef, worldScale) {
-    if (shapeDef.type === 'box' && shapeDef.box) {
-        const s = shapeDef.box.size || [1, 1, 1];
-        entity.addComponent('collision', {
-            type: 'box',
-            halfExtents: new pc.Vec3(
-                Math.abs(s[0] * worldScale.x) * 0.5,
-                Math.abs(s[1] * worldScale.y) * 0.5,
-                Math.abs(s[2] * worldScale.z) * 0.5
-            )
-        });
-    } else if (shapeDef.type === 'sphere' && shapeDef.sphere) {
-        const r = shapeDef.sphere.radius !== undefined ? shapeDef.sphere.radius : 0.5;
-        const maxS = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.y), Math.abs(worldScale.z));
-        entity.addComponent('collision', {
-            type: 'sphere',
-            radius: Math.max(r * maxS, 0.001)
-        });
-    } else if (shapeDef.type === 'capsule' && shapeDef.capsule) {
-        const cd = shapeDef.capsule;
-        const rTop = cd.radiusTop !== undefined ? cd.radiusTop : (cd.radius !== undefined ? cd.radius : 0.5);
-        const rBot = cd.radiusBottom !== undefined ? cd.radiusBottom : (cd.radius !== undefined ? cd.radius : 0.5);
-        const h = cd.height !== undefined ? cd.height : 1.0;
-        const sXZ = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.z));
-        const avgR = Math.max((rTop + rBot) * 0.5 * sXZ, 0.001);
-        const shaftH = h * Math.abs(worldScale.y);
-        entity.addComponent('collision', {
-            type: 'capsule',
-            radius: avgR,
-            height: shaftH + 2 * avgR
-        });
-    } else if (shapeDef.type === 'cylinder' && shapeDef.cylinder) {
-        const cyd = shapeDef.cylinder;
-        const rT = cyd.radiusTop !== undefined ? cyd.radiusTop : 0.5;
-        const rB = cyd.radiusBottom !== undefined ? cyd.radiusBottom : 0.5;
-        const cH = cyd.height !== undefined ? cyd.height : 1.0;
-        const sXZ = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.z));
-        entity.addComponent('collision', {
-            type: 'cylinder',
-            radius: Math.max(Math.max(rT, rB) * sXZ, 0.001),
-            height: Math.max(cH * Math.abs(worldScale.y), 0.001)
-        });
-    } else {
-        console.warn('[PlayCanvas] Unsupported shape type:', shapeDef.type);
-        return false;
-    }
-    return true;
+    const center = new pc.Vec3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
+    const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+    return { center, radius: Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5, 6) };
 }
 
 function init() {
@@ -179,166 +254,69 @@ function init() {
 
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
-
-    window.addEventListener('resize', function() {
-        app.resizeCanvas(canvas.width, canvas.height);
-    });
+    window.addEventListener('resize', () => app.resizeCanvas(canvas.width, canvas.height));
 
     app.scene.ambientLight = new pc.Color(0.68, 0.7, 0.76);
 
     const light = new pc.Entity('light');
     light.addComponent('light', {
-        type: 'directional',
-        color: new pc.Color(1, 1, 1),
-        castShadows: true,
-        shadowResolution: 2048,
-        shadowBias: 0.3,
-        normalOffsetBias: 0.02
+        type: 'directional', color: new pc.Color(1, 1, 1),
+        castShadows: true, shadowResolution: 2048, shadowBias: 0.3, normalOffsetBias: 0.02
     });
     light.setLocalEulerAngles(45, 45, 45);
     app.root.addChild(light);
 
     const camera = new pc.Entity('camera');
     camera.addComponent('camera', {
-        clearColor: new pc.Color(0.96, 0.97, 0.99),
-        nearClip: 0.05,
-        farClip: 1000,
-        fov: 45
+        clearColor: new pc.Color(0.96, 0.97, 0.99), nearClip: 0.05, farClip: 1000, fov: 45
     });
     app.root.addChild(camera);
 
-    const dynamicBodies = [];
+    let dynamicBodies = [];
 
-    Promise.all([
-        fetchGltfJsonFromGlb(MODEL_URL),
-        new Promise((resolve, reject) => {
-            const fileName = MODEL_URL.split('/').pop();
-            app.assets.loadFromUrlAndFilename(MODEL_URL, fileName, 'container', function(err, asset) {
-                if (err) {
-                    reject(err);
-                    return;
-                }
-                resolve(asset.resource);
-            });
-        })
-    ]).then(([gltfJson, containerResource]) => {
-        const root = containerResource.instantiateRenderEntity ?
-            containerResource.instantiateRenderEntity() :
-            containerResource.instantiateModelEntity();
+    new Promise((resolve, reject) => {
+        const fileName = MODEL_URL.split('/').pop();
+        app.assets.loadFromUrlAndFilename(MODEL_URL, fileName, 'container', (err, asset) => {
+            if (err) { reject(err); return; }
+            resolve(asset);
+        });
+    }).then((asset) => {
+        const containerResource = asset.resource;
+        const root = containerResource.instantiateRenderEntity
+            ? containerResource.instantiateRenderEntity()
+            : containerResource.instantiateModelEntity();
         app.root.addChild(root);
-
         enableShadows(root);
 
-        const nodeNameMap = new Map();
-        collectEntitiesByName(root, nodeNameMap);
-
-        const shapeDefs = gltfJson.extensions?.KHR_implicit_shapes?.shapes || [];
-        const scenePhysics = gltfJson.extensions?.KHR_physics_rigid_bodies || {};
-        const materialDefs = scenePhysics.physicsMaterials || [];
-
-        const consumedEntityIds = new Set();
-
-        for (const nodeDef of gltfJson.nodes || []) {
-            const physicsExt = nodeDef.extensions?.KHR_physics_rigid_bodies;
-            if (!physicsExt || !physicsExt.collider?.geometry) {
-                continue;
-            }
-
-            const shapeIndex = physicsExt.collider.geometry.shape;
-            if (shapeIndex === undefined) {
-                continue;
-            }
-
-            const shapeDef = shapeDefs[shapeIndex];
-            if (!shapeDef) {
-                continue;
-            }
-
-            const candidates = nodeNameMap.get(nodeDef.name || '') || [];
-            let targetEntity = null;
-            for (const candidate of candidates) {
-                if (!consumedEntityIds.has(candidate.getGuid())) {
-                    targetEntity = candidate;
-                    break;
-                }
-            }
-
-            if (!targetEntity) {
-                console.warn('No PlayCanvas entity found for glTF physics node:', nodeDef.name);
-                continue;
-            }
-
-            consumedEntityIds.add(targetEntity.getGuid());
-
-            const worldScale = targetEntity.getWorldTransform().getScale();
-
-            if (!targetEntity.collision) {
-                const ok = createCollisionFromShape(targetEntity, shapeDef, worldScale);
-                if (!ok) continue;
-            }
-
-            const materialDef = physicsExt.collider.physicsMaterial !== undefined ?
-                materialDefs[physicsExt.collider.physicsMaterial] :
-                null;
-
-            const friction = materialDef?.dynamicFriction !== undefined ? materialDef.dynamicFriction : 0.5;
-            const restitution = materialDef?.restitution !== undefined ? materialDef.restitution : 0.0;
-            const motion = physicsExt.motion || null;
-            const effectiveFriction = !motion && friction === 0 ? 1 : friction;
-
-            if (!targetEntity.rigidbody) {
-                const rigidbodyOptions = {
-                    type: motion ? 'dynamic' : 'static',
-                    friction: effectiveFriction,
-                    restitution
-                };
-                if (motion) {
-                    rigidbodyOptions.mass = motion.mass !== undefined ? motion.mass : 1;
-                }
-
-                targetEntity.addComponent('rigidbody', rigidbodyOptions);
-            }
-
-            if (motion) {
-                dynamicBodies.push({
-                    entity: targetEntity,
-                    initialPosition: targetEntity.getPosition().clone(),
-                    initialRotation: targetEntity.getRotation().clone()
-                });
-            }
+        const gltfJson = containerResource.data?.gltf;
+        if (gltfJson && (gltfJson.extensions?.KHR_physics_rigid_bodies || gltfJson.extensions?.KHR_implicit_shapes)) {
+            const entityMap = buildEntityMap(containerResource.data, root);
+            dynamicBodies = initPhysics(gltfJson, entityMap);
         }
 
         const bounds = computeWorldBounds(root);
         const center = bounds.center;
         const radius = bounds.radius;
-
         let angle = 0;
         const expectedFps = 60;
 
-        app.on('update', function(dt) {
-            const adjustSpeed = dt / (1 / expectedFps);
-            angle += 0.25 * adjustSpeed;
+        app.on('update', (dt) => {
+            const speed = dt / (1 / expectedFps);
+            angle += 0.25 * speed;
 
             const x = center.x + Math.sin(Math.PI * angle / 180) * radius;
             const z = center.z + Math.cos(Math.PI * angle / 180) * radius;
-            const y = center.y + radius * 0.4;
-
-            camera.setLocalPosition(x, y, z);
+            camera.setLocalPosition(x, center.y + radius * 0.4, z);
             camera.lookAt(center);
 
             for (const body of dynamicBodies) {
-                if (body.entity.getPosition().y >= RESET_Y_THRESHOLD) {
-                    continue;
-                }
-
+                if (body.entity.getPosition().y >= RESET_Y_THRESHOLD) continue;
                 body.entity.setPosition(body.initialPosition);
                 body.entity.setRotation(body.initialRotation);
-                body.entity.rigidbody.linearVelocity = pc.Vec3.ZERO;
+                body.entity.rigidbody.linearVelocity  = pc.Vec3.ZERO;
                 body.entity.rigidbody.angularVelocity = pc.Vec3.ZERO;
                 body.entity.rigidbody.syncEntityToBody();
             }
         });
-    }).catch((error) => {
-        console.error(error);
-    });
+    }).catch(console.error);
 }
