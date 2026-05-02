@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'camera-controls';
 import { loadWasmModuleAsync } from 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js';
 
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/MotionProperties/MotionProperties.glb';
@@ -243,6 +244,7 @@ function init() {
 
     const camera = new pc.Entity('camera');
     camera.addComponent('camera', { clearColor: new pc.Color(0.96,0.97,0.99), nearClip: 0.05, farClip: 1000, fov: 45 });
+    camera.addComponent('script');
     app.root.addChild(camera);
 
     let dynamicBodies = [];
@@ -262,24 +264,12 @@ function init() {
         const entityMap = buildEntityMap(gltfJson, root);
         dynamicBodies = initPhysics(gltfJson, entityMap);
 
-        // Use dynamic body positions for orbit bounds — room geometry (ground/ceiling)
-        // would make computeWorldBounds return a radius that puts the camera above the ceiling.
         const { center, radius } = computeBodyBounds(dynamicBodies);
-        let angle = 0;
-        const expectedFps = 60;
+        const startPos = new pc.Vec3(center.x, center.y + 1.5, center.z + radius);
+        const controls = camera.script.create(CameraControls, { properties: { enableFly: true } });
+        controls.reset(center, startPos);
 
         app.on('update', dt => {
-            angle += 0.25 * dt / (1 / expectedFps);
-            // Fixed height offset keeps the camera inside the room regardless of
-            // orbit radius (multiplier-based height would exceed the ceiling for
-            // large radii).
-            camera.setLocalPosition(
-                center.x + Math.sin(Math.PI * angle / 180) * radius,
-                center.y + 1.5,
-                center.z + Math.cos(Math.PI * angle / 180) * radius
-            );
-            camera.lookAt(center);
-
             for (const body of dynamicBodies) {
                 const posY = body.entity.getPosition().y;
                 if (posY >= RESET_Y_THRESHOLD && posY <= RESET_Y_THRESHOLD_TOP) continue;
