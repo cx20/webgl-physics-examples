@@ -177,27 +177,15 @@ function initPhysics(gltfJson, entityMap) {
         staticInfos.push({ entity, mat });
     }
 
-    // BT_DISABLE_WORLD_GRAVITY (flag=1): prevents PlayCanvas from overwriting
-    // per-body gravity with world gravity each frame.
-    if (gravityOverrides.length > 0 && typeof Ammo !== 'undefined') {
-        const BT_DISABLE_WORLD_GRAVITY = 1;
-        for (const { entity, factor } of gravityOverrides) {
-            const body = entity.rigidbody?.body;
-            if (!body) continue;
-            body.setFlags(body.getFlags() | BT_DISABLE_WORLD_GRAVITY);
-            const g = new Ammo.btVector3(0, -9.81 * factor, 0);
-            body.setGravity(g);
-            body.activate(true);
-            Ammo.destroy(g);
-        }
-    }
-
-    return dynamicInfos.map(info => ({
-        entity: info.entity,
-        motionDef: info.motionDef,
-        initialPosition: info.entity.getPosition().clone(),
-        initialRotation: info.entity.getRotation().clone()
-    }));
+    return {
+        dynamicBodies: dynamicInfos.map(info => ({
+            entity: info.entity,
+            motionDef: info.motionDef,
+            initialPosition: info.entity.getPosition().clone(),
+            initialRotation: info.entity.getRotation().clone()
+        })),
+        gravityOverrides
+    };
 }
 
 function enableShadows(e) {
@@ -234,6 +222,10 @@ function init() {
         touch: new pc.TouchDevice(canvas)
     });
     app.start();
+    if (app.systems.rigidbody) {
+        app.systems.rigidbody.gravity.set(0, -9.81, 0);
+        app.systems.rigidbody.onLibraryLoaded();
+    }
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     window.addEventListener('resize', () => app.resizeCanvas(canvas.width, canvas.height));
@@ -267,13 +259,30 @@ function init() {
         enableShadows(root);
 
         const entityMap = buildEntityMap(gltfJson, root);
-        dynamicBodies = initPhysics(gltfJson, entityMap);
+        const { dynamicBodies: bodies, gravityOverrides } = initPhysics(gltfJson, entityMap);
+        dynamicBodies = bodies;
 
         const { center, radius } = computeBodyBounds(dynamicBodies);
         const startPos = new pc.Vec3(center.x, center.y + 1.5, center.z + radius);
         controls.reset(center, startPos);
 
+        // Apply per-body gravity overrides on the first update frame so that
+        // all Ammo btRigidBody instances are guaranteed to exist.
+        let gravityApplied = false;
         app.on('update', dt => {
+            if (!gravityApplied) {
+                gravityApplied = true;
+                const BT_DISABLE_WORLD_GRAVITY = 1;
+                for (const { entity, factor } of gravityOverrides) {
+                    const body = entity.rigidbody?.body;
+                    if (!body) continue;
+                    body.setFlags(body.getFlags() | BT_DISABLE_WORLD_GRAVITY);
+                    const g = new Ammo.btVector3(0, -9.81 * factor, 0);
+                    body.setGravity(g);
+                    body.activate(true);
+                    Ammo.destroy(g);
+                }
+            }
             for (const body of dynamicBodies) {
                 const posY = body.entity.getPosition().y;
                 if (posY >= RESET_Y_THRESHOLD && posY <= RESET_Y_THRESHOLD_TOP) continue;
