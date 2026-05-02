@@ -129,16 +129,20 @@ function initPhysics(gltfJson, entityMap) {
     for (let i = 0; i < nodes.length; i++) {
         const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
         if (!physExt?.collider?.geometry) continue;
-        const shapeIdx = physExt.collider.geometry.shape;
-        if (shapeIdx === undefined) continue;
-        const shapeDef = shapeDefs[shapeIdx];
-        if (!shapeDef) continue;
+        const geo = physExt.collider.geometry;
+        const shapeIdx = geo.shape;
+        const meshIdx  = geo.mesh;
+        if (shapeIdx === undefined && meshIdx === undefined) continue;
 
         const ownerIdx = findBodyOwner(i);
         if (ownerIdx === i) {
-            // Body-owner with self-collider: shape goes on a synthetic child.
+            // Body-owner with self-collider: implicit shape goes on a synthetic child.
+            // (mesh-based colliders on compound owners are skipped — Bullet restriction)
+            if (shapeIdx === undefined) continue;
             const parent = entityMap[i];
             if (!parent) continue;
+            const shapeDef = shapeDefs[shapeIdx];
+            if (!shapeDef) continue;
             const child = new pc.Entity('__khrCollider');
             parent.addChild(child);
             const cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
@@ -146,7 +150,16 @@ function initPhysics(gltfJson, entityMap) {
         } else {
             const e = entityMap[i];
             if (!e) continue;
-            const cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
+            let cd;
+            if (shapeIdx !== undefined) {
+                const shapeDef = shapeDefs[shapeIdx];
+                if (!shapeDef) continue;
+                cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
+            } else if (ownerIdx < 0) {
+                // Mesh-based collider on a standalone static body (no dynamic/kinematic owner).
+                // PlayCanvas collision type 'mesh' uses the entity's render component.
+                cd = { type: 'mesh' };
+            }
             if (!cd) continue;
             e.addComponent('collision', cd);
             if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
@@ -319,6 +332,17 @@ function drawPhysicsDebug(app, entities) {
             case 'cylinder': {
                 const mat = _getPosRotMat(entity);
                 _drawWireCylinderLocal(app, mat, col.radius, col.height * 0.5, col.axis ?? 1, color);
+                break;
+            }
+            case 'mesh': {
+                // Draw per-mesh-instance AABB as approximation.
+                if (entity.render) {
+                    for (const mi of entity.render.meshInstances) {
+                        const c = mi.aabb.center, h = mi.aabb.halfExtents;
+                        const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
+                        _drawWireBoxLocal(app, mat, h.x, h.y, h.z, color);
+                    }
+                }
                 break;
             }
         }
