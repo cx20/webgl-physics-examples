@@ -1,17 +1,17 @@
 import * as pc from 'playcanvas';
 import { CameraControls } from 'camera-controls';
-import { loadWasmModuleAsync } from 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js';
 
+const PC_ROOT = 'https://cx20.github.io/gltf-test/libs/playcanvas/v2.14.2';
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/MotionProperties/MotionProperties.glb';
 const RESET_Y_THRESHOLD     = -20;
 const RESET_Y_THRESHOLD_TOP = 50;
 
-loadWasmModuleAsync(
-    'Ammo',
-    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
-    'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm',
-    init
-);
+pc.WasmModule.setConfig('Ammo', {
+    glueUrl:     PC_ROOT + '/ammo/ammo.wasm.js',
+    wasmUrl:     PC_ROOT + '/ammo/ammo.wasm.wasm',
+    fallbackUrl: PC_ROOT + '/ammo/ammo.js'
+});
+pc.WasmModule.getInstance('Ammo', init);
 
 async function fetchGltfJsonFromGlb(url) {
     const data = await fetch(url).then(r => r.arrayBuffer());
@@ -221,11 +221,11 @@ function init() {
         mouse: new pc.Mouse(canvas),
         touch: new pc.TouchDevice(canvas)
     });
-    app.start();
-    if (app.systems.rigidbody) {
+    if (typeof Ammo !== 'undefined' && app.systems.rigidbody) {
         app.systems.rigidbody.gravity.set(0, -9.81, 0);
         app.systems.rigidbody.onLibraryLoaded();
     }
+    app.start();
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     window.addEventListener('resize', () => app.resizeCanvas(canvas.width, canvas.height));
