@@ -229,7 +229,10 @@ function computeBodyBounds(dynamicBodies) {
 
 function init() {
     const canvas = document.getElementById('c');
-    const app = new pc.Application(canvas);
+    const app = new pc.Application(canvas, {
+        mouse: new pc.Mouse(canvas),
+        touch: new pc.TouchDevice(canvas)
+    });
     app.start();
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
@@ -245,7 +248,9 @@ function init() {
     const camera = new pc.Entity('camera');
     camera.addComponent('camera', { clearColor: new pc.Color(0.96,0.97,0.99), nearClip: 0.05, farClip: 1000, fov: 45 });
     camera.addComponent('script');
+    camera.setPosition(0, 2, 15);
     app.root.addChild(camera);
+    const controls = camera.script.create(CameraControls, { properties: { enableFly: false } });
 
     let dynamicBodies = [];
 
@@ -266,7 +271,6 @@ function init() {
 
         const { center, radius } = computeBodyBounds(dynamicBodies);
         const startPos = new pc.Vec3(center.x, center.y + 1.5, center.z + radius);
-        const controls = camera.script.create(CameraControls, { properties: { enableFly: true } });
         controls.reset(center, startPos);
 
         app.on('update', dt => {
