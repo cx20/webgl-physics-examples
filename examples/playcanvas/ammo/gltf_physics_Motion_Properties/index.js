@@ -205,25 +205,22 @@ function enableShadows(e) {
     for (const c of e.children) enableShadows(c);
 }
 
-function computeWorldBounds(root) {
-    let minX =  Infinity, minY =  Infinity, minZ =  Infinity;
+// Compute orbit camera bounds from dynamic bodies only.
+// For enclosed scenes (room with ceiling), this avoids the room geometry
+// dominating the bounds and placing the camera above the ceiling.
+function computeBodyBounds(dynamicBodies) {
+    if (!dynamicBodies.length) return { center: new pc.Vec3(0, 2, 0), radius: 6 };
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    function visit(node) {
-        if (node.render) {
-            for (const mi of node.render.meshInstances) {
-                const c = mi.aabb.center, h = mi.aabb.halfExtents;
-                minX = Math.min(minX, c.x-h.x); maxX = Math.max(maxX, c.x+h.x);
-                minY = Math.min(minY, c.y-h.y); maxY = Math.max(maxY, c.y+h.y);
-                minZ = Math.min(minZ, c.z-h.z); maxZ = Math.max(maxZ, c.z+h.z);
-            }
-        }
-        for (const child of node.children) visit(child);
+    for (const b of dynamicBodies) {
+        const p = b.initialPosition;
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+        minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
     }
-    visit(root);
-    if (!Number.isFinite(minX)) return { center: new pc.Vec3(0,0,0), radius: 8 };
     const center = new pc.Vec3((minX+maxX)*0.5, (minY+maxY)*0.5, (minZ+maxZ)*0.5);
     const dx = maxX-minX, dy = maxY-minY, dz = maxZ-minZ;
-    return { center, radius: Math.max(Math.sqrt(dx*dx+dy*dy+dz*dz)*0.5, 6) };
+    return { center, radius: Math.max(Math.sqrt(dx*dx+dy*dy+dz*dz)*0.5 + 3, 6) };
 }
 
 function init() {
@@ -262,16 +259,17 @@ function init() {
         const entityMap = buildEntityMap(gltfJson, root);
         dynamicBodies = initPhysics(gltfJson, entityMap);
 
-        const { center, radius } = computeWorldBounds(root);
-        // Start at 45° diagonal so wide scenes are visible from the front-corner.
-        let angle = 45;
+        // Use dynamic body positions for orbit bounds — room geometry (ground/ceiling)
+        // would make computeWorldBounds return a radius that puts the camera above the ceiling.
+        const { center, radius } = computeBodyBounds(dynamicBodies);
+        let angle = 0;
         const expectedFps = 60;
 
         app.on('update', dt => {
             angle += 0.25 * dt / (1 / expectedFps);
             camera.setLocalPosition(
                 center.x + Math.sin(Math.PI * angle / 180) * radius,
-                center.y + radius * 0.6,
+                center.y + radius * 0.4,
                 center.z + Math.cos(Math.PI * angle / 180) * radius
             );
             camera.lookAt(center);
