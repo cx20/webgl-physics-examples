@@ -130,12 +130,22 @@ function buildEntityMap(gltfJson, clonedRoot) {
 
     const scenes = gltfJson.scenes ?? [];
     const sceneRoots = scenes.length === 1 ? [clonedRoot] : clonedRoot.children;
+    console.log('[buildEntityMap] scenes:', scenes.length,
+        '| nodes:', nodes.length,
+        '| clonedRoot:', clonedRoot.name,
+        '| clonedRoot.children:', clonedRoot.children.map(c => c.name));
     for (let s = 0; s < scenes.length; s++) {
         const sceneRoot = sceneRoots[s];
         if (!sceneRoot) continue;
         const rootIndices = scenes[s].nodes ?? [];
+        console.log('[buildEntityMap] scene', s,
+            '| rootIndices:', rootIndices,
+            '| rootNames:', rootIndices.map(ri => nodes[ri]?.name ?? ''),
+            '| sceneRoot.name:', sceneRoot.name,
+            '| sceneRoot.children:', sceneRoot.children.map(c => c.name));
         // If sceneRoot's own name matches the single root node, it IS that node.
         if (rootIndices.length === 1 && sceneRoot.name === (nodes[rootIndices[0]]?.name ?? '')) {
+            console.log('[buildEntityMap] sceneRoot IS root node', rootIndices[0]);
             walk(rootIndices[0], sceneRoot);
             continue;
         }
@@ -144,8 +154,13 @@ function buildEntityMap(gltfJson, clonedRoot) {
             const rName = nodes[ri]?.name ?? '';
             const candidates = byName.get(rName);
             if (candidates?.length) walk(ri, candidates.shift());
+            else console.warn('[buildEntityMap] root node not matched: idx=' + ri + ' name="' + rName + '"');
         }
     }
+    console.log('[buildEntityMap] mapped', map.filter(Boolean).length, '/', nodes.length, 'nodes');
+    map.forEach((e, i) => {
+        if (!e) console.warn('[buildEntityMap] unmapped node', i, nodes[i]?.name ?? '(no name)');
+    });
     return map;
 }
 
@@ -194,6 +209,12 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
     for (let i = 0; i < nodes.length; i++) {
         if (!hasMotion(i)) continue;
         const e = entityMap[i];
+        const m = nodes[i].extensions.KHR_physics_rigid_bodies.motion;
+        console.log('[initPhysics] motion node', i, nodes[i]?.name ?? '',
+            '| entityMap:', e ? e.name : 'NULL',
+            '| gravityFactor:', m?.gravityFactor,
+            '| isKinematic:', m?.isKinematic,
+            '| mass:', m?.mass);
         if (!e) continue;
         e.addComponent('collision', { type: 'compound' });
         bodyOwnerNodes.push(i);
@@ -206,9 +227,15 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
         if (!physExt?.collider?.geometry) continue;
         const geom     = physExt.collider.geometry;
         const ownerIdx = findBodyOwner(i);
+        const e        = entityMap[i];
+        console.log('[initPhysics] collider node', i, nodes[i]?.name ?? '',
+            '| ownerIdx:', ownerIdx,
+            '| entityMap:', e ? e.name : 'NULL',
+            '| geom.shape:', geom.shape,
+            '| geom.mesh:', geom.mesh);
 
         if (ownerIdx === i) {
-            if (geom.shape === undefined) continue; // mesh on compound owner not supported
+            if (geom.shape === undefined) { console.warn('[initPhysics] mesh on compound owner skipped:', i); continue; }
             const parent   = entityMap[i];
             if (!parent) continue;
             const shapeDef = shapeDefs[geom.shape];
@@ -216,9 +243,8 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
             const child = new pc.Entity('__khrCollider');
             parent.addChild(child);
             const cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
-            if (cd) child.addComponent('collision', cd);
+            if (cd) { child.addComponent('collision', cd); console.log('[initPhysics] __khrCollider added:', cd.type, 'to', parent.name); }
         } else {
-            const e = entityMap[i];
             if (!e) continue;
             if (geom.shape !== undefined) {
                 const shapeDef = shapeDefs[geom.shape];
@@ -226,13 +252,14 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
                 const cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
                 if (!cd) continue;
                 e.addComponent('collision', cd);
+                console.log('[initPhysics] collision added:', cd.type, 'to', e.name, '(ownerIdx=' + ownerIdx + ')');
                 if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
             } else if (geom.mesh !== undefined && ownerIdx < 0) {
                 const mat   = physExt.collider.physicsMaterial !== undefined ? (matDefs[physExt.collider.physicsMaterial] ?? {}) : {};
                 const frict = mat.dynamicFriction ?? mat.staticFriction ?? 0.5;
                 const rest  = mat.restitution ?? 0;
                 const body  = addAmmoStaticMeshBody(gltfJson, binary, geom.mesh, e, frict, rest, dynamicsWorld);
-                if (body) meshStaticEntities.push(e);
+                if (body) { meshStaticEntities.push(e); console.log('[initPhysics] mesh static body added for', e.name); }
             }
         }
     }
