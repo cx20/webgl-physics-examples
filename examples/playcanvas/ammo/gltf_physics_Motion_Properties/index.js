@@ -209,7 +209,7 @@ function enableShadows(e) {
 // For enclosed scenes (room with ceiling), this avoids the room geometry
 // dominating the bounds and placing the camera above the ceiling.
 function computeBodyBounds(dynamicBodies) {
-    if (!dynamicBodies.length) return { center: new pc.Vec3(0, 2, 0), radius: 6 };
+    if (!dynamicBodies.length) return { center: new pc.Vec3(0, 2, 0), radius: 15 };
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (const b of dynamicBodies) {
@@ -220,7 +220,10 @@ function computeBodyBounds(dynamicBodies) {
     }
     const center = new pc.Vec3((minX+maxX)*0.5, (minY+maxY)*0.5, (minZ+maxZ)*0.5);
     const dx = maxX-minX, dy = maxY-minY, dz = maxZ-minZ;
-    return { center, radius: Math.max(Math.sqrt(dx*dx+dy*dy+dz*dz)*0.5 + 3, 6) };
+    // Use full diagonal + generous margin for orbit radius so the whole scene
+    // fits in view.  Minimum 15 units to keep the camera well outside the room.
+    const diagonal = Math.sqrt(dx*dx+dy*dy+dz*dz);
+    return { center, radius: Math.max(diagonal + 8, 15) };
 }
 
 function init() {
@@ -267,11 +270,12 @@ function init() {
 
         app.on('update', dt => {
             angle += 0.25 * dt / (1 / expectedFps);
-            // Height multiplier kept small (0.2) so the camera stays below the
-            // scene ceiling (bottom face at y ≈ 4.89) for enclosed-room scenes.
+            // Fixed height offset keeps the camera inside the room regardless of
+            // orbit radius (multiplier-based height would exceed the ceiling for
+            // large radii).
             camera.setLocalPosition(
                 center.x + Math.sin(Math.PI * angle / 180) * radius,
-                center.y + radius * 0.2,
+                center.y + 1.5,
                 center.z + Math.cos(Math.PI * angle / 180) * radius
             );
             camera.lookAt(center);
