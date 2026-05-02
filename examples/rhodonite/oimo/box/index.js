@@ -40,22 +40,18 @@ let dataSet = [
     "無","茶","無","無","青","青","青","青","無","無","無","無","無","無","無","無"
 ];
 
-function getRgbColor( c )
-{
-    let colorHash = {
-        "無":[0xDC/0xFF, 0xAA/0xFF, 0x6B/0xFF],
-        "白":[0xff/0xFF, 0xff/0xFF, 0xff/0xFF],
-        "肌":[0xff/0xFF, 0xcc/0xFF, 0xcc/0xFF],
-        "茶":[0x80/0xFF, 0x00/0xFF, 0x00/0xFF],
-        "赤":[0xff/0xFF, 0x00/0xFF, 0x00/0xFF],
-        "黄":[0xff/0xFF, 0xff/0xFF, 0x00/0xFF],
-        "緑":[0x00/0xFF, 0xff/0xFF, 0x00/0xFF],
-        "水":[0x00/0xFF, 0xff/0xFF, 0xff/0xFF],
-        "青":[0x00/0xFF, 0x00/0xFF, 0xff/0xFF],
-        "紫":[0x80/0xFF, 0x00/0xFF, 0x80/0xFF]
-    };
-    return colorHash[ c ];
-}
+const colorHash = {
+    "無": [0xDC/0xFF, 0xAA/0xFF, 0x6B/0xFF],
+    "白": [1, 1, 1],
+    "肌": [0xff/0xFF, 0xcc/0xFF, 0xcc/0xFF],
+    "茶": [0x80/0xFF, 0, 0],
+    "赤": [1, 0, 0],
+    "黄": [1, 1, 0],
+    "緑": [0, 1, 0],
+    "水": [0, 1, 1],
+    "青": [0, 0, 1],
+    "紫": [0x80/0xFF, 0, 0x80/0xFF]
+};
 
 const load = async function() {
     const c = document.getElementById('world');
@@ -66,7 +62,7 @@ const load = async function() {
     });
 
     resizeCanvas();
-    
+
     window.addEventListener("resize", function(){
         resizeCanvas();
     });
@@ -83,7 +79,7 @@ const load = async function() {
       wrapS: Rn.TextureParameter.ClampToEdge,
       wrapT: Rn.TextureParameter.ClampToEdge,
     });
-    
+
     const entity1 = Rn.MeshHelper.createCube(engine, {
         physics: {
             use: true,
@@ -102,7 +98,15 @@ const load = async function() {
     entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', grassTexture, sampler);
     entities.push(entity1);
 
-    populate();
+    // Pre-build one material per unique color key
+    const matByKey = {};
+    for (const [key, rgb] of Object.entries(colorHash)) {
+        const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+        mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([rgb[0], rgb[1], rgb[2], 1]));
+        matByKey[key] = mat;
+    }
+
+    populate(matByKey);
 
     // camera
     const cameraEntity = Rn.createCameraControllerEntity(engine);
@@ -140,7 +144,6 @@ const load = async function() {
 
     const draw = function(time) {
         engine.process([expression]);
-
         requestAnimationFrame(draw);
     }
 
@@ -148,23 +151,15 @@ const load = async function() {
 
 }
 
-function populate() {
+function populate(matByKey) {
     let i = 0;
     for (let y = 0; y < 16; y++) {
         for (let x = 0; x < 16; x++) {
             i = x + (15 - y) * 16;
-            const rgbColor = getRgbColor(dataSet[i]);
+            const colorKey = dataSet[i];
             const x1 = (-130 + x * BOX_SIZE * 1.2 + Math.random()) * PHYSICS_SCALE;
             const y1 = (30 + y * BOX_SIZE * 1.2) * PHYSICS_SCALE;
             const z1 = (1.0 * Math.random()) * PHYSICS_SCALE;
-
-            let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial(engine, {
-                isLighting: true
-            });
-            modelMaterial.setParameter(
-                'baseColorFactor',
-                Rn.Vector4.fromCopyArray4([rgbColor[0], rgbColor[1], rgbColor[2], 1])
-            );
 
             const entity = Rn.MeshHelper.createCube(engine, {
                 physics: {
@@ -174,14 +169,14 @@ function populate() {
                     friction: 1.0,
                     restitution: 0.0,
                 },
-                material: modelMaterial
+                material: matByKey[colorKey]
             });
             entity.tryToSetTag({
                 tag: "type",
                 value: "box"
             });
             entity.position = Rn.Vector3.fromCopyArray([x1, y1, z1]);
-            entity.scale = Rn.Vector3.fromCopyArray([BOX_SIZE / 1 * PHYSICS_SCALE, BOX_SIZE / 1 * PHYSICS_SCALE, BOX_SIZE / 1 * PHYSICS_SCALE]);
+            entity.scale = Rn.Vector3.fromCopyArray([BOX_SIZE * PHYSICS_SCALE, BOX_SIZE * PHYSICS_SCALE, BOX_SIZE * PHYSICS_SCALE]);
             entities.push(entity);
         }
     }

@@ -40,22 +40,18 @@ let dataSet = [
     "無","茶","無","無","青","青","青","青","無","無","無","無","無","無","無","無"
 ];
 
-function getRgbColor( c )
-{
-    let colorHash = {
-        "無":{r:0xDC,g:0xAA,b:0x6B},
-        "白":{r:0xff,g:0xff,b:0xff},
-        "肌":{r:0xff,g:0xcc,b:0xcc},
-        "茶":{r:0x80,g:0x00,b:0x00},
-        "赤":{r:0xff,g:0x00,b:0x00},
-        "黄":{r:0xff,g:0xff,b:0x00},
-        "緑":{r:0x00,g:0xff,b:0x00},
-        "水":{r:0x00,g:0xff,b:0xff},
-        "青":{r:0x00,g:0x00,b:0xff},
-        "紫":{r:0x80,g:0x00,b:0x80}
-    };
-    return colorHash[ c ];
-}
+const colorHash = {
+    "無": [0xDC/0xff, 0xAA/0xff, 0x6B/0xff],
+    "白": [1, 1, 1],
+    "肌": [1, 0xcc/0xff, 0xcc/0xff],
+    "茶": [0x80/0xff, 0, 0],
+    "赤": [1, 0, 0],
+    "黄": [1, 1, 0],
+    "緑": [0, 1, 0],
+    "水": [0, 1, 1],
+    "青": [0, 0, 1],
+    "紫": [0x80/0xff, 0, 0x80/0xff]
+};
 
 const load = async function() {
     const c = document.getElementById('world');
@@ -66,7 +62,7 @@ const load = async function() {
     });
 
     resizeCanvas();
-    
+
     window.addEventListener("resize", function(){
         resizeCanvas();
     });
@@ -83,7 +79,7 @@ const load = async function() {
       wrapS: Rn.TextureParameter.ClampToEdge,
       wrapT: Rn.TextureParameter.ClampToEdge,
     });
-    
+
     const entity1 = Rn.MeshHelper.createCube(engine, {
         physics: {
             use: true,
@@ -101,7 +97,19 @@ const load = async function() {
     entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
     entities.push(entity1);
 
-    populate(texture, sampler);
+    // Pre-build one material per unique color key
+    const matByKey = {};
+    for (const [key, rgb] of Object.entries(colorHash)) {
+        const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+        mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([rgb[0], rgb[1], rgb[2], 1]));
+        mat.setTextureParameter('diffuseColorTexture', texture, sampler);
+        matByKey[key] = mat;
+    }
+    const ballMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+    ballMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([1, 0, 0, 1]));
+    ballMat.setTextureParameter('diffuseColorTexture', texture, sampler);
+
+    populate(matByKey, ballMat);
 
     const startTime = Date.now();
 
@@ -139,7 +147,6 @@ const load = async function() {
 
     const draw = function(time) {
         engine.process([expression]);
-
         requestAnimationFrame(draw);
     }
 
@@ -147,27 +154,16 @@ const load = async function() {
 
 }
 
-function populate(texture, sampler) {
-    let max = 256;
-    let w = DOT_SIZE * 0.2;
-    let h = DOT_SIZE * 1.5;
-    let d = DOT_SIZE;
+function populate(matByKey, ballMat) {
+    const w = DOT_SIZE * 0.2;
+    const h = DOT_SIZE * 1.5;
+    const d = DOT_SIZE;
 
-    let i;
-    let x, y, z;
-    for (z = 0; z < 16; z++) {
-        for (x = 0; x < 16; x++) {
-            i = x + (z) * 16;
-            let c = getRgbColor(dataSet[i]);
-            y = 1;
-
-            let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial(engine, {
-                isLighting: true
-            });
-            modelMaterial.setParameter(
-                'baseColorFactor',
-                Rn.Vector4.fromCopyArray4([c.r / 0xff, c.g / 0xff, c.b / 0xff, 1])
-            );
+    for (let z = 0; z < 16; z++) {
+        for (let x = 0; x < 16; x++) {
+            const i = x + z * 16;
+            const colorKey = dataSet[i];
+            const y = 1;
 
             const entity = Rn.MeshHelper.createCube(engine, {
                 physics: {
@@ -177,7 +173,7 @@ function populate(texture, sampler) {
                     friction: 0.5,
                     restitution: 0.2,
                 },
-                material: modelMaterial
+                material: matByKey[colorKey]
             });
             entity.tryToSetTag({
                 tag: "type",
@@ -185,28 +181,19 @@ function populate(texture, sampler) {
             });
             entity.position = Rn.Vector3.fromCopyArray([(-8 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
             entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
-            entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
             entities.push(entity);
-
         }
     }
 
-    for (i = 0; i < 16; i++) {
-        w = DOT_SIZE;
-        h = DOT_SIZE;
-        d = DOT_SIZE;
-        x = 0;
-        y = 2;
-        z = i;
-        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial(engine, {
-            isLighting: true
-        });
-        modelMaterial.setParameter(
-            'baseColorFactor',
-            Rn.Vector4.fromCopyArray4([1, 0, 0, 1])
-        );
+    for (let i = 0; i < 16; i++) {
+        const bw = DOT_SIZE;
+        const bh = DOT_SIZE;
+        const bd = DOT_SIZE;
+        const x = 0;
+        const y = 2;
+        const z = i;
 
- 		const entity = Rn.MeshHelper.createCube(engine, {
+        const entity = Rn.MeshHelper.createCube(engine, {
             physics: {
                 use: true,
                 move: true,
@@ -214,17 +201,15 @@ function populate(texture, sampler) {
                 friction: 0.5,
                 restitution: 0.2,
             },
-            material: modelMaterial
+            material: ballMat
         });
         entity.tryToSetTag({
             tag: "type",
             value: "cube"
         });
         entity.position = Rn.Vector3.fromCopyArray([(-8.4 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
-        entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
-        entity.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
+        entity.scale = Rn.Vector3.fromCopyArray([bw * PHYSICS_SCALE, bh * PHYSICS_SCALE, bd * PHYSICS_SCALE]);
         entities.push(entity);
-
     }
 }
 

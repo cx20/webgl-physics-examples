@@ -21,7 +21,7 @@ const load = async function() {
     });
 
     resizeCanvas();
-    
+
     window.addEventListener("resize", function(){
         resizeCanvas();
     });
@@ -30,8 +30,7 @@ const load = async function() {
         engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
-    const texturePromises = dataSet.map(data => Rn.Texture.loadFromUrl(engine, data.imageFile));
-    const textures = await Promise.all(texturePromises);
+    const textures = await Promise.all(dataSet.map(d => Rn.Texture.loadFromUrl(engine, d.imageFile)));
 
     const sampler = new Rn.Sampler(engine, {
       magFilter: Rn.TextureParameter.Linear,
@@ -39,18 +38,18 @@ const load = async function() {
       wrapS: Rn.TextureParameter.Repeat,
       wrapT: Rn.TextureParameter.Repeat,
     });
-    
+
     const materialGround = Rn.MaterialHelper.createPbrUberMaterial(engine, {
         isLighting: true
     });
     materialGround.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0x3D/0xFF, 0x41/0xFF, 0x43/0xFF, 1]));
-    
+
     const materialGroundTrans = Rn.MaterialHelper.createPbrUberMaterial(engine, {
         isLighting: true
     });
     materialGroundTrans.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0x3D/0xFF, 0x41/0xFF, 0x43/0xFF, 0.6]));
     materialGroundTrans.alphaMode = Rn.AlphaMode.Blend;
-    
+
     // Ground
     const entity1 = Rn.MeshHelper.createCube(engine, {
         physics: {
@@ -70,18 +69,18 @@ const load = async function() {
     entity1.position = Rn.Vector3.fromCopyArray([0, -20 * PHYSICS_SCALE, 0]);
     entities.push(entity1);
 
-    // Box walls
+    // Box walls (shared transparent material)
     const boxDataSet = [
-        { size:[48, 50,  4], pos:[ 0, 15,-25] }, // front
-        { size:[48, 50,  4], pos:[ 0, 15, 25] }, // back
-        { size:[ 4, 50, 48], pos:[-25, 15, 0] }, // left
-        { size:[ 4, 50, 48], pos:[ 25, 15, 0] }  // right
+        { size:[48, 50,  4], pos:[ 0, 15,-25] },
+        { size:[48, 50,  4], pos:[ 0, 15, 25] },
+        { size:[ 4, 50, 48], pos:[-25, 15, 0] },
+        { size:[ 4, 50, 48], pos:[ 25, 15, 0] }
     ];
 
     for (let i = 0; i < boxDataSet.length; i++) {
         const size = boxDataSet[i].size;
         const pos = boxDataSet[i].pos;
-        
+
         const wallEntity = Rn.MeshHelper.createCube(engine, {
             physics: {
                 use: true,
@@ -101,30 +100,37 @@ const load = async function() {
         entities.push(wallEntity);
     }
 
-    populate(textures, sampler);
+    // Pre-build one material per ball type
+    const materials = dataSet.map((d, idx) => {
+        const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+        mat.setTextureParameter('baseColorTexture', textures[idx], sampler);
+        return mat;
+    });
 
-	// camera
-	const cameraEntity = Rn.createCameraControllerEntity(engine);
+    populate(materials);
+
+    // camera
+    const cameraEntity = Rn.createCameraControllerEntity(engine);
     cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0 * PHYSICS_SCALE, 100 * PHYSICS_SCALE, 160 * PHYSICS_SCALE]);
-	cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.1, 0.0, 0.0]);
-	const cameraComponent = cameraEntity.getCamera();
-	cameraComponent.zNear = 0.1;
-	cameraComponent.zFar = 400;
-	cameraComponent.setFovyAndChangeFocalLength(60);
-	cameraComponent.aspect = window.innerWidth / window.innerHeight;
+    cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.1, 0.0, 0.0]);
+    const cameraComponent = cameraEntity.getCamera();
+    cameraComponent.zNear = 0.1;
+    cameraComponent.zFar = 400;
+    cameraComponent.setFovyAndChangeFocalLength(60);
+    cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
-	// Lights
-	const lightEntity1 = Rn.createLightEntity(engine);
-	const lightComponent1 = lightEntity1.getLight();
-	lightComponent1.type = Rn.LightType.Directional;
-	lightComponent1.intensity = 1.5;
-	lightEntity1.localEulerAngles = Rn.Vector3.fromCopyArray([-Math.PI / 4, Math.PI / 6, 0]);
+    // Lights
+    const lightEntity1 = Rn.createLightEntity(engine);
+    const lightComponent1 = lightEntity1.getLight();
+    lightComponent1.type = Rn.LightType.Directional;
+    lightComponent1.intensity = 1.5;
+    lightEntity1.localEulerAngles = Rn.Vector3.fromCopyArray([-Math.PI / 4, Math.PI / 6, 0]);
 
-	const lightEntity2 = Rn.createLightEntity(engine);
-	const lightComponent2 = lightEntity2.getLight();
-	lightComponent2.type = Rn.LightType.Directional;
-	lightComponent2.intensity = 0.8;
-	lightEntity2.localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 4, -Math.PI / 6, 0]);
+    const lightEntity2 = Rn.createLightEntity(engine);
+    const lightComponent2 = lightEntity2.getLight();
+    lightComponent2.type = Rn.LightType.Directional;
+    lightComponent2.intensity = 0.8;
+    lightEntity2.localEulerAngles = Rn.Vector3.fromCopyArray([Math.PI / 4, -Math.PI / 6, 0]);
 
     // renderPass
     const renderPass = new Rn.RenderPass(engine);
@@ -136,10 +142,9 @@ const load = async function() {
     // expression
     const expression = new Rn.Expression();
     expression.addRenderPasses([renderPass]);
-	
+
     const draw = function(time) {
         engine.process([expression]);
-
         requestAnimationFrame(draw);
     }
 
@@ -147,9 +152,9 @@ const load = async function() {
 
 }
 
-function populate(textures, sampler) {
+function populate(materials) {
     const max = 200;
-    
+
     for (let i = 0; i < max; i++) {
         const x = -25 + Math.random() * 50;
         const y = 60 + Math.random() * 130;
@@ -159,11 +164,6 @@ function populate(textures, sampler) {
         const pos = Math.floor(Math.random() * dataSet.length);
         const scale = dataSet[pos].scale;
         const radius = (w * scale) / 2;
-
-        let modelMaterial = Rn.MaterialHelper.createPbrUberMaterial(engine, {
-            isLighting: true
-        });
-        modelMaterial.setTextureParameter('baseColorTexture', textures[pos], sampler);
 
         const entity = Rn.MeshHelper.createSphere(engine, {
             radius: radius * PHYSICS_SCALE,
@@ -176,7 +176,7 @@ function populate(textures, sampler) {
                 friction: 0.4,
                 restitution: 0.6,
             },
-            material: modelMaterial
+            material: materials[pos]
         });
         entity.tryToSetTag({
             tag: "type",
@@ -186,4 +186,5 @@ function populate(textures, sampler) {
         entities.push(entity);
     }
 }
+
 document.body.onload = load;
