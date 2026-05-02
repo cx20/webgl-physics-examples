@@ -18,7 +18,7 @@ const load = async function() {
     });
 
     resizeCanvas();
-    
+
     window.addEventListener("resize", function(){
         resizeCanvas();
     });
@@ -28,14 +28,14 @@ const load = async function() {
     }
 
     // Initialize physics world
-    world = new OIMO.World({ 
-        timestep: 1/60, 
-        iterations: 8, 
+    world = new OIMO.World({
+        timestep: 1/60,
+        iterations: 8,
         broadphase: 2,
-        worldscale: 1, 
+        worldscale: 1,
         random: true,
         info: false,
-        gravity: [0, -9.8, 0] 
+        gravity: [0, -9.8, 0]
     });
 
     // Create ground (physics) - Oimo.js size is full width, not half
@@ -57,7 +57,7 @@ const load = async function() {
       wrapS: Rn.TextureParameter.Repeat,
       wrapT: Rn.TextureParameter.Repeat,
     });
-    
+
     // Create ground visual (match physics size - Rhodonite Cube uses half-extent)
     const groundEntity = Rn.createMeshEntity(engine);
     const groundPrimitive = new Rn.Cube(engine);
@@ -67,7 +67,7 @@ const load = async function() {
     const groundMaterial = Rn.MaterialHelper.createPbrUberMaterial(engine, {
         isLighting: true
     });
-    groundMaterial.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray([0.4, 0.6, 0.4, 1.0]));
+    groundMaterial.setParameter('baseColorFactor', Rn.Vector3.fromCopyArray([0.4, 0.6, 0.4, 1.0]));
     groundPrimitive.material = groundMaterial;
     const groundMesh = new Rn.Mesh(engine);
     groundMesh.addPrimitive(groundPrimitive);
@@ -115,15 +115,15 @@ const load = async function() {
     const draw = function(time) {
         // Update physics
         world.step();
-        
+
         // Update shogi piece positions from physics
         for (let i = 0; i < shogiPieces.length; i++) {
             const body = oimoBodies[i];
             const entity = shogiPieces[i];
-            
+
             const pos = body.getPosition();
             const quat = body.getQuaternion();
-            
+
             // If piece falls below the ground, reset it to above
             if (pos.y < -10) {
                 const newX = (Math.random() - 0.5) * 5;
@@ -132,7 +132,7 @@ const load = async function() {
                 body.resetPosition(newX, newY, newZ);
                 body.resetRotation(Math.random() * 360, Math.random() * 360, Math.random() * 360);
             }
-            
+
             entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos.x, pos.y, pos.z]);
             entity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([quat.x, quat.y, quat.z, quat.w]);
         }
@@ -222,7 +222,7 @@ function populate(shogiTexture, sampler) {
     const backNz = -0.9, backNy = 0.3;  // 背面は少し上向き
     const rightNx = 0.9, rightNy = 0.3; // 右面は少し上向き
     const leftNx = -0.9, leftNy = 0.3;  // 左面は少し上向き
-    
+
     const normals = new Float32Array([
         // Front face (4 vertices) - 前面（少し上向きに傾斜）
          0, frontNy, frontNz,  0, frontNy, frontNz,  0, frontNy, frontNz,  0, frontNy, frontNz,
@@ -258,31 +258,31 @@ function populate(shogiTexture, sampler) {
         0.25,         0.5, // v4
         0.25 +0.25/8, 1.0, // v7
         0.5  -0.25/8, 1.0, // v6
-        
+
         // Top face
         0.75, 0.5, // v2
         0.5,  0.5, // v3
         0.5,  0.0, // v7
         0.75, 0.0, // v6
-        
+
         // Bottom face
         0.0,  0.5, // v0
         0.25, 0.5, // v1
         0.25, 1.0, // v5
         0.0,  1.0, // v4
-        
+
         // Right face
         0.0,  0.5, // v1
         0.0,  0.0, // v2
         0.25, 0.0, // v6
         0.25, 0.5, // v5
-        
+
         // Left face
         0.5,  0.5, // v0
         0.5,  0.0, // v3
         0.25, 0.0, // v7
         0.25, 0.5, // v4
-        
+
         // Front2 face
         0.75,  0.0, // v3
         1.0,   0.0, // v2
@@ -321,6 +321,21 @@ function populate(shogiTexture, sampler) {
     const pieceH = h * PHYSICS_SCALE;
     const pieceD = d * PHYSICS_SCALE;
 
+    // Build shared mesh once
+    const material = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
+    material.setTextureParameter('baseColorTexture', shogiTexture, sampler);
+
+    const primitive = Rn.Primitive.createPrimitive(engine, {
+        indices: indices,
+        attributeSemantics: [Rn.VertexAttribute.Position.XYZ, Rn.VertexAttribute.Normal.XYZ, Rn.VertexAttribute.Texcoord0.XY],
+        attributes: [positions, normals, texcoords],
+        material: material,
+        primitiveMode: Rn.PrimitiveMode.Triangles
+    });
+
+    const sharedMesh = new Rn.Mesh(engine);
+    sharedMesh.addPrimitive(primitive);
+
     for (let i = 0; i < max; i++) {
         // Random position above the ground (within ground bounds)
         const x = (Math.random() - 0.5) * 5;
@@ -338,38 +353,18 @@ function populate(shogiTexture, sampler) {
         });
         oimoBodies.push(body);
 
-        // Create material for each piece with lighting enabled
-        const material = Rn.MaterialHelper.createPbrUberMaterial(engine, {
-            isLighting: true
-        });
-        material.setTextureParameter('baseColorTexture', shogiTexture, sampler);
-
-        // Create mesh with custom geometry
-        const primitive = Rn.Primitive.createPrimitive(engine, {
-            indices: indices,
-            attributeSemantics: [Rn.VertexAttribute.Position.XYZ, Rn.VertexAttribute.Normal.XYZ, Rn.VertexAttribute.Texcoord0.XY],
-            attributes: [positions, normals, texcoords],
-            material: material,
-            primitiveMode: Rn.PrimitiveMode.Triangles
-        });
-
-        const mesh = new Rn.Mesh(engine);
-        mesh.addPrimitive(primitive);
-
         const entity = Rn.createMeshEntity(engine);
-        const meshComponent = entity.getMesh();
-        meshComponent.setMesh(mesh);
-
+        entity.getMesh().setMesh(sharedMesh);
         entity.tryToSetTag({
             tag: "type",
             value: "shogi"
         });
-        
+
         // Initial position will be updated by physics
         entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([x, y, z]);
         entity.getTransform().localScale = Rn.Vector3.fromCopyArray([
-            PHYSICS_SCALE, 
-            PHYSICS_SCALE, 
+            PHYSICS_SCALE,
+            PHYSICS_SCALE,
             PHYSICS_SCALE
         ]);
 
