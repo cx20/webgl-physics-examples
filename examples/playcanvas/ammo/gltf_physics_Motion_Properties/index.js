@@ -177,6 +177,14 @@ function initPhysics(gltfJson, entityMap) {
         staticInfos.push({ entity, mat });
     }
 
+    const debugEntities = [];
+    const visitDebug = (e) => {
+        if (e.collision && e.collision.type && e.collision.type !== 'compound') debugEntities.push(e);
+        for (const c of e.children) visitDebug(c);
+    };
+    for (const info of dynamicInfos) visitDebug(info.entity);
+    for (const info of staticInfos)  visitDebug(info.entity);
+
     return {
         dynamicBodies: dynamicInfos.map(info => ({
             entity: info.entity,
@@ -184,7 +192,8 @@ function initPhysics(gltfJson, entityMap) {
             initialPosition: info.entity.getPosition().clone(),
             initialRotation: info.entity.getRotation().clone()
         })),
-        gravityOverrides
+        gravityOverrides,
+        debugEntities
     };
 }
 
@@ -213,6 +222,101 @@ function computeBodyBounds(dynamicBodies) {
     // fits in view.  Minimum 15 units to keep the camera well outside the room.
     const diagonal = Math.sqrt(dx*dx+dy*dy+dz*dz);
     return { center, radius: Math.max(diagonal + 8, 15) };
+}
+
+const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
+const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
+
+function _ringPoints(axis, radius, segments, out, mat) {
+    const tmp = new pc.Vec3();
+    let prev = null;
+    for (let i = 0; i <= segments; i++) {
+        const t = (i / segments) * Math.PI * 2;
+        const c = Math.cos(t) * radius, s = Math.sin(t) * radius;
+        if      (axis === 0) tmp.set(0, c, s);
+        else if (axis === 1) tmp.set(c, 0, s);
+        else                 tmp.set(c, s, 0);
+        const cur = new pc.Vec3();
+        mat.transformPoint(tmp, cur);
+        if (prev) { out.push(prev); out.push(cur); }
+        prev = cur;
+    }
+}
+
+function _drawWireSphereLocal(app, mat, radius, color) {
+    const pts = [];
+    _ringPoints(0, radius, 16, pts, mat);
+    _ringPoints(1, radius, 16, pts, mat);
+    _ringPoints(2, radius, 16, pts, mat);
+    app.drawLines(pts, pts.map(() => color), false);
+}
+
+function _drawWireBoxLocal(app, mat, hx, hy, hz, color) {
+    app.drawWireAlignedBox(
+        new pc.Vec3(-hx, -hy, -hz), new pc.Vec3(hx, hy, hz),
+        color, false, undefined, mat
+    );
+}
+
+function _drawWireCylinderLocal(app, mat, radius, halfHeight, axis, color) {
+    const pts = [];
+    const segs = 16;
+    const oA = new pc.Vec3(), oB = new pc.Vec3();
+    if      (axis === 0) { oA.set(-halfHeight, 0, 0); oB.set(halfHeight, 0, 0); }
+    else if (axis === 1) { oA.set(0, -halfHeight, 0); oB.set(0, halfHeight, 0); }
+    else                 { oA.set(0, 0, -halfHeight); oB.set(0, 0, halfHeight); }
+    const tmp = new pc.Vec3();
+    const rings = [];
+    for (const off of [oA, oB]) {
+        const ring = [];
+        for (let i = 0; i <= segs; i++) {
+            const t = (i / segs) * Math.PI * 2;
+            const c = Math.cos(t) * radius, s = Math.sin(t) * radius;
+            if      (axis === 0) tmp.set(off.x, c, s);
+            else if (axis === 1) tmp.set(c, off.y, s);
+            else                 tmp.set(c, s, off.z);
+            const v = new pc.Vec3(); mat.transformPoint(tmp, v);
+            ring.push(v);
+        }
+        rings.push(ring);
+        for (let i = 0; i < segs; i++) { pts.push(ring[i]); pts.push(ring[i + 1]); }
+    }
+    const step = Math.floor(segs / 4);
+    for (let k = 0; k < 4; k++) { pts.push(rings[0][k * step]); pts.push(rings[1][k * step]); }
+    app.drawLines(pts, pts.map(() => color), false);
+}
+
+function _drawWireCapsuleLocal(app, mat, radius, cylHalf, axis, color) {
+    _drawWireCylinderLocal(app, mat, radius, cylHalf, axis, color);
+    const off = new pc.Vec3();
+    for (const sign of [-1, 1]) {
+        if      (axis === 0) off.set(sign * cylHalf, 0, 0);
+        else if (axis === 1) off.set(0, sign * cylHalf, 0);
+        else                 off.set(0, 0, sign * cylHalf);
+        const local = new pc.Mat4().setTranslate(off.x, off.y, off.z);
+        _drawWireSphereLocal(app, new pc.Mat4().mul2(mat, local), radius, color);
+    }
+}
+
+function _getPosRotMat(entity) {
+    return new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
+}
+
+function drawPhysicsDebug(app, entities) {
+    for (const entity of entities) {
+        const col = entity.collision;
+        if (!col?.type) continue;
+        let rbOwner = entity;
+        while (rbOwner && !rbOwner.rigidbody) rbOwner = rbOwner.parent;
+        const color = rbOwner?.rigidbody?.type === pc.BODYTYPE_DYNAMIC ? _DBG_COLOR_DYNAMIC : _DBG_COLOR_STATIC;
+        const mat = _getPosRotMat(entity);
+        switch (col.type) {
+            case 'box':     _drawWireBoxLocal(app, mat, col.halfExtents.x, col.halfExtents.y, col.halfExtents.z, color); break;
+            case 'sphere':  _drawWireSphereLocal(app, mat, col.radius, color); break;
+            case 'capsule': _drawWireCapsuleLocal(app, mat, col.radius, Math.max(0, (col.height - 2 * col.radius) * 0.5), col.axis ?? 1, color); break;
+            case 'cylinder':_drawWireCylinderLocal(app, mat, col.radius, col.height * 0.5, col.axis ?? 1, color); break;
+        }
+    }
 }
 
 function init() {
@@ -259,7 +363,7 @@ function init() {
         enableShadows(root);
 
         const entityMap = buildEntityMap(gltfJson, root);
-        const { dynamicBodies: bodies, gravityOverrides } = initPhysics(gltfJson, entityMap);
+        const { dynamicBodies: bodies, gravityOverrides, debugEntities } = initPhysics(gltfJson, entityMap);
         dynamicBodies = bodies;
 
         const { center, radius } = computeBodyBounds(dynamicBodies);
@@ -270,6 +374,7 @@ function init() {
         // all Ammo btRigidBody instances are guaranteed to exist.
         let gravityApplied = false;
         app.on('update', dt => {
+            drawPhysicsDebug(app, debugEntities);
             if (!gravityApplied) {
                 gravityApplied = true;
                 const BT_DISABLE_WORLD_GRAVITY = 1;
