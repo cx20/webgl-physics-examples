@@ -13,19 +13,90 @@ pc.WasmModule.setConfig('Ammo', {
 });
 pc.WasmModule.getInstance('Ammo', init);
 
-async function fetchGltfJsonFromGlb(url) {
+async function fetchGlbData(url) {
     const data = await fetch(url).then(r => r.arrayBuffer());
     if (new Uint32Array(data, 0, 1)[0] !== 0x46546c67) throw new Error('Invalid GLB header.');
+    let json = null, binary = null;
     let offset = 12;
     while (offset < data.byteLength) {
         const view = new DataView(data, offset, 8);
-        const len = view.getUint32(0, true);
-        if (view.getUint32(4, true) === 0x4e4f534a) {
-            return JSON.parse(new TextDecoder().decode(data.slice(offset + 8, offset + 8 + len)).replace(/\0+$/, ''));
-        }
+        const len  = view.getUint32(0, true);
+        const type = view.getUint32(4, true);
+        if      (type === 0x4e4f534a) json   = JSON.parse(new TextDecoder().decode(data.slice(offset + 8, offset + 8 + len)).replace(/\0+$/, ''));
+        else if (type === 0x004e4942) binary = data.slice(offset + 8, offset + 8 + len);
         offset += 8 + len;
     }
-    throw new Error('GLB JSON chunk missing.');
+    if (!json) throw new Error('GLB JSON chunk missing.');
+    return { json, binary };
+}
+
+function readGlbFloat32(json, binary, accessorIdx) {
+    const acc = json.accessors[accessorIdx];
+    const bv  = json.bufferViews[acc.bufferView];
+    const totalOffset = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+    const components  = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[acc.type] ?? 1;
+    const stride      = bv.byteStride ?? 0;
+    if (!stride || stride === components * 4)
+        return new Float32Array(binary.slice(totalOffset, totalOffset + acc.count * components * 4));
+    const result = new Float32Array(acc.count * components);
+    const dv = new DataView(binary);
+    for (let i = 0; i < acc.count; i++)
+        for (let c = 0; c < components; c++)
+            result[i * components + c] = dv.getFloat32(totalOffset + i * stride + c * 4, true);
+    return result;
+}
+
+function readGlbIndices(json, binary, accessorIdx) {
+    const acc = json.accessors[accessorIdx];
+    const bv  = json.bufferViews[acc.bufferView];
+    const off = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+    if (acc.componentType === 5125) return new Uint32Array(binary.slice(off, off + acc.count * 4));
+    if (acc.componentType === 5123) return new Uint16Array(binary.slice(off, off + acc.count * 2));
+    return new Uint8Array(binary.slice(off, off + acc.count));
+}
+
+function addAmmoStaticMeshBody(json, binary, meshIdx, entity, friction, restitution, dynamicsWorld) {
+    const gltfMesh = json.meshes[meshIdx];
+    if (!gltfMesh) return null;
+    const btTriMesh = new Ammo.btTriangleMesh(true, true);
+    let triCount = 0;
+    for (const prim of gltfMesh.primitives ?? []) {
+        if ((prim.mode ?? 4) !== 4) continue;
+        const posIdx = prim.attributes?.POSITION;
+        if (posIdx === undefined) continue;
+        const pos  = readGlbFloat32(json, binary, posIdx);
+        const idxs = prim.indices !== undefined ? readGlbIndices(json, binary, prim.indices) : null;
+        const n    = idxs ? idxs.length / 3 : pos.length / 9;
+        for (let t = 0; t < n; t++) {
+            const i0 = (idxs ? idxs[t*3]   : t*3)   * 3;
+            const i1 = (idxs ? idxs[t*3+1] : t*3+1) * 3;
+            const i2 = (idxs ? idxs[t*3+2] : t*3+2) * 3;
+            const v0 = new Ammo.btVector3(pos[i0], pos[i0+1], pos[i0+2]);
+            const v1 = new Ammo.btVector3(pos[i1], pos[i1+1], pos[i1+2]);
+            const v2 = new Ammo.btVector3(pos[i2], pos[i2+1], pos[i2+2]);
+            btTriMesh.addTriangle(v0, v1, v2, false);
+            Ammo.destroy(v0); Ammo.destroy(v1); Ammo.destroy(v2);
+            triCount++;
+        }
+    }
+    if (triCount === 0) { Ammo.destroy(btTriMesh); return null; }
+    const shape = new Ammo.btBvhTriangleMeshShape(btTriMesh, true);
+    const ws = entity.getWorldTransform().getScale();
+    const ls = new Ammo.btVector3(Math.abs(ws.x), Math.abs(ws.y), Math.abs(ws.z));
+    shape.setLocalScaling(ls); Ammo.destroy(ls);
+    const p = entity.getPosition(), q = entity.getRotation();
+    const xform = new Ammo.btTransform();
+    xform.setIdentity();
+    xform.setOrigin(new Ammo.btVector3(p.x, p.y, p.z));
+    xform.setRotation(new Ammo.btQuaternion(q.x, q.y, q.z, q.w));
+    const motionState  = new Ammo.btDefaultMotionState(xform);
+    const localInertia = new Ammo.btVector3(0, 0, 0);
+    const rbInfo       = new Ammo.btRigidBodyConstructionInfo(0, motionState, shape, localInertia);
+    const body         = new Ammo.btRigidBody(rbInfo);
+    body.setFriction(friction ?? 0.5); body.setRestitution(restitution ?? 0);
+    dynamicsWorld.addRigidBody(body);
+    Ammo.destroy(xform); Ammo.destroy(localInertia); Ammo.destroy(rbInfo);
+    return body;
 }
 
 function buildEntityMap(gltfJson, clonedRoot) {
@@ -94,7 +165,7 @@ function getCollisionDataFromImplicit(shapeDef, worldScale) {
     return null;
 }
 
-function initPhysics(gltfJson, entityMap) {
+function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
     const matDefs   = gltfJson.extensions?.KHR_physics_rigid_bodies?.physicsMaterials ?? [];
     const shapeDefs = gltfJson.extensions?.KHR_implicit_shapes?.shapes ?? [];
     const nodes     = gltfJson.nodes ?? [];
@@ -120,45 +191,47 @@ function initPhysics(gltfJson, entityMap) {
         bodyOwnerNodes.push(i);
     }
 
-    const standaloneStatics = [];
+    const standaloneStatics  = [];
+    const meshStaticEntities = [];
     for (let i = 0; i < nodes.length; i++) {
         const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
         if (!physExt?.collider?.geometry) continue;
-        const geom = physExt.collider.geometry;
-
+        const geom     = physExt.collider.geometry;
         const ownerIdx = findBodyOwner(i);
+
         if (ownerIdx === i) {
-            const parent = entityMap[i];
+            if (geom.shape === undefined) continue; // mesh on compound owner not supported
+            const parent   = entityMap[i];
             if (!parent) continue;
+            const shapeDef = shapeDefs[geom.shape];
+            if (!shapeDef) continue;
             const child = new pc.Entity('__khrCollider');
             parent.addChild(child);
-            let cd = null;
-            if (geom.shape !== undefined) {
-                const shapeDef = shapeDefs[geom.shape];
-                if (shapeDef) cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
-            } else if (geom.mesh !== undefined) {
-                cd = { type: 'mesh', convexHull: !!geom.convexHull };
-            }
+            const cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
             if (cd) child.addComponent('collision', cd);
         } else {
             const e = entityMap[i];
             if (!e) continue;
-            let cd = null;
             if (geom.shape !== undefined) {
                 const shapeDef = shapeDefs[geom.shape];
-                if (shapeDef) cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
-            } else if (geom.mesh !== undefined) {
-                cd = { type: 'mesh', convexHull: !!geom.convexHull };
+                if (!shapeDef) continue;
+                const cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
+                if (!cd) continue;
+                e.addComponent('collision', cd);
+                if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
+            } else if (geom.mesh !== undefined && ownerIdx < 0) {
+                const mat   = physExt.collider.physicsMaterial !== undefined ? (matDefs[physExt.collider.physicsMaterial] ?? {}) : {};
+                const frict = mat.dynamicFriction ?? mat.staticFriction ?? 0.5;
+                const rest  = mat.restitution ?? 0;
+                const body  = addAmmoStaticMeshBody(gltfJson, binary, geom.mesh, e, frict, rest, dynamicsWorld);
+                if (body) meshStaticEntities.push(e);
             }
-            if (!cd) continue;
-            e.addComponent('collision', cd);
-            if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
         }
     }
 
     // Pass 2: rigidbody components + motion properties.
-    const dynamicInfos = [];
-    const staticInfos  = [];
+    const dynamicInfos     = [];
+    const staticInfos      = [];
     const gravityOverrides = [];
 
     for (const i of bodyOwnerNodes) {
@@ -168,12 +241,11 @@ function initPhysics(gltfJson, entityMap) {
         const cfg = { type: isK ? 'kinematic' : 'dynamic' };
         if (!isK) cfg.mass = m?.mass ?? 1;
         e.addComponent('rigidbody', cfg);
-
         if (!isK) {
             if (Array.isArray(m?.linearVelocity))  e.rigidbody.linearVelocity  = new pc.Vec3(...m.linearVelocity);
             if (Array.isArray(m?.angularVelocity)) e.rigidbody.angularVelocity = new pc.Vec3(...m.angularVelocity);
             const ownC = nodes[i].extensions.KHR_physics_rigid_bodies.collider;
-            const mat = ownC?.physicsMaterial !== undefined ? (matDefs[ownC.physicsMaterial] ?? {}) : {};
+            const mat  = ownC?.physicsMaterial !== undefined ? (matDefs[ownC.physicsMaterial] ?? {}) : {};
             dynamicInfos.push({ entity: e, mat, motionDef: m });
             if (m?.gravityFactor !== undefined) gravityOverrides.push({ entity: e, factor: m.gravityFactor });
         } else {
@@ -188,7 +260,7 @@ function initPhysics(gltfJson, entityMap) {
 
     const debugEntities = [];
     const visitDebug = (e) => {
-        if (e.collision && e.collision.type && e.collision.type !== 'compound') debugEntities.push(e);
+        if (e.collision?.type && e.collision.type !== 'compound') debugEntities.push(e);
         for (const c of e.children) visitDebug(c);
     };
     for (const info of dynamicInfos) visitDebug(info.entity);
@@ -202,7 +274,8 @@ function initPhysics(gltfJson, entityMap) {
             initialRotation: info.entity.getRotation().clone()
         })),
         gravityOverrides,
-        debugEntities
+        debugEntities,
+        meshStaticEntities
     };
 }
 
@@ -311,6 +384,17 @@ function _getPosRotMat(entity) {
     return new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
 }
 
+function drawMeshStaticDebug(app, entities) {
+    for (const e of entities) {
+        if (!e.render) continue;
+        for (const mi of e.render.meshInstances) {
+            const c = mi.aabb.center, h = mi.aabb.halfExtents;
+            const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
+            _drawWireBoxLocal(app, mat, h.x, h.y, h.z, _DBG_COLOR_STATIC);
+        }
+    }
+}
+
 function drawPhysicsDebug(app, entities) {
     for (const entity of entities) {
         const col = entity.collision;
@@ -360,30 +444,31 @@ function init() {
     let dynamicBodies = [];
 
     Promise.all([
-        fetchGltfJsonFromGlb(MODEL_URL),
+        fetchGlbData(MODEL_URL),
         new Promise((resolve, reject) => {
             app.assets.loadFromUrlAndFilename(MODEL_URL, MODEL_URL.split('/').pop(), 'container',
                 (err, asset) => err ? reject(err) : resolve(asset));
         })
-    ]).then(([gltfJson, asset]) => {
+    ]).then(([glbData, asset]) => {
+        const { json: gltfJson, binary } = glbData;
         const res = asset.resource;
         const root = res.instantiateRenderEntity ? res.instantiateRenderEntity() : res.instantiateModelEntity();
         app.root.addChild(root);
         enableShadows(root);
 
         const entityMap = buildEntityMap(gltfJson, root);
-        const { dynamicBodies: bodies, gravityOverrides, debugEntities } = initPhysics(gltfJson, entityMap);
+        const { dynamicBodies: bodies, gravityOverrides, debugEntities, meshStaticEntities } =
+            initPhysics(gltfJson, binary, entityMap, app.systems.rigidbody.dynamicsWorld);
         dynamicBodies = bodies;
 
         const { center, radius } = computeBodyBounds(dynamicBodies);
         const startPos = new pc.Vec3(center.x, center.y + 1.5, center.z + radius);
         controls.reset(center, startPos);
 
-        // Apply per-body gravity overrides on the first update frame so that
-        // all Ammo btRigidBody instances are guaranteed to exist.
         let gravityApplied = false;
         app.on('update', dt => {
             drawPhysicsDebug(app, debugEntities);
+            drawMeshStaticDebug(app, meshStaticEntities);
             if (!gravityApplied) {
                 gravityApplied = true;
                 const BT_DISABLE_WORLD_GRAVITY = 1;
