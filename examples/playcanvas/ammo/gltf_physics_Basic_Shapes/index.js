@@ -14,28 +14,123 @@ loadWasmModuleAsync(
     init
 );
 
-async function fetchGltfJsonFromGlb(url) {
+// Returns both the glTF JSON and the raw binary chunk from a GLB file.
+async function fetchGlbData(url) {
     const data = await fetch(url).then(r => r.arrayBuffer());
     if (new Uint32Array(data, 0, 1)[0] !== 0x46546c67) throw new Error('Invalid GLB header.');
+    let json = null, binary = null;
     let offset = 12;
     while (offset < data.byteLength) {
         const view = new DataView(data, offset, 8);
-        const len = view.getUint32(0, true);
-        if (view.getUint32(4, true) === 0x4e4f534a) {
-            return JSON.parse(new TextDecoder().decode(data.slice(offset + 8, offset + 8 + len)).replace(/\0+$/, ''));
-        }
+        const len  = view.getUint32(0, true);
+        const type = view.getUint32(4, true);
+        if      (type === 0x4e4f534a) json   = JSON.parse(new TextDecoder().decode(data.slice(offset + 8, offset + 8 + len)).replace(/\0+$/, ''));
+        else if (type === 0x004e4942) binary = data.slice(offset + 8, offset + 8 + len);
         offset += 8 + len;
     }
-    throw new Error('GLB JSON chunk missing.');
+    if (!json) throw new Error('GLB JSON chunk missing.');
+    return { json, binary };
 }
 
-// Map glTF node index -> PlayCanvas entity by walking both trees in parallel.
-// Uses raw glTF JSON so it doesn't depend on containerResource.data internals.
+// Read Float32 attribute data from a glTF accessor + binary chunk.
+function readGlbFloat32(json, binary, accessorIdx) {
+    const acc = json.accessors[accessorIdx];
+    const bv  = json.bufferViews[acc.bufferView];
+    const totalOffset = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+    const components  = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[acc.type] ?? 1;
+    const stride      = bv.byteStride ?? 0;
+    if (!stride || stride === components * 4) {
+        return new Float32Array(binary.slice(totalOffset, totalOffset + acc.count * components * 4));
+    }
+    const result = new Float32Array(acc.count * components);
+    const dv = new DataView(binary);
+    for (let i = 0; i < acc.count; i++)
+        for (let c = 0; c < components; c++)
+            result[i * components + c] = dv.getFloat32(totalOffset + i * stride + c * 4, true);
+    return result;
+}
+
+// Read index data from a glTF accessor + binary chunk.
+function readGlbIndices(json, binary, accessorIdx) {
+    const acc = json.accessors[accessorIdx];
+    const bv  = json.bufferViews[acc.bufferView];
+    const off = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+    if (acc.componentType === 5125) return new Uint32Array(binary.slice(off, off + acc.count * 4));
+    if (acc.componentType === 5123) return new Uint16Array(binary.slice(off, off + acc.count * 2));
+    return new Uint8Array(binary.slice(off, off + acc.count));
+}
+
+// Build an Ammo.btBvhTriangleMeshShape directly from glTF mesh data and add a
+// static rigid body to the dynamics world.  This bypasses PlayCanvas's collision
+// component so that vertex data is always read from the GLB binary rather than
+// from a potentially discarded GPU-side vertex buffer.
+function addAmmoStaticMeshBody(json, binary, meshIdx, entity, friction, restitution, dynamicsWorld) {
+    const gltfMesh = json.meshes[meshIdx];
+    if (!gltfMesh) return null;
+
+    const btTriMesh = new Ammo.btTriangleMesh(true, true);
+    let triCount = 0;
+
+    for (const prim of gltfMesh.primitives ?? []) {
+        if ((prim.mode ?? 4) !== 4) continue; // TRIANGLES only
+        const posIdx = prim.attributes?.POSITION;
+        if (posIdx === undefined) continue;
+
+        const pos  = readGlbFloat32(json, binary, posIdx);
+        const idxs = prim.indices !== undefined ? readGlbIndices(json, binary, prim.indices) : null;
+        const n    = idxs ? idxs.length / 3 : pos.length / 9;
+
+        for (let t = 0; t < n; t++) {
+            const i0 = (idxs ? idxs[t * 3]     : t * 3)     * 3;
+            const i1 = (idxs ? idxs[t * 3 + 1] : t * 3 + 1) * 3;
+            const i2 = (idxs ? idxs[t * 3 + 2] : t * 3 + 2) * 3;
+            const v0 = new Ammo.btVector3(pos[i0], pos[i0 + 1], pos[i0 + 2]);
+            const v1 = new Ammo.btVector3(pos[i1], pos[i1 + 1], pos[i1 + 2]);
+            const v2 = new Ammo.btVector3(pos[i2], pos[i2 + 1], pos[i2 + 2]);
+            btTriMesh.addTriangle(v0, v1, v2, false);
+            Ammo.destroy(v0); Ammo.destroy(v1); Ammo.destroy(v2);
+            triCount++;
+        }
+    }
+
+    if (triCount === 0) { Ammo.destroy(btTriMesh); return null; }
+
+    const shape = new Ammo.btBvhTriangleMeshShape(btTriMesh, true);
+
+    // Apply world scale to the shape (Bullet body transform has no scale component).
+    const ws = entity.getWorldTransform().getScale();
+    const ls = new Ammo.btVector3(Math.abs(ws.x), Math.abs(ws.y), Math.abs(ws.z));
+    shape.setLocalScaling(ls);
+    Ammo.destroy(ls);
+
+    // Place the body at the entity's world position + rotation.
+    const p = entity.getPosition(), q = entity.getRotation();
+    const xform = new Ammo.btTransform();
+    xform.setIdentity();
+    xform.setOrigin(new Ammo.btVector3(p.x, p.y, p.z));
+    xform.setRotation(new Ammo.btQuaternion(q.x, q.y, q.z, q.w));
+
+    const motionState  = new Ammo.btDefaultMotionState(xform);
+    const localInertia = new Ammo.btVector3(0, 0, 0);
+    const rbInfo       = new Ammo.btRigidBodyConstructionInfo(0, motionState, shape, localInertia);
+    const body         = new Ammo.btRigidBody(rbInfo);
+    body.setFriction(friction    ?? 0.5);
+    body.setRestitution(restitution ?? 0);
+
+    dynamicsWorld.addRigidBody(body);
+
+    Ammo.destroy(xform);
+    Ammo.destroy(localInertia);
+    Ammo.destroy(rbInfo);
+    // shape, motionState, btTriMesh are owned by the physics world — do NOT destroy.
+
+    return body;
+}
+
 function buildEntityMap(gltfJson, clonedRoot) {
     const nodes = gltfJson.nodes ?? [];
     const map = new Array(nodes.length).fill(null);
     const scenes = gltfJson.scenes ?? [];
-    // PlayCanvas wraps scene root nodes as children of clonedRoot.
     const sceneRoots = scenes.length === 1 ? [clonedRoot] : clonedRoot.children;
 
     function walk(nodeIndex, entity) {
@@ -98,7 +193,11 @@ function getCollisionDataFromImplicit(shapeDef, worldScale) {
     return null;
 }
 
-function initPhysics(gltfJson, entityMap) {
+// gltfJson  – parsed glTF JSON
+// binary    – raw GLB binary chunk (ArrayBuffer)
+// entityMap – glTF node index → PlayCanvas entity
+// dynamicsWorld – Ammo dynamics world (for manual static mesh bodies)
+function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
     const matDefs   = gltfJson.extensions?.KHR_physics_rigid_bodies?.physicsMaterials ?? [];
     const shapeDefs = gltfJson.extensions?.KHR_implicit_shapes?.shapes ?? [];
     const nodes     = gltfJson.nodes ?? [];
@@ -125,21 +224,24 @@ function initPhysics(gltfJson, entityMap) {
     }
 
     // Attach collision shapes to the appropriate entities.
-    const standaloneStatics = [];
+    const standaloneStatics  = [];
+    const meshStaticEntities = []; // entities whose physics were added directly to Ammo
+
     for (let i = 0; i < nodes.length; i++) {
         const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
         if (!physExt?.collider?.geometry) continue;
-        const geo = physExt.collider.geometry;
+        const geo      = physExt.collider.geometry;
         const shapeIdx = geo.shape;
         const meshIdx  = geo.mesh;
         if (shapeIdx === undefined && meshIdx === undefined) continue;
 
         const ownerIdx = findBodyOwner(i);
+
         if (ownerIdx === i) {
-            // Body-owner with self-collider: implicit shape goes on a synthetic child.
-            // (mesh-based colliders on compound owners are skipped — Bullet restriction)
+            // Body-owner with self-collider: implicit shape → synthetic child.
+            // Mesh colliders on compound owners are skipped (Bullet restriction).
             if (shapeIdx === undefined) continue;
-            const parent = entityMap[i];
+            const parent   = entityMap[i];
             if (!parent) continue;
             const shapeDef = shapeDefs[shapeIdx];
             if (!shapeDef) continue;
@@ -147,26 +249,34 @@ function initPhysics(gltfJson, entityMap) {
             parent.addChild(child);
             const cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
             if (cd) child.addComponent('collision', cd);
+
         } else {
             const e = entityMap[i];
             if (!e) continue;
-            let cd;
+
             if (shapeIdx !== undefined) {
+                // Implicit shape: use PlayCanvas collision component.
                 const shapeDef = shapeDefs[shapeIdx];
                 if (!shapeDef) continue;
-                cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
-            } else if (ownerIdx < 0) {
-                // Mesh-based collider on a standalone static body (no dynamic/kinematic owner).
-                // PlayCanvas collision type 'mesh' uses the entity's render component.
-                cd = { type: 'mesh' };
+                const cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
+                if (!cd) continue;
+                e.addComponent('collision', cd);
+                if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
+
+            } else if (meshIdx !== undefined && ownerIdx < 0) {
+                // Static mesh body: build btBvhTriangleMeshShape manually from GLB binary.
+                // This avoids relying on PlayCanvas reading back GPU-side vertex buffers.
+                const mat = physExt.collider.physicsMaterial !== undefined
+                    ? (matDefs[physExt.collider.physicsMaterial] ?? {}) : {};
+                const frict = mat.dynamicFriction ?? mat.staticFriction ?? 0.5;
+                const rest  = mat.restitution ?? 0;
+                const body  = addAmmoStaticMeshBody(gltfJson, binary, meshIdx, e, frict, rest, dynamicsWorld);
+                if (body) meshStaticEntities.push(e);
             }
-            if (!cd) continue;
-            e.addComponent('collision', cd);
-            if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
         }
     }
 
-    // Pass 2: add rigidbody components.
+    // Pass 2: rigidbody components for body-owner nodes and standalone statics.
     const dynamicInfos = [];
     const staticInfos  = [];
     for (const i of bodyOwnerNodes) {
@@ -177,7 +287,7 @@ function initPhysics(gltfJson, entityMap) {
         if (!isK) cfg.mass = m?.mass ?? 1;
         e.addComponent('rigidbody', cfg);
         const ownC = nodes[i].extensions.KHR_physics_rigid_bodies.collider;
-        const mat = ownC?.physicsMaterial !== undefined ? (matDefs[ownC.physicsMaterial] ?? {}) : {};
+        const mat  = ownC?.physicsMaterial !== undefined ? (matDefs[ownC.physicsMaterial] ?? {}) : {};
         (isK ? staticInfos : dynamicInfos).push({ entity: e, mat });
     }
     for (const { entity, collider } of standaloneStatics) {
@@ -191,7 +301,7 @@ function initPhysics(gltfJson, entityMap) {
         if (info.mat.restitution     !== undefined) info.entity.rigidbody.restitution = info.mat.restitution;
     }
 
-    // Collect all leaf collision entities for debug drawing (exclude compound wrappers).
+    // Collect leaf collision entities for debug wireframe drawing.
     const debugEntities = [];
     const visitForDebug = (e) => {
         if (e.collision && e.collision.type && e.collision.type !== 'compound') debugEntities.push(e);
@@ -206,7 +316,8 @@ function initPhysics(gltfJson, entityMap) {
             initialPosition: info.entity.getPosition().clone(),
             initialRotation: info.entity.getRotation().clone()
         })),
-        debugEntities
+        debugEntities,
+        meshStaticEntities // entities with manual Ammo bodies (no PC collision component)
     };
 }
 
@@ -334,17 +445,19 @@ function drawPhysicsDebug(app, entities) {
                 _drawWireCylinderLocal(app, mat, col.radius, col.height * 0.5, col.axis ?? 1, color);
                 break;
             }
-            case 'mesh': {
-                // Draw per-mesh-instance AABB as approximation.
-                if (entity.render) {
-                    for (const mi of entity.render.meshInstances) {
-                        const c = mi.aabb.center, h = mi.aabb.halfExtents;
-                        const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
-                        _drawWireBoxLocal(app, mat, h.x, h.y, h.z, color);
-                    }
-                }
-                break;
-            }
+        }
+    }
+}
+
+// Draw AABB boxes for entities whose collision was registered directly in Ammo
+// (no PlayCanvas collision component, so they can't appear in drawPhysicsDebug).
+function drawMeshStaticDebug(app, entities) {
+    for (const e of entities) {
+        if (!e.render) continue;
+        for (const mi of e.render.meshInstances) {
+            const c = mi.aabb.center, h = mi.aabb.halfExtents;
+            const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
+            _drawWireBoxLocal(app, mat, h.x, h.y, h.z, _DBG_COLOR_STATIC);
         }
     }
 }
@@ -397,25 +510,29 @@ function init() {
     camera.addComponent('camera', { clearColor: new pc.Color(0.96,0.97,0.99), nearClip: 0.05, farClip: 1000, fov: 45 });
     app.root.addChild(camera);
 
-    let dynamicBodies = [];
-    let debugEntities = [];
+    let dynamicBodies      = [];
+    let debugEntities      = [];
+    let meshStaticEntities = [];
 
     Promise.all([
-        fetchGltfJsonFromGlb(MODEL_URL),
+        fetchGlbData(MODEL_URL),
         new Promise((resolve, reject) => {
             app.assets.loadFromUrlAndFilename(MODEL_URL, MODEL_URL.split('/').pop(), 'container',
                 (err, asset) => err ? reject(err) : resolve(asset));
         })
-    ]).then(([gltfJson, asset]) => {
-        const res = asset.resource;
+    ]).then(([glbData, asset]) => {
+        const { json, binary } = glbData;
+
+        const res  = asset.resource;
         const root = res.instantiateRenderEntity ? res.instantiateRenderEntity() : res.instantiateModelEntity();
         app.root.addChild(root);
         enableShadows(root);
 
-        const entityMap = buildEntityMap(gltfJson, root);
-        const result = initPhysics(gltfJson, entityMap);
-        dynamicBodies = result.dynamicBodies;
-        debugEntities = result.debugEntities;
+        const entityMap = buildEntityMap(json, root);
+        const result    = initPhysics(json, binary, entityMap, app.systems.rigidbody.dynamicsWorld);
+        dynamicBodies      = result.dynamicBodies;
+        debugEntities      = result.debugEntities;
+        meshStaticEntities = result.meshStaticEntities;
 
         const { center, radius } = computeWorldBounds(root);
         let angle = 0;
@@ -431,6 +548,7 @@ function init() {
             camera.lookAt(center);
 
             drawPhysicsDebug(app, debugEntities);
+            drawMeshStaticDebug(app, meshStaticEntities);
 
             for (const body of dynamicBodies) {
                 if (body.entity.getPosition().y >= RESET_Y_THRESHOLD) continue;
