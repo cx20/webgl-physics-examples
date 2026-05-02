@@ -102,40 +102,48 @@ function addAmmoStaticMeshBody(json, binary, meshIdx, entity, friction, restitut
 function buildEntityMap(gltfJson, clonedRoot) {
     const nodes = gltfJson.nodes ?? [];
     const map = new Array(nodes.length).fill(null);
-    const scenes = gltfJson.scenes ?? [];
-    const sceneRoots = scenes.length === 1 ? [clonedRoot] : clonedRoot.children;
+
+    // Build a name → [entity, ...] lookup from a list of entities.
+    // Multiple children may share a name; each match is consumed in order.
+    function nameMap(children) {
+        const m = new Map();
+        for (const child of children) {
+            const n = child.name ?? '';
+            if (!m.has(n)) m.set(n, []);
+            m.get(n).push(child);
+        }
+        return m;
+    }
 
     function walk(nodeIndex, entity) {
         if (!entity || nodeIndex < 0) return;
         map[nodeIndex] = entity;
         const childIndices = nodes[nodeIndex].children ?? [];
-        let cursor = 0;
+        if (!childIndices.length) return;
+        const byName = nameMap(entity.children);
         for (const ci of childIndices) {
             const cName = nodes[ci]?.name ?? '';
-            for (let j = cursor; j < entity.children.length; j++) {
-                if (entity.children[j].name === cName) {
-                    walk(ci, entity.children[j]);
-                    cursor = j + 1;
-                    break;
-                }
-            }
+            const candidates = byName.get(cName);
+            if (candidates?.length) walk(ci, candidates.shift());
         }
     }
 
+    const scenes = gltfJson.scenes ?? [];
+    const sceneRoots = scenes.length === 1 ? [clonedRoot] : clonedRoot.children;
     for (let s = 0; s < scenes.length; s++) {
         const sceneRoot = sceneRoots[s];
         if (!sceneRoot) continue;
         const rootIndices = scenes[s].nodes ?? [];
-        let cursor = 0;
+        // If sceneRoot's own name matches the single root node, it IS that node.
+        if (rootIndices.length === 1 && sceneRoot.name === (nodes[rootIndices[0]]?.name ?? '')) {
+            walk(rootIndices[0], sceneRoot);
+            continue;
+        }
+        const byName = nameMap(sceneRoot.children);
         for (const ri of rootIndices) {
             const rName = nodes[ri]?.name ?? '';
-            for (let j = cursor; j < sceneRoot.children.length; j++) {
-                if (sceneRoot.children[j].name === rName) {
-                    walk(ri, sceneRoot.children[j]);
-                    cursor = j + 1;
-                    break;
-                }
-            }
+            const candidates = byName.get(rName);
+            if (candidates?.length) walk(ri, candidates.shift());
         }
     }
     return map;
