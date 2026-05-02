@@ -55,6 +55,61 @@ function readGlbIndices(json, binary, accessorIdx) {
     return new Uint8Array(binary.slice(off, off + acc.count));
 }
 
+// Build a btConvexHullShape from mesh vertices for DYNAMIC bodies.
+// Accepts the full KHR motion definition to apply inertiaDiagonal and infinite-mass handling.
+// mass:0 in KHR = infinite linear mass (no translation) but allows rotation via inertiaDiagonal.
+// inertiaDiagonal:[0,0,0] = infinite rotational inertia (no rotation).
+// Returns { body, motionState } or null.
+function addAmmoDynamicConvexBody(json, binary, meshIdx, entity, motionDef, dynamicsWorld) {
+    const gltfMesh = json.meshes[meshIdx];
+    if (!gltfMesh) return null;
+    const rawMass     = motionDef?.mass ?? 1;
+    const infiniteMass = rawMass === 0 || !Number.isFinite(rawMass);
+    const workingMass  = infiniteMass ? 1 : rawMass;
+    const inertiaDiag  = motionDef?.inertiaDiagonal;
+    const shape = new Ammo.btConvexHullShape();
+    let ptCount = 0;
+    for (const prim of gltfMesh.primitives ?? []) {
+        const posIdx = prim.attributes?.POSITION;
+        if (posIdx === undefined) continue;
+        const pos = readGlbFloat32(json, binary, posIdx);
+        for (let i = 0; i < pos.length; i += 3) {
+            const v = new Ammo.btVector3(pos[i], pos[i+1], pos[i+2]);
+            shape.addPoint(v, false);
+            Ammo.destroy(v);
+            ptCount++;
+        }
+    }
+    if (ptCount === 0) { Ammo.destroy(shape); return null; }
+    shape.recalcLocalAabb();
+    const ws = entity.getWorldTransform().getScale();
+    const ls = new Ammo.btVector3(Math.abs(ws.x), Math.abs(ws.y), Math.abs(ws.z));
+    shape.setLocalScaling(ls); Ammo.destroy(ls);
+    const p = entity.getPosition(), q = entity.getRotation();
+    const xform = new Ammo.btTransform();
+    xform.setIdentity();
+    xform.setOrigin(new Ammo.btVector3(p.x, p.y, p.z));
+    xform.setRotation(new Ammo.btQuaternion(q.x, q.y, q.z, q.w));
+    const motionState  = new Ammo.btDefaultMotionState(xform);
+    const localInertia = new Ammo.btVector3(0, 0, 0);
+    if (inertiaDiag) {
+        localInertia.setValue(inertiaDiag[0] ?? 0, inertiaDiag[1] ?? 0, inertiaDiag[2] ?? 0);
+    } else {
+        shape.calculateLocalInertia(workingMass, localInertia);
+    }
+    const rbInfo = new Ammo.btRigidBodyConstructionInfo(workingMass, motionState, shape, localInertia);
+    const body   = new Ammo.btRigidBody(rbInfo);
+    if (infiniteMass) {
+        // Prevent translation while allowing rotation (per KHR infinite-mass semantics).
+        const zero = new Ammo.btVector3(0, 0, 0);
+        body.setLinearFactor(zero);
+        Ammo.destroy(zero);
+    }
+    dynamicsWorld.addRigidBody(body);
+    Ammo.destroy(xform); Ammo.destroy(localInertia); Ammo.destroy(rbInfo);
+    return { body, motionState };
+}
+
 function addAmmoStaticMeshBody(json, binary, meshIdx, entity, friction, restitution, dynamicsWorld) {
     const gltfMesh = json.meshes[meshIdx];
     if (!gltfMesh) return null;
@@ -204,19 +259,21 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
         return -1;
     }
 
-    // Pass 1: compound collision for body-owner nodes.
-    const bodyOwnerNodes = [];
+    // Pass 1: compound collision for body-owners with implicit-shape colliders.
+    // Body-owners whose own collider uses geometry.mesh will be handled as
+    // manual Ammo dynamic bodies (btConvexHullShape) and don't need a compound.
+    const bodyOwnerNodes  = [];
+    const manualMeshOwners = new Set();
     for (let i = 0; i < nodes.length; i++) {
         if (!hasMotion(i)) continue;
         const e = entityMap[i];
-        const m = nodes[i].extensions.KHR_physics_rigid_bodies.motion;
-        console.log('[initPhysics] motion node', i, nodes[i]?.name ?? '',
-            '| entityMap:', e ? e.name : 'NULL',
-            '| gravityFactor:', m?.gravityFactor,
-            '| isKinematic:', m?.isKinematic,
-            '| mass:', m?.mass);
         if (!e) continue;
-        e.addComponent('collision', { type: 'compound' });
+        const ownGeom = nodes[i].extensions?.KHR_physics_rigid_bodies?.collider?.geometry;
+        if (ownGeom?.mesh !== undefined) {
+            manualMeshOwners.add(i);
+        } else {
+            e.addComponent('collision', { type: 'compound' });
+        }
         bodyOwnerNodes.push(i);
     }
 
@@ -227,15 +284,10 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
         if (!physExt?.collider?.geometry) continue;
         const geom     = physExt.collider.geometry;
         const ownerIdx = findBodyOwner(i);
-        const e        = entityMap[i];
-        console.log('[initPhysics] collider node', i, nodes[i]?.name ?? '',
-            '| ownerIdx:', ownerIdx,
-            '| entityMap:', e ? e.name : 'NULL',
-            '| geom.shape:', geom.shape,
-            '| geom.mesh:', geom.mesh);
 
         if (ownerIdx === i) {
-            if (geom.shape === undefined) { console.warn('[initPhysics] mesh on compound owner skipped:', i); continue; }
+            if (manualMeshOwners.has(i)) continue; // handled in Pass 2
+            if (geom.shape === undefined) continue;
             const parent   = entityMap[i];
             if (!parent) continue;
             const shapeDef = shapeDefs[geom.shape];
@@ -243,8 +295,9 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
             const child = new pc.Entity('__khrCollider');
             parent.addChild(child);
             const cd = getCollisionDataFromImplicit(shapeDef, parent.getWorldTransform().getScale());
-            if (cd) { child.addComponent('collision', cd); console.log('[initPhysics] __khrCollider added:', cd.type, 'to', parent.name); }
+            if (cd) child.addComponent('collision', cd);
         } else {
+            const e = entityMap[i];
             if (!e) continue;
             if (geom.shape !== undefined) {
                 const shapeDef = shapeDefs[geom.shape];
@@ -252,27 +305,59 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
                 const cd = getCollisionDataFromImplicit(shapeDef, e.getWorldTransform().getScale());
                 if (!cd) continue;
                 e.addComponent('collision', cd);
-                console.log('[initPhysics] collision added:', cd.type, 'to', e.name, '(ownerIdx=' + ownerIdx + ')');
                 if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
             } else if (geom.mesh !== undefined && ownerIdx < 0) {
                 const mat   = physExt.collider.physicsMaterial !== undefined ? (matDefs[physExt.collider.physicsMaterial] ?? {}) : {};
-                const frict = mat.dynamicFriction ?? mat.staticFriction ?? 0.5;
-                const rest  = mat.restitution ?? 0;
-                const body  = addAmmoStaticMeshBody(gltfJson, binary, geom.mesh, e, frict, rest, dynamicsWorld);
-                if (body) { meshStaticEntities.push(e); console.log('[initPhysics] mesh static body added for', e.name); }
+                const body  = addAmmoStaticMeshBody(gltfJson, binary, geom.mesh, e,
+                    mat.dynamicFriction ?? mat.staticFriction ?? 0.5, mat.restitution ?? 0, dynamicsWorld);
+                if (body) meshStaticEntities.push(e);
             }
         }
     }
 
     // Pass 2: rigidbody components + motion properties.
-    const dynamicInfos     = [];
-    const staticInfos      = [];
-    const gravityOverrides = [];
+    const dynamicInfos      = [];
+    const staticInfos       = [];
+    const gravityOverrides  = [];
+    const manualDynamicBodies = [];
 
     for (const i of bodyOwnerNodes) {
         const e = entityMap[i];
         const m = nodes[i].extensions.KHR_physics_rigid_bodies.motion;
         const isK = !!m?.isKinematic;
+
+        if (manualMeshOwners.has(i) && !isK) {
+            // Dynamic body with mesh collider → btConvexHullShape manual Ammo body.
+            const geom = nodes[i].extensions.KHR_physics_rigid_bodies.collider?.geometry;
+            if (geom?.mesh !== undefined) {
+                const result = addAmmoDynamicConvexBody(gltfJson, binary, geom.mesh, e, m, dynamicsWorld);
+                if (result) {
+                    const { body, motionState } = result;
+                    if (Array.isArray(m?.linearVelocity)) {
+                        const v = new Ammo.btVector3(...m.linearVelocity);
+                        body.setLinearVelocity(v); Ammo.destroy(v);
+                    }
+                    if (Array.isArray(m?.angularVelocity)) {
+                        const v = new Ammo.btVector3(...m.angularVelocity);
+                        body.setAngularVelocity(v); Ammo.destroy(v);
+                    }
+                    const factor = m?.gravityFactor;
+                    if (factor !== undefined) {
+                        const BT_DISABLE_WORLD_GRAVITY = 1;
+                        body.setFlags(body.getFlags() | BT_DISABLE_WORLD_GRAVITY);
+                        const g = new Ammo.btVector3(0, -9.81 * factor, 0);
+                        body.setGravity(g); body.activate(true); Ammo.destroy(g);
+                    }
+                    manualDynamicBodies.push({
+                        entity: e, body, motionState, motionDef: m, factor,
+                        initialPosition: e.getPosition().clone(),
+                        initialRotation: e.getRotation().clone()
+                    });
+                }
+            }
+            continue;
+        }
+
         const cfg = { type: isK ? 'kinematic' : 'dynamic' };
         if (!isK) cfg.mass = m?.mass ?? 1;
         e.addComponent('rigidbody', cfg);
@@ -310,7 +395,8 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
         })),
         gravityOverrides,
         debugEntities,
-        meshStaticEntities
+        meshStaticEntities,
+        manualDynamicBodies
     };
 }
 
@@ -462,12 +548,36 @@ function init() {
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     window.addEventListener('resize', () => app.resizeCanvas(canvas.width, canvas.height));
 
-    app.scene.ambientLight = new pc.Color(0.68, 0.7, 0.76);
+    app.scene.toneMapping   = pc.TONEMAP_ACES;
+    app.scene.exposure      = 0.8;
+    app.scene.ambientLight  = new pc.Color(0, 0, 0); // IBL handles ambient
+
+    // IBL: load prefiltered env atlas for reflections + ambient
+    const envAtlasAsset = new pc.Asset('envAtlas', 'texture', {
+        url: 'https://raw.githubusercontent.com/playcanvas/engine/main/examples/assets/cubemaps/helipad-env-atlas.png'
+    });
+    app.assets.add(envAtlasAsset);
+    app.assets.load(envAtlasAsset);
+    envAtlasAsset.ready(() => {
+        envAtlasAsset.resource.addressU = pc.ADDRESS_CLAMP_TO_EDGE;
+        envAtlasAsset.resource.addressV = pc.ADDRESS_CLAMP_TO_EDGE;
+        app.scene.envAtlas = envAtlasAsset.resource;
+    });
+
+    // Main light (warm sun)
     const light = new pc.Entity('light');
-    light.addComponent('light', { type: 'directional', color: new pc.Color(1,1,1),
-        castShadows: true, shadowResolution: 2048, shadowBias: 0.3, normalOffsetBias: 0.02 });
-    light.setLocalEulerAngles(45, 45, 45);
+    light.addComponent('light', { type: 'directional', color: new pc.Color(1, 0.95, 0.85),
+        intensity: 1.0, castShadows: true, shadowResolution: 2048,
+        shadowBias: 0.3, normalOffsetBias: 0.02 });
+    light.setLocalEulerAngles(45, 45, 0);
     app.root.addChild(light);
+
+    // Fill light (cool sky)
+    const fillLight = new pc.Entity('fillLight');
+    fillLight.addComponent('light', { type: 'directional', color: new pc.Color(0.45, 0.6, 1.0),
+        intensity: 0.6, castShadows: false });
+    fillLight.setLocalEulerAngles(-30, 180, 0);
+    app.root.addChild(fillLight);
 
     const camera = new pc.Entity('camera');
     camera.addComponent('camera', { clearColor: new pc.Color(0.96,0.97,0.99), nearClip: 0.05, farClip: 1000, fov: 45 });
@@ -492,21 +602,39 @@ function init() {
         enableShadows(root);
 
         const entityMap = buildEntityMap(gltfJson, root);
-        const { dynamicBodies: bodies, gravityOverrides, debugEntities, meshStaticEntities } =
+        const { dynamicBodies: bodies, gravityOverrides, debugEntities, meshStaticEntities, manualDynamicBodies } =
             initPhysics(gltfJson, binary, entityMap, app.systems.rigidbody.dynamicsWorld);
         dynamicBodies = bodies;
 
-        const { center, radius } = computeBodyBounds(dynamicBodies);
+        const { center, radius } = computeBodyBounds([...dynamicBodies, ...manualDynamicBodies]);
         const startPos = new pc.Vec3(center.x, center.y + 1.5, center.z + radius);
         controls.reset(center, startPos);
 
+        const tmpT = new Ammo.btTransform();
+        const BT_DISABLE_WORLD_GRAVITY = 1;
         let gravityApplied = false;
+
         app.on('update', dt => {
             drawPhysicsDebug(app, debugEntities);
             drawMeshStaticDebug(app, meshStaticEntities);
+
+            // Sync manual Ammo dynamic bodies to PlayCanvas entities + draw debug AABB.
+            for (const mb of manualDynamicBodies) {
+                mb.motionState.getWorldTransform(tmpT);
+                const o = tmpT.getOrigin(), r = tmpT.getRotation();
+                mb.entity.setPosition(o.x(), o.y(), o.z());
+                mb.entity.setRotation(r.x(), r.y(), r.z(), r.w());
+                if (mb.entity.render) {
+                    for (const mi of mb.entity.render.meshInstances) {
+                        const c = mi.aabb.center, h = mi.aabb.halfExtents;
+                        const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
+                        _drawWireBoxLocal(app, mat, h.x, h.y, h.z, _DBG_COLOR_DYNAMIC);
+                    }
+                }
+            }
+
             if (!gravityApplied) {
                 gravityApplied = true;
-                const BT_DISABLE_WORLD_GRAVITY = 1;
                 for (const { entity, factor } of gravityOverrides) {
                     const body = entity.rigidbody?.body;
                     if (!body) continue;
@@ -517,23 +645,54 @@ function init() {
                     Ammo.destroy(g);
                 }
             }
+
             for (const body of dynamicBodies) {
                 const posY = body.entity.getPosition().y;
                 if (posY >= RESET_Y_THRESHOLD && posY <= RESET_Y_THRESHOLD_TOP) continue;
-
                 body.entity.setPosition(body.initialPosition);
                 body.entity.setRotation(body.initialRotation);
                 body.entity.rigidbody.linearVelocity  = pc.Vec3.ZERO;
                 body.entity.rigidbody.angularVelocity = pc.Vec3.ZERO;
                 body.entity.rigidbody.syncEntityToBody();
-
-                // Re-apply initial velocities after reset.
                 if (Array.isArray(body.motionDef?.linearVelocity)) {
                     body.entity.rigidbody.linearVelocity = new pc.Vec3(...body.motionDef.linearVelocity);
                 }
                 if (Array.isArray(body.motionDef?.angularVelocity)) {
                     body.entity.rigidbody.angularVelocity = new pc.Vec3(...body.motionDef.angularVelocity);
                 }
+            }
+
+            for (const mb of manualDynamicBodies) {
+                const posY = mb.entity.getPosition().y;
+                if (posY >= RESET_Y_THRESHOLD && posY <= RESET_Y_THRESHOLD_TOP) continue;
+                const p = mb.initialPosition, q = mb.initialRotation;
+                const xf = new Ammo.btTransform();
+                xf.setIdentity();
+                xf.setOrigin(new Ammo.btVector3(p.x, p.y, p.z));
+                xf.setRotation(new Ammo.btQuaternion(q.x, q.y, q.z, q.w));
+                mb.body.setWorldTransform(xf);
+                mb.motionState.setWorldTransform(xf);
+                Ammo.destroy(xf);
+                const zero = new Ammo.btVector3(0, 0, 0);
+                mb.body.setLinearVelocity(zero);
+                mb.body.setAngularVelocity(zero);
+                Ammo.destroy(zero);
+                if (Array.isArray(mb.motionDef?.linearVelocity)) {
+                    const v = new Ammo.btVector3(...mb.motionDef.linearVelocity);
+                    mb.body.setLinearVelocity(v); Ammo.destroy(v);
+                }
+                if (Array.isArray(mb.motionDef?.angularVelocity)) {
+                    const v = new Ammo.btVector3(...mb.motionDef.angularVelocity);
+                    mb.body.setAngularVelocity(v); Ammo.destroy(v);
+                }
+                if (mb.factor !== undefined) {
+                    mb.body.setFlags(mb.body.getFlags() | BT_DISABLE_WORLD_GRAVITY);
+                    const g = new Ammo.btVector3(0, -9.81 * mb.factor, 0);
+                    mb.body.setGravity(g); Ammo.destroy(g);
+                }
+                mb.body.activate(true);
+                mb.entity.setPosition(p);
+                mb.entity.setRotation(q);
             }
         });
     }).catch(console.error);
