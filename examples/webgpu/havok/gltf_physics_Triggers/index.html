@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGPU + Havok Triggers glTF Physics Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/gl-matrix@3.4.4/gl-matrix-min.js"></script>
+    <script src="https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    viewProj  : mat4x4<f32>,
+    model     : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    eyePos    : vec3<f32>,
+    metallic  : f32,
+    roughness : f32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) normal   : vec3<f32>,
+    @location(1) uv       : vec2<f32>,
+    @location(2) worldPos : vec3<f32>,
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal   : vec3<f32>,
+    @location(2) uv       : vec2<f32>
+) -> VSOut {
+    var out : VSOut;
+    let worldPos = uniforms.model * vec4<f32>(position, 1.0);
+    out.worldPos = worldPos.xyz;
+    out.Position = uniforms.viewProj * worldPos;
+    out.normal   = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    out.uv       = uv;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Uniforms {
+    viewProj  : mat4x4<f32>,
+    model     : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    eyePos    : vec3<f32>,
+    metallic  : f32,
+    roughness : f32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var samp : sampler;
+@group(0) @binding(2) var tex  : texture_2d<f32>;
+
+const PI : f32 = 3.14159265359;
+const LIGHT_DIR : vec3<f32> = vec3<f32>(0.45, 1.0, -0.35);
+
+fn distributionGGX(NdotH: f32, roughness: f32) -> f32 {
+    let a  = roughness * roughness;
+    let a2 = a * a;
+    let d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+
+fn geometrySchlickGGX(NdotX: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = (r * r) / 8.0;
+    return NdotX / (NdotX * (1.0 - k) + k);
+}
+
+fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
+    let f = pow(max(1.0 - cosTheta, 0.0), 5.0);
+    return F0 + (1.0 - F0) * f;
+}
+
+@fragment
+fn main(
+    @location(0) normal   : vec3<f32>,
+    @location(1) uv       : vec2<f32>,
+    @location(2) worldPos : vec3<f32>
+) -> @location(0) vec4<f32> {
+    let N = normalize(normal);
+    let L = normalize(LIGHT_DIR);
+    let V = normalize(uniforms.eyePos - worldPos);
+    let H = normalize(L + V);
+
+    let albedoSample = uniforms.baseColor * textureSample(tex, samp, uv);
+    let albedo = albedoSample.rgb;
+
+    let metallic  = clamp(uniforms.metallic,  0.0, 1.0);
+    let roughness = clamp(uniforms.roughness, 0.05, 1.0);
+
+    let F0 = mix(vec3<f32>(0.04), albedo, metallic);
+
+    let NdotL = max(dot(N, L), 0.0);
+    let NdotV = max(dot(N, V), 0.0);
+    let NdotH = max(dot(N, H), 0.0);
+    let HdotV = max(dot(H, V), 0.0);
+
+    let D = distributionGGX(NdotH, roughness);
+    let G = geometrySchlickGGX(NdotV, roughness) * geometrySchlickGGX(NdotL, roughness);
+    let F = fresnelSchlick(HdotV, F0);
+
+    let kD      = (1.0 - F) * (1.0 - metallic);
+    let specular = D * G * F / (4.0 * NdotV * NdotL + 0.001);
+    let Lo       = (kD * albedo / PI + specular) * vec3<f32>(3.5) * NdotL;
+
+    let upBlend = N.y * 0.5 + 0.5;
+    let ambient = mix(vec3<f32>(0.08, 0.07, 0.06), vec3<f32>(0.10, 0.15, 0.28), upBlend) * albedo;
+
+    var color = ambient + Lo;
+    color = color / (color + vec3<f32>(1.0));
+    color = pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+
+    return vec4<f32>(color, albedoSample.a);
+}
+</script>
+
+<script id="vs-line" type="x-shader/x-vertex">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@vertex
+fn main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
+    return uniforms.viewProj * uniforms.model * vec4<f32>(position, 1.0);
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return uniforms.color;
+}
+</script>
+
+<canvas id="c"></canvas>
+
+<script type="module" src="index.js"></script>
+</body>
+</html>
