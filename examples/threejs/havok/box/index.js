@@ -45,12 +45,14 @@ const colorHash = {
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const BOX_SIZE = 1;
+const SHOW_DEBUG_COLLIDERS = true;
 
 let HK, worldId;
 let scene, camera, renderer, controls;
 
 const meshes = [];
 const bodyIds = [];
+const debugMeshes = [];
 
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
@@ -121,6 +123,13 @@ function initPhysics() {
     new THREE.MeshBasicMaterial({ map: grassTex })
   );
   scene.add(groundMesh);
+  if (SHOW_DEBUG_COLLIDERS) {
+    const dbg = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(30, 0.4, 30)),
+      new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    scene.add(dbg);
+  }
 
   // Shared box shape
   const bsRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [BOX_SIZE, BOX_SIZE, BOX_SIZE]);
@@ -155,6 +164,14 @@ function initPhysics() {
       );
       scene.add(mesh);
       meshes.push(mesh);
+      if (SHOW_DEBUG_COLLIDERS) {
+        const dbg = new THREE.LineSegments(
+          new THREE.EdgesGeometry(new THREE.BoxGeometry(BOX_SIZE, BOX_SIZE, BOX_SIZE)),
+          new THREE.LineBasicMaterial({ color: 0xff8844 })
+        );
+        scene.add(dbg);
+        debugMeshes.push(dbg);
+      }
     }
   }
 }
@@ -166,6 +183,10 @@ function updatePhysics() {
     const [, ori] = HK.HP_Body_GetOrientation(bodyIds[i]);
     meshes[i].position.set(pos[0], pos[1], pos[2]);
     meshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    if (SHOW_DEBUG_COLLIDERS && debugMeshes[i]) {
+      debugMeshes[i].position.set(pos[0], pos[1], pos[2]);
+      debugMeshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    }
 
     if (pos[1] < -10) {
       const x = -5 + Math.random() * 10;

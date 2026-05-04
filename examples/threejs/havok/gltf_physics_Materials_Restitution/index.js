@@ -6,6 +6,7 @@ const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/m
 const FIXED_TIMESTEP = 1 / 60;
 const RESET_Y_THRESHOLD = -20;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
+const SHOW_DEBUG_COLLIDERS = true;
 
 let HK;
 let worldId;
@@ -130,13 +131,16 @@ function createPhysicsShape(worldScale, shapeDef, motionDef, materialDef) {
 
   const avgScale = (Math.abs(worldScale.x) + Math.abs(worldScale.y) + Math.abs(worldScale.z)) / 3;
   let shapeId;
+  let size;
+  let shapeType;
 
   if (shapeDef.type === 'box' && shapeDef.box) {
-    const size = [
+    size = [
       Math.abs(shapeDef.box.size[0] * worldScale.x),
       Math.abs(shapeDef.box.size[1] * worldScale.y),
       Math.abs(shapeDef.box.size[2] * worldScale.z)
     ];
+    shapeType = 'box';
     const created = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
     checkResult(created[0], 'HP_Shape_CreateBox');
     shapeId = created[1];
@@ -147,6 +151,8 @@ function createPhysicsShape(worldScale, shapeDef, motionDef, materialDef) {
     }
   } else if (shapeDef.type === 'sphere' && shapeDef.sphere) {
     const radius = shapeDef.sphere.radius * avgScale;
+    shapeType = 'sphere';
+    size = [radius * 2, radius * 2, radius * 2];
     const created = HK.HP_Shape_CreateSphere([0, 0, 0], radius);
     checkResult(created[0], 'HP_Shape_CreateSphere');
     shapeId = created[1];
@@ -162,6 +168,8 @@ function createPhysicsShape(worldScale, shapeDef, motionDef, materialDef) {
     const sXZ = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.z));
     const sr = Math.max((rTop + rBot) * 0.5 * sXZ, 0.0001);
     const shaftH = Math.max(h * Math.abs(worldScale.y) * 0.5, 0);
+    shapeType = 'capsule';
+    size = [sr * 2, shaftH * 2 + sr * 2, sr * 2];
     const created = HK.HP_Shape_CreateCapsule([0, -shaftH, 0], [0, shaftH, 0], sr);
     checkResult(created[0], 'HP_Shape_CreateCapsule');
     shapeId = created[1];
@@ -173,6 +181,8 @@ function createPhysicsShape(worldScale, shapeDef, motionDef, materialDef) {
     const sXZ = Math.max(Math.abs(worldScale.x), Math.abs(worldScale.z));
     const sHH = Math.max(cH * Math.abs(worldScale.y) * 0.5, 0.0001);
     const sr = Math.max(Math.max(rT, rB) * sXZ, 0.0001);
+    shapeType = 'cylinder';
+    size = [sr * 2, sHH * 2, sr * 2];
     if (typeof HK.HP_Shape_CreateCylinder === 'function') {
       const created = HK.HP_Shape_CreateCylinder([0, -sHH, 0], [0, sHH, 0], sr);
       checkResult(created[0], 'HP_Shape_CreateCylinder');
@@ -187,7 +197,28 @@ function createPhysicsShape(worldScale, shapeDef, motionDef, materialDef) {
   }
 
   applyPhysicsMaterial(shapeId, materialDef);
-  return { shapeId };
+  return { shapeId, size, shapeType };
+}
+
+function createDebugMesh(shapeInfo, isDynamic) {
+  const color = isDynamic ? 0xff8844 : 0x44ee88;
+  const mat = new THREE.LineBasicMaterial({ color });
+  const [w, h, d] = shapeInfo.size;
+  let geo;
+  if (shapeInfo.shapeType === 'sphere') {
+    geo = new THREE.WireframeGeometry(new THREE.SphereGeometry(w / 2, 8, 6));
+  } else if (shapeInfo.shapeType === 'capsule') {
+    const r = w / 2;
+    const shaftLen = Math.max(h - w, 0);
+    geo = new THREE.WireframeGeometry(new THREE.CapsuleGeometry(r, shaftLen, 4, 8));
+  } else if (shapeInfo.shapeType === 'cylinder') {
+    geo = new THREE.EdgesGeometry(new THREE.CylinderGeometry(w / 2, w / 2, h, 12));
+  } else {
+    geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d));
+  }
+  const mesh = new THREE.LineSegments(geo, mat);
+  scene.add(mesh);
+  return mesh;
 }
 
 function createBody(shapeId, motionType, position, rotation, setMass) {
@@ -322,7 +353,8 @@ async function loadModelAndBuildPhysics() {
       bodyId,
       initialPosition: [tmpWorldPosition.x, tmpWorldPosition.y, tmpWorldPosition.z],
       initialRotation: [tmpWorldQuaternion.x, tmpWorldQuaternion.y, tmpWorldQuaternion.z, tmpWorldQuaternion.w],
-      isDynamic: !!motionDef
+      isDynamic: !!motionDef,
+      debugMesh: SHOW_DEBUG_COLLIDERS ? createDebugMesh(created, !!motionDef) : null
     };
 
     physicsNodes.push(node);
@@ -356,6 +388,15 @@ async function main() {
       resetDynamicBodiesIfNeeded();
       updatePhysicsTransforms();
       accumulator -= FIXED_TIMESTEP;
+    }
+    if (SHOW_DEBUG_COLLIDERS) {
+      for (const node of physicsNodes) {
+        if (!node.debugMesh) continue;
+        node.object.getWorldPosition(tmpWorldPosition);
+        node.object.getWorldQuaternion(tmpWorldQuaternion);
+        node.debugMesh.position.copy(tmpWorldPosition);
+        node.debugMesh.quaternion.copy(tmpWorldQuaternion);
+      }
     }
     controls.update();
     renderer.render(scene, camera);

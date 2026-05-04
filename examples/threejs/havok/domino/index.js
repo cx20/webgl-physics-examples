@@ -44,12 +44,14 @@ const colorHash = {
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
+const SHOW_DEBUG_COLLIDERS = true;
 
 let HK, worldId;
 let scene, camera, renderer, controls;
 
 const meshes = [];
 const bodyIds = [];
+const debugMeshes = [];
 
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
@@ -140,6 +142,13 @@ function initPhysics() {
   );
   groundMesh.rotation.x = -Math.PI / 2;
   scene.add(groundMesh);
+  if (SHOW_DEBUG_COLLIDERS) {
+    const dbg = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(100, 0.2, 100)),
+      new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    scene.add(dbg);
+  }
 
   const box_size = 2;
   const DOMINO_W = box_size * 0.15;
@@ -182,6 +191,14 @@ function initPhysics() {
       );
       scene.add(mesh);
       meshes.push(mesh);
+      if (SHOW_DEBUG_COLLIDERS) {
+        const dbg = new THREE.LineSegments(
+          new THREE.EdgesGeometry(new THREE.BoxGeometry(DOMINO_W, DOMINO_H, DOMINO_D)),
+          new THREE.LineBasicMaterial({ color: 0xff8844 })
+        );
+        scene.add(dbg);
+        debugMeshes.push(dbg);
+      }
     }
   }
 
@@ -200,6 +217,14 @@ function initPhysics() {
     );
     scene.add(mesh);
     meshes.push(mesh);
+    if (SHOW_DEBUG_COLLIDERS) {
+      const dbg = new THREE.LineSegments(
+        new THREE.WireframeGeometry(new THREE.SphereGeometry(ballRadius, 8, 6)),
+        new THREE.LineBasicMaterial({ color: 0xff8844 })
+      );
+      scene.add(dbg);
+      debugMeshes.push(dbg);
+    }
   }
 }
 
@@ -210,6 +235,10 @@ function updatePhysics() {
     const [, ori] = HK.HP_Body_GetOrientation(bodyIds[i]);
     meshes[i].position.set(pos[0], pos[1], pos[2]);
     meshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    if (SHOW_DEBUG_COLLIDERS && debugMeshes[i]) {
+      debugMeshes[i].position.set(pos[0], pos[1], pos[2]);
+      debugMeshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    }
   }
 }
 

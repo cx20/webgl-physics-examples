@@ -4,11 +4,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const PIECE_COUNT = 220;
+const SHOW_DEBUG_COLLIDERS = true;
 
 let HK, worldId;
 let scene, camera, renderer, controls;
 const meshes = [];
 const bodyIds = [];
+const debugMeshes = [];
 
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
@@ -158,6 +160,14 @@ function initPhysics() {
   const wallMat = new THREE.MeshLambertMaterial({ color: 0x3D4143, transparent: true, opacity: 0.4 });
 
   createStaticBox([40, 4, 40], [0, -2, 0], groundMat);
+  if (SHOW_DEBUG_COLLIDERS) {
+    const dbg = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(40, 4, 40)),
+      new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    dbg.position.set(0, -2, 0);
+    scene.add(dbg);
+  }
 
   const wallData = [
     { size: [10, 10,  1], pos: [ 0, 5, -5] },
@@ -167,6 +177,14 @@ function initPhysics() {
   ];
   for (const { size, pos } of wallData) {
     createStaticBox(size, pos, wallMat);
+    if (SHOW_DEBUG_COLLIDERS) {
+      const dbg = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0], size[1], size[2])),
+        new THREE.LineBasicMaterial({ color: 0x44ee88 })
+      );
+      dbg.position.set(pos[0], pos[1], pos[2]);
+      scene.add(dbg);
+    }
   }
 
   const pieceW = 1.6;
@@ -204,6 +222,14 @@ function initPhysics() {
     mesh.receiveShadow = true;
     scene.add(mesh);
     meshes.push(mesh);
+    if (SHOW_DEBUG_COLLIDERS) {
+      const dbg = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(pieceW, pieceH, pieceD * 1.4)),
+        new THREE.LineBasicMaterial({ color: 0xff8844 })
+      );
+      scene.add(dbg);
+      debugMeshes.push(dbg);
+    }
   }
 }
 
@@ -214,6 +240,10 @@ function updatePhysics() {
     const [, ori] = HK.HP_Body_GetOrientation(bodyIds[i]);
     meshes[i].position.set(pos[0], pos[1], pos[2]);
     meshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    if (SHOW_DEBUG_COLLIDERS && debugMeshes[i]) {
+      debugMeshes[i].position.set(pos[0], pos[1], pos[2]);
+      debugMeshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    }
 
     if (pos[1] < -10) {
       const x = (Math.random() - 0.5) * 8;

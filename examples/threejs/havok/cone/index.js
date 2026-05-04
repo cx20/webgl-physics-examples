@@ -6,11 +6,13 @@ const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const CONE_COUNT = 200;
 const CONE_HALF_HEIGHT = 2;
 const CONE_RADIUS = 1;
+const SHOW_DEBUG_COLLIDERS = true;
 
 let HK, worldId;
 let scene, camera, renderer, controls;
 const meshes = [];
 const bodyIds = [];
+const debugMeshes = [];
 
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
@@ -140,6 +142,14 @@ function initPhysics() {
   groundMesh.castShadow = true;
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
+  if (SHOW_DEBUG_COLLIDERS) {
+    const dbg = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(40, 4, 40)),
+      new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    dbg.position.set(0, -2, 0);
+    scene.add(dbg);
+  }
 
   // Walls
   const wallDefs = [
@@ -154,6 +164,14 @@ function initPhysics() {
     wallMesh.scale.set(size[0], size[1], size[2]);
     wallMesh.position.set(pos[0], pos[1], pos[2]);
     scene.add(wallMesh);
+    if (SHOW_DEBUG_COLLIDERS) {
+      const dbg = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0], size[1], size[2])),
+        new THREE.LineBasicMaterial({ color: 0x44ee88 })
+      );
+      dbg.position.set(pos[0], pos[1], pos[2]);
+      scene.add(dbg);
+    }
   }
 
   const coneShapeId = createConeShape();
@@ -185,6 +203,14 @@ function initPhysics() {
     mesh.receiveShadow = true;
     scene.add(mesh);
     meshes.push(mesh);
+    if (SHOW_DEBUG_COLLIDERS) {
+      const dbg = new THREE.LineSegments(
+        new THREE.WireframeGeometry(new THREE.CylinderGeometry(0, CONE_RADIUS, CONE_HALF_HEIGHT * 2, 12)),
+        new THREE.LineBasicMaterial({ color: 0xff8844 })
+      );
+      scene.add(dbg);
+      debugMeshes.push(dbg);
+    }
   }
 }
 
@@ -195,6 +221,10 @@ function updatePhysics() {
     const [, ori] = HK.HP_Body_GetOrientation(bodyIds[i]);
     meshes[i].position.set(pos[0], pos[1], pos[2]);
     meshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    if (SHOW_DEBUG_COLLIDERS && debugMeshes[i]) {
+      debugMeshes[i].position.set(pos[0], pos[1], pos[2]);
+      debugMeshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
+    }
 
     if (pos[1] < -10) {
       const x = -5 + Math.random() * 10;
