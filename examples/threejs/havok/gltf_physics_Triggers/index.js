@@ -6,6 +6,7 @@ const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/m
 const FIXED_TIMESTEP = 1 / 60;
 const RESET_Y_THRESHOLD = -20;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
+const SHOW_DEBUG_COLLIDERS = true;
 
 let HK;
 let worldId;
@@ -121,10 +122,11 @@ function createImplicitShape(worldScale, shapeDef, motionDef, materialDef) {
   if (!shapeDef) throw new Error('No shape definition provided.');
 
   let shapeId;
+  let size;
 
   if (shapeDef.type === 'box' && shapeDef.box) {
     const s = shapeDef.box.size || [1, 1, 1];
-    const size = [Math.abs(s[0] * worldScale.x), Math.abs(s[1] * worldScale.y), Math.abs(s[2] * worldScale.z)];
+    size = [Math.abs(s[0] * worldScale.x), Math.abs(s[1] * worldScale.y), Math.abs(s[2] * worldScale.z)];
     const res = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
     checkResult(res[0], 'HP_Shape_CreateBox');
     shapeId = res[1];
@@ -140,6 +142,7 @@ function createImplicitShape(worldScale, shapeDef, motionDef, materialDef) {
     const res = HK.HP_Shape_CreateSphere([0, 0, 0], r);
     checkResult(res[0], 'HP_Shape_CreateSphere');
     shapeId = res[1];
+    size = [r * 2, r * 2, r * 2];
   } else if (shapeDef.type === 'capsule' && shapeDef.capsule) {
     const cd = shapeDef.capsule;
     const rTop = cd.radiusTop !== undefined ? cd.radiusTop : (cd.radius !== undefined ? cd.radius : 0.5);
@@ -151,6 +154,7 @@ function createImplicitShape(worldScale, shapeDef, motionDef, materialDef) {
     const res = HK.HP_Shape_CreateCapsule([0, -shaftH, 0], [0, shaftH, 0], sr);
     checkResult(res[0], 'HP_Shape_CreateCapsule');
     shapeId = res[1];
+    size = [sr * 2, shaftH * 2 + sr * 2, sr * 2];
   } else if (shapeDef.type === 'cylinder' && shapeDef.cylinder) {
     const cyd = shapeDef.cylinder;
     const rT = cyd.radiusTop !== undefined ? cyd.radiusTop : (cyd.radius !== undefined ? cyd.radius : 0.5);
@@ -168,12 +172,13 @@ function createImplicitShape(worldScale, shapeDef, motionDef, materialDef) {
       checkResult(res[0], 'HP_Shape_CreateBox (cyl fallback)');
       shapeId = res[1];
     }
+    size = [maxR * 2, sHH * 2, maxR * 2];
   } else {
     throw new Error('Unsupported KHR_implicit_shapes type: ' + shapeDef.type);
   }
 
   applyPhysicsMaterial(shapeId, materialDef);
-  return { shapeId };
+  return { shapeId, size: size || [1, 1, 1], shapeType: shapeDef.type };
 }
 
 function createMeshShape(colliderScale, geomDef, meshIndexToGeos, jsonNodes, motionDef) {
@@ -273,7 +278,28 @@ function createMeshShape(colliderScale, geomDef, meshIndexToGeos, jsonNodes, mot
   }
 
   if (!shapeId) return null;
-  return { shapeId };
+  return { shapeId, size: [1, 1, 1], shapeType: 'mesh' };
+}
+
+function createDebugMesh(shapeInfo, isDynamic) {
+  const color = isDynamic ? 0xff8844 : 0x44ee88;
+  const mat = new THREE.LineBasicMaterial({ color });
+  const [w, h, d] = shapeInfo.size;
+  let geo;
+  if (shapeInfo.shapeType === 'sphere') {
+    geo = new THREE.WireframeGeometry(new THREE.SphereGeometry(w / 2, 8, 6));
+  } else if (shapeInfo.shapeType === 'capsule') {
+    const r = w / 2;
+    const shaftLen = Math.max(h - w, 0);
+    geo = new THREE.WireframeGeometry(new THREE.CapsuleGeometry(r, shaftLen, 4, 8));
+  } else if (shapeInfo.shapeType === 'cylinder') {
+    geo = new THREE.EdgesGeometry(new THREE.CylinderGeometry(w / 2, w / 2, h, 12));
+  } else {
+    geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d));
+  }
+  const mesh = new THREE.LineSegments(geo, mat);
+  scene.add(mesh);
+  return mesh;
 }
 
 function createBody(shapeId, motionType, position, rotation, motionDef) {
@@ -513,7 +539,8 @@ async function loadModelAndBuildPhysics() {
       bodyId,
       initialPosition: position,
       initialRotation: rotation,
-      isDynamic: !!motionDef
+      isDynamic: !!motionDef,
+      debugMesh: SHOW_DEBUG_COLLIDERS ? createDebugMesh(shapeResult, !!motionDef) : null
     };
     physicsNodes.push(node);
     if (motionDef) dynamicNodes.push(node);
@@ -544,6 +571,15 @@ async function main() {
       resetDynamicBodiesIfNeeded();
       updatePhysicsTransforms();
       accumulator -= FIXED_TIMESTEP;
+    }
+    if (SHOW_DEBUG_COLLIDERS) {
+      for (const node of physicsNodes) {
+        if (!node.debugMesh) continue;
+        node.object.getWorldPosition(tmpWorldPosition);
+        node.object.getWorldQuaternion(tmpWorldQuaternion);
+        node.debugMesh.position.copy(tmpWorldPosition);
+        node.debugMesh.quaternion.copy(tmpWorldQuaternion);
+      }
     }
     checkTriggerOverlaps();
     controls.update();

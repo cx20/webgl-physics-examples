@@ -6,7 +6,7 @@ const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/m
 const FIXED_TIMESTEP = 1 / 60;
 const RESET_Y_THRESHOLD = -20;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
-const SHOW_DEBUG_BOXES = false;
+const SHOW_DEBUG_COLLIDERS = true;
 
 let HK;
 let worldId;
@@ -172,7 +172,28 @@ function createPhysicsShape(worldScale, shapeDef, motionDef, materialDef) {
   }
 
   applyPhysicsMaterial(shapeId, materialDef);
-  return { shapeId, size };
+  return { shapeId, size, shapeType: 'box' };
+}
+
+function createDebugMesh(shapeInfo, isDynamic) {
+  const color = isDynamic ? 0xff8844 : 0x44ee88;
+  const mat = new THREE.LineBasicMaterial({ color });
+  const [w, h, d] = shapeInfo.size;
+  let geo;
+  if (shapeInfo.shapeType === 'sphere') {
+    geo = new THREE.WireframeGeometry(new THREE.SphereGeometry(w / 2, 8, 6));
+  } else if (shapeInfo.shapeType === 'capsule') {
+    const r = w / 2;
+    const shaftLen = Math.max(h - w, 0);
+    geo = new THREE.WireframeGeometry(new THREE.CapsuleGeometry(r, shaftLen, 4, 8));
+  } else if (shapeInfo.shapeType === 'cylinder') {
+    geo = new THREE.EdgesGeometry(new THREE.CylinderGeometry(w / 2, w / 2, h, 12));
+  } else {
+    geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d));
+  }
+  const mesh = new THREE.LineSegments(geo, mat);
+  scene.add(mesh);
+  return mesh;
 }
 
 function createBody(shapeId, motionType, position, rotation, setMass) {
@@ -241,22 +262,6 @@ function resetDynamicBodiesIfNeeded() {
     checkResult(HK.HP_Body_SetLinearVelocity(node.bodyId, [0, 0, 0]), 'HP_Body_SetLinearVelocity reset');
     checkResult(HK.HP_Body_SetAngularVelocity(node.bodyId, [0, 0, 0]), 'HP_Body_SetAngularVelocity reset');
   }
-}
-
-function maybeCreateDebugBox(node) {
-  if (!SHOW_DEBUG_BOXES) {
-    return;
-  }
-
-  const wire = new THREE.Mesh(
-    new THREE.BoxGeometry(node.debugSize[0], node.debugSize[1], node.debugSize[2]),
-    new THREE.MeshBasicMaterial({
-      color: node.isDynamic ? 0xff6030 : 0x30e070,
-      wireframe: true
-    })
-  );
-  scene.add(wire);
-  node.debugMesh = wire;
 }
 
 async function loadModelAndBuildPhysics() {
@@ -332,9 +337,8 @@ async function loadModelAndBuildPhysics() {
       bodyId,
       initialPosition: [tmpWorldPosition.x, tmpWorldPosition.y, tmpWorldPosition.z],
       initialRotation: [tmpWorldQuaternion.x, tmpWorldQuaternion.y, tmpWorldQuaternion.z, tmpWorldQuaternion.w],
-      debugSize: created.size,
       isDynamic: !!motionDef,
-      debugMesh: null
+      debugMesh: SHOW_DEBUG_COLLIDERS ? createDebugMesh(created, !!motionDef) : null
     };
 
     physicsNodes.push(node);
@@ -343,8 +347,6 @@ async function loadModelAndBuildPhysics() {
     }
 
     processedNodeIndices.add(association.nodes);
-
-    maybeCreateDebugBox(node);
   });
 }
 
@@ -375,13 +377,11 @@ async function main() {
       accumulator -= FIXED_TIMESTEP;
     }
 
-    if (SHOW_DEBUG_BOXES) {
+    if (SHOW_DEBUG_COLLIDERS) {
       for (const node of physicsNodes) {
-        if (!node.debugMesh) {
-          continue;
-        }
-        node.object.updateWorldMatrix(true, false);
-        node.object.matrixWorld.decompose(tmpWorldPosition, tmpWorldQuaternion, tmpWorldScale);
+        if (!node.debugMesh) continue;
+        node.object.getWorldPosition(tmpWorldPosition);
+        node.object.getWorldQuaternion(tmpWorldQuaternion);
         node.debugMesh.position.copy(tmpWorldPosition);
         node.debugMesh.quaternion.copy(tmpWorldQuaternion);
       }
