@@ -5,7 +5,7 @@ const CONE_COUNT = 120;
 const BASKET_HALF = 3.0;
 const WALL_RENDER_Y_OFFSET = 0.03;
 const CONE_TEXTURE = '../../../../assets/textures/carrot.jpg';
-const SHOW_DEBUG_PHYSICS = false;
+const SHOW_DEBUG_PHYSICS = true;
 const CONE_HULL_SEGMENTS = 16;
 
 let canvas;

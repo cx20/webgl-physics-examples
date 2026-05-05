@@ -297,6 +297,50 @@ gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, groundBoxIdx, gl.STATIC_DRAW);
 let groundIdxCount = groundBoxIdx.length;
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shogiIdxBuf);
 
+// Line debug program
+let p3 = gl.createProgram();
+for (let i = 0; i < 2; i++) {
+    let lineShader = gl.createShader([gl.VERTEX_SHADER, gl.FRAGMENT_SHADER][i]);
+    gl.shaderSource(lineShader, [
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    ][i]);
+    gl.compileShader(lineShader);
+    gl.attachShader(p3, lineShader);
+    gl.deleteShader(lineShader);
+}
+gl.linkProgram(p3);
+let lineAttribs = { position: gl.getAttribLocation(p3, 'aPosition') };
+let lineUniforms = {
+    viewProj: gl.getUniformLocation(p3, 'uViewProj'),
+    model: gl.getUniformLocation(p3, 'uModel'),
+    color: gl.getUniformLocation(p3, 'uColor')
+};
+const lineBoxPositions = new Float32Array([
+    -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,
+     0.5,  0.5, -0.5,  -0.5,  0.5, -0.5,
+    -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,
+     0.5,  0.5,  0.5,  -0.5,  0.5,  0.5
+]);
+const lineBoxIndices = new Uint16Array([
+    0,1, 1,2, 2,3, 3,0,
+    4,5, 5,6, 6,7, 7,4,
+    0,4, 1,5, 2,6, 3,7
+]);
+const lineVao = gl.createVertexArray();
+gl.bindVertexArray(lineVao);
+const lineVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, lineVbo);
+gl.bufferData(gl.ARRAY_BUFFER, lineBoxPositions, gl.STATIC_DRAW);
+gl.enableVertexAttribArray(lineAttribs.position);
+gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+const lineIbo = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIbo);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lineBoxIndices, gl.STATIC_DRAW);
+gl.bindVertexArray(null);
+const debugBoxMesh = { vao: lineVao, count: lineBoxIndices.length };
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shogiIdxBuf);
+
 // physics
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 let HK;
@@ -465,6 +509,34 @@ function startPhysicsLoop() {
     }, 1000 / 200);
 }
 
+function drawPhysicsDebug() {
+    const vpMatrix = mat4.create();
+    mat4.multiply(vpMatrix, perspMatrix, vMatrix);
+    const mMatrix = mat4.create();
+    gl.useProgram(p3);
+    gl.uniformMatrix4fv(lineUniforms.viewProj, false, vpMatrix);
+    gl.bindVertexArray(debugBoxMesh.vao);
+
+    mat4.fromRotationTranslation(mMatrix, IDENTITY_QUATERNION, [0, -10, 0]);
+    mat4.scale(mMatrix, mMatrix, [13, 0.1, 13]);
+    gl.uniformMatrix4fv(lineUniforms.model, false, mMatrix);
+    gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+
+    gl.uniform4f(lineUniforms.color, 1, 1, 0, 1);
+    for (let i = 0; i < max; i++) {
+        const pResult = HK.HP_Body_GetPosition(bodys[i]);
+        const qResult = HK.HP_Body_GetOrientation(bodys[i]);
+        mat4.fromRotationTranslation(mMatrix, qResult[1], pResult[1]);
+        mat4.scale(mMatrix, mMatrix, SHOGI_PHYSICS_SIZE);
+        gl.uniformMatrix4fv(lineUniforms.model, false, mMatrix);
+        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    }
+
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shogiIdxBuf);
+}
+
 function render() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -490,6 +562,8 @@ function render() {
     gl.vertexAttribPointer(0, strides[0], gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shogiIdxBuf);
     gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, max);
+
+    drawPhysicsDebug();
 
     requestAnimationFrame(render);
 }

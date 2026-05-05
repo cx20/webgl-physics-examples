@@ -88,6 +88,24 @@ void main() {
 }
 </script>
 
+<script id="vs-line" type="x-shader/x-vertex">#version 300 es
+in vec3 aPosition;
+uniform mat4 uViewProj;
+uniform mat4 uModel;
+void main() {
+    gl_Position = uViewProj * uModel * vec4(aPosition, 1.0);
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">#version 300 es
+precision mediump float;
+uniform vec4 uColor;
+out vec4 outColor;
+void main() {
+    outColor = uColor;
+}
+</script>
+
 <canvas id="c" width="465" height="465"></canvas>
 
 <script src="index.js"></script>

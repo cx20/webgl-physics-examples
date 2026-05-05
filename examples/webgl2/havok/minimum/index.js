@@ -19,6 +19,11 @@ let uniformProjection;
 let uniformModelView;
 let uniformTexture;
 
+let lineProgram;
+let lineAttribs;
+let lineUniforms;
+let debugBoxMesh;
+
 let vao;
 let boxVertexBuffer;
 let boxUvBuffer;
@@ -31,6 +36,7 @@ const projectionMatrix = mat4.create();
 const viewMatrix = mat4.create();
 const modelMatrix = mat4.create();
 const modelViewMatrix = mat4.create();
+const viewProjMatrix = mat4.create();
 
 function enumToNumber(value) {
     if (typeof value === 'number') {
@@ -119,6 +125,60 @@ function createProgram(vsSource, fsSource) {
         throw new Error(gl.getProgramInfoLog(shaderProgram));
     }
     return shaderProgram;
+}
+
+function createDebugWireframeBoxMesh() {
+    const positions = new Float32Array([
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5,  0.5, -0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5,
+    ]);
+    const indices = new Uint16Array([
+        0, 1, 1, 2, 2, 3, 3, 0,
+        4, 5, 5, 6, 6, 7, 7, 4,
+        0, 4, 1, 5, 2, 6, 3, 7
+    ]);
+    const meshVao = gl.createVertexArray();
+    gl.bindVertexArray(meshVao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao: meshVao, count: indices.length };
+}
+
+function drawPhysicsDebug() {
+    mat4.multiply(viewProjMatrix, projectionMatrix, viewMatrix);
+
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineUniforms.viewProj, false, viewProjMatrix);
+    gl.bindVertexArray(debugBoxMesh.vao);
+
+    mat4.fromRotationTranslationScale(modelMatrix, IDENTITY_QUATERNION, [0, -2.5, 0], [20, 1, 20]);
+    gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
+    gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+
+    const posResult = HK.HP_Body_GetPosition(cubeBodyId);
+    checkResult(posResult[0], 'HP_Body_GetPosition debug');
+    const rotResult = HK.HP_Body_GetOrientation(cubeBodyId);
+    checkResult(rotResult[0], 'HP_Body_GetOrientation debug');
+    mat4.fromRotationTranslationScale(modelMatrix, rotResult[1], posResult[1], [5, 5, 5]);
+    gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
+    gl.uniform4fv(lineUniforms.color, [1.0, 1.0, 0.0, 1.0]);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+
+    gl.bindVertexArray(null);
 }
 
 function createBoxGeometry() {
@@ -328,6 +388,8 @@ function render(timeMs) {
 
     gl.bindVertexArray(null);
 
+    drawPhysicsDebug();
+
     requestAnimationFrame(render);
 }
 
@@ -356,6 +418,18 @@ async function init() {
     uniformProjection = gl.getUniformLocation(program, 'pjMatrix');
     uniformModelView = gl.getUniformLocation(program, 'mvMatrix');
     uniformTexture = gl.getUniformLocation(program, 'textureSampler');
+
+    lineProgram = createProgram(
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    lineAttribs = { position: gl.getAttribLocation(lineProgram, 'aPosition') };
+    lineUniforms = {
+        viewProj: gl.getUniformLocation(lineProgram, 'uViewProj'),
+        model: gl.getUniformLocation(lineProgram, 'uModel'),
+        color: gl.getUniformLocation(lineProgram, 'uColor')
+    };
+    debugBoxMesh = createDebugWireframeBoxMesh();
 
     createBoxGeometry();
     texture = await loadTexture('../../../../assets/textures/frog.jpg');

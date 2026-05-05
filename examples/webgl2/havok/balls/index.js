@@ -31,6 +31,12 @@ let worldId;
 let balls = [];
 let basketWalls = [];
 
+let lineProgram;
+let lineAttribs;
+let lineUniforms;
+let debugBoxMesh;
+let debugSphereMesh;
+
 let viewProj = mat4.create();
 let projection = mat4.create();
 let view = mat4.create();
@@ -256,6 +262,88 @@ function checkResult(result, label) {
     throw new Error(label + ' failed with code: ' + String(result));
 }
 
+function createDebugWireframeBoxMesh() {
+    const positions = new Float32Array([
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5,  0.5, -0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5
+    ]);
+    const indices = new Uint16Array([
+        0,1, 1,2, 2,3, 3,0,
+        4,5, 5,6, 6,7, 7,4,
+        0,4, 1,5, 2,6, 3,7
+    ]);
+    const meshVao = gl.createVertexArray();
+    gl.bindVertexArray(meshVao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao: meshVao, count: indices.length };
+}
+
+function createDebugWireframeSphereMesh() {
+    const SEG = 32;
+    const positions = [];
+    for (let i = 0; i < SEG; i++) {
+        const a0 = (i / SEG) * Math.PI * 2;
+        const a1 = ((i + 1) / SEG) * Math.PI * 2;
+        const c0 = Math.cos(a0), s0 = Math.sin(a0);
+        const c1 = Math.cos(a1), s1 = Math.sin(a1);
+        positions.push(c0, s0, 0,  c1, s1, 0);
+        positions.push(0, s0, c0,  0, s1, c1);
+        positions.push(c0, 0, s0,  c1, 0, s1);
+    }
+    const posFloat = new Float32Array(positions);
+    const meshVao = gl.createVertexArray();
+    gl.bindVertexArray(meshVao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, posFloat, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    return { vao: meshVao, count: posFloat.length / 3 };
+}
+
+function drawPhysicsDebug() {
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineUniforms.viewProj, false, viewProj);
+
+    gl.bindVertexArray(debugBoxMesh.vao);
+    gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
+    mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -2, 0], [20, 2, 20]);
+    gl.uniformMatrix4fv(lineUniforms.model, false, model);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    for (const wall of basketWalls) {
+        mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, wall.pos, wall.size);
+        gl.uniformMatrix4fv(lineUniforms.model, false, model);
+        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    }
+    gl.bindVertexArray(null);
+
+    gl.bindVertexArray(debugSphereMesh.vao);
+    gl.uniform4f(lineUniforms.color, 1, 1, 0, 1);
+    for (const item of balls) {
+        const posR = HK.HP_Body_GetPosition(item.bodyId);
+        const rotR = HK.HP_Body_GetOrientation(item.bodyId);
+        mat4.fromRotationTranslationScale(model, rotR[1], posR[1], [item.radius, item.radius, item.radius]);
+        gl.uniformMatrix4fv(lineUniforms.model, false, model);
+        gl.drawArrays(gl.LINES, 0, debugSphereMesh.count);
+    }
+    gl.bindVertexArray(null);
+}
+
 function createBody(shapeId, motionType, position, rotation, setMass) {
     const created = HK.HP_Body_Create();
     checkResult(created[0], 'HP_Body_Create');
@@ -389,6 +477,8 @@ function render(timeMs) {
     gl.depthMask(true);
     gl.disable(gl.BLEND);
 
+    drawPhysicsDebug();
+
     requestAnimationFrame(render);
 }
 
@@ -424,6 +514,22 @@ async function main() {
         alpha:    gl.getUniformLocation(program, 'uAlpha')
     };
     gl.uniform1i(uniforms.texture, 0);
+
+    lineProgram = createProgram(
+        gl,
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    lineAttribs = {
+        position: gl.getAttribLocation(lineProgram, 'aPosition')
+    };
+    lineUniforms = {
+        viewProj: gl.getUniformLocation(lineProgram, 'uViewProj'),
+        model: gl.getUniformLocation(lineProgram, 'uModel'),
+        color: gl.getUniformLocation(lineProgram, 'uColor')
+    };
+    debugBoxMesh = createDebugWireframeBoxMesh();
+    debugSphereMesh = createDebugWireframeSphereMesh();
 
     const wasm = await Module();
     wasm.setup();

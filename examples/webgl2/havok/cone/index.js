@@ -26,6 +26,12 @@ let ground;
 let basketWalls = [];
 const coneShapeCache = new Map();
 
+let lineProgram;
+let lineAttribs;
+let lineUniforms;
+let debugBoxMesh;
+let debugConeMesh;
+
 let viewProj = mat4.create();
 let projection = mat4.create();
 let view = mat4.create();
@@ -211,6 +217,90 @@ function generateConeMesh(segments) {
         uvs: new Float32Array(uvs),
         vertexCount: positions.length / 3
     };
+}
+
+function createDebugWireframeBoxMesh() {
+    const positions = new Float32Array([
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5,  0.5, -0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5
+    ]);
+    const indices = new Uint16Array([
+        0,1, 1,2, 2,3, 3,0,
+        4,5, 5,6, 6,7, 7,4,
+        0,4, 1,5, 2,6, 3,7
+    ]);
+    const meshVao = gl.createVertexArray();
+    gl.bindVertexArray(meshVao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao: meshVao, count: indices.length };
+}
+
+function createDebugWireframeConeMesh() {
+    const SEG = 16;
+    const positions = [];
+    for (let i = 0; i < SEG; i++) {
+        const a0 = (i / SEG) * Math.PI * 2;
+        const a1 = ((i + 1) / SEG) * Math.PI * 2;
+        positions.push(Math.cos(a0), -0.5, Math.sin(a0));
+        positions.push(Math.cos(a1), -0.5, Math.sin(a1));
+    }
+    for (let i = 0; i < SEG; i += 2) {
+        const a = (i / SEG) * Math.PI * 2;
+        positions.push(Math.cos(a), -0.5, Math.sin(a));
+        positions.push(0, 0.5, 0);
+    }
+    const posFloat = new Float32Array(positions);
+    const meshVao = gl.createVertexArray();
+    gl.bindVertexArray(meshVao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, posFloat, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    return { vao: meshVao, count: posFloat.length / 3 };
+}
+
+function drawPhysicsDebug() {
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineUniforms.viewProj, false, viewProj);
+
+    gl.bindVertexArray(debugBoxMesh.vao);
+    gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
+    mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, ground.pos, ground.size);
+    gl.uniformMatrix4fv(lineUniforms.model, false, model);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    for (const wall of basketWalls) {
+        mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, wall.pos, wall.size);
+        gl.uniformMatrix4fv(lineUniforms.model, false, model);
+        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    }
+    gl.bindVertexArray(null);
+
+    gl.bindVertexArray(debugConeMesh.vao);
+    gl.uniform4f(lineUniforms.color, 1, 1, 0, 1);
+    for (const item of cones) {
+        const pResult = HK.HP_Body_GetPosition(item.body);
+        const qResult = HK.HP_Body_GetOrientation(item.body);
+        mat4.fromRotationTranslationScale(model, qResult[1], pResult[1], [item.radius, item.height, item.radius]);
+        gl.uniformMatrix4fv(lineUniforms.model, false, model);
+        gl.drawArrays(gl.LINES, 0, debugConeMesh.count);
+    }
+    gl.bindVertexArray(null);
 }
 
 function enumToNumber(value) {
@@ -443,6 +533,8 @@ function render(timeMs) {
     gl.depthMask(true);
     gl.disable(gl.BLEND);
 
+    drawPhysicsDebug();
+
     requestAnimationFrame(render);
 }
 
@@ -478,6 +570,22 @@ async function main() {
         alpha: gl.getUniformLocation(program, 'uAlpha')
     };
     gl.uniform1i(uniforms.texture, 0);
+
+    lineProgram = createProgram(
+        gl,
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    lineAttribs = {
+        position: gl.getAttribLocation(lineProgram, 'aPosition')
+    };
+    lineUniforms = {
+        viewProj: gl.getUniformLocation(lineProgram, 'uViewProj'),
+        model: gl.getUniformLocation(lineProgram, 'uModel'),
+        color: gl.getUniformLocation(lineProgram, 'uColor')
+    };
+    debugBoxMesh = createDebugWireframeBoxMesh();
+    debugConeMesh = createDebugWireframeConeMesh();
 
     coneMesh = createMeshBuffers(generateConeMesh(48));
     cubeMesh = createMeshBuffers(generateCubeMesh());

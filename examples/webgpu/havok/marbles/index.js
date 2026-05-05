@@ -8,6 +8,10 @@ const MARBLE_SCALE = 1.0;
 const MAX_MARBLES = 120;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 
+const LINE_ALIGN = 256;
+const LINE_STRUCT_SIZE = 144;
+const NUM_LINE_OBJECTS = MAX_MARBLES + 1;
+
 let canvas;
 let device;
 let context;
@@ -31,6 +35,17 @@ const marbles = [];
 let groundMesh;
 let groundRenderItem;
 let groundTextureView;
+
+let linePipeline;
+let debugSphereVertexBuffer;
+let debugSphereIndexBuffer;
+let debugSphereIndexCount = 0;
+let debugBoxVertexBuffer;
+let debugBoxIndexBuffer;
+let debugBoxIndexCount = 0;
+let lineUniformBuffer;
+let lineBindGroup;
+let lineUniformData;
 
 const projection = mat4.create();
 const view = mat4.create();
@@ -784,7 +799,7 @@ function initPhysics(templates) {
             true
         );
 
-        marbles.push({ body, primitives: template.primitives, scale: template.scale });
+        marbles.push({ body, primitives: template.primitives, scale: template.scale, radius: template.radius });
     }
 }
 
@@ -813,6 +828,16 @@ function drawMesh(pass, mesh, bindGroup) {
     pass.setVertexBuffer(2, mesh.uvBuffer);
     pass.setBindGroup(0, bindGroup);
     pass.draw(mesh.vertexCount, 1, 0, 0);
+}
+
+function setLineSlot(slotIndex, vpMatrix, modelMat, r, g, b, a) {
+    const base = slotIndex * (LINE_ALIGN / 4);
+    lineUniformData.set(vpMatrix, base);
+    lineUniformData.set(modelMat, base + 16);
+    lineUniformData[base + 32] = r;
+    lineUniformData[base + 33] = g;
+    lineUniformData[base + 34] = b;
+    lineUniformData[base + 35] = a;
 }
 
 function drawSkybox(encoder) {
@@ -859,6 +884,21 @@ function render(timeMs) {
     mat4.lookAt(view, eye, [0, 2, 0], [0, 1, 0]);
     mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 200);
     mat4.multiply(viewProj, projection, view);
+
+    {
+        const lineModel = mat4.create();
+        mat4.fromRotationTranslationScale(lineModel, IDENTITY_QUATERNION, [0, -5, 0], [80, 4, 80]);
+        setLineSlot(0, viewProj, lineModel, 0, 1, 0, 1);
+        for (let i = 0; i < marbles.length; i++) {
+            const marble = marbles[i];
+            const pResult = HK.HP_Body_GetPosition(marble.body);
+            const qResult = HK.HP_Body_GetOrientation(marble.body);
+            const rotation = quat.fromValues(qResult[1][0], qResult[1][1], qResult[1][2], qResult[1][3]);
+            mat4.fromRotationTranslationScale(lineModel, rotation, pResult[1], [marble.radius, marble.radius, marble.radius]);
+            setLineSlot(i + 1, viewProj, lineModel, 1, 1, 0, 1);
+        }
+        device.queue.writeBuffer(lineUniformBuffer, 0, lineUniformData);
+    }
 
     const encoder = device.createCommandEncoder();
     drawSkybox(encoder);
@@ -940,6 +980,18 @@ function render(timeMs) {
             checkResult(HK.HP_Body_SetOrientation(marble.body, IDENTITY_QUATERNION), 'HP_Body_SetOrientation reset');
             resetBodyVelocity(marble.body);
         }
+    }
+
+    pass.setPipeline(linePipeline);
+    pass.setVertexBuffer(0, debugBoxVertexBuffer);
+    pass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
+    pass.setBindGroup(0, lineBindGroup, [0]);
+    pass.drawIndexed(debugBoxIndexCount);
+    pass.setVertexBuffer(0, debugSphereVertexBuffer);
+    pass.setIndexBuffer(debugSphereIndexBuffer, 'uint16');
+    for (let i = 1; i < NUM_LINE_OBJECTS; i++) {
+        pass.setBindGroup(0, lineBindGroup, [i * LINE_ALIGN]);
+        pass.drawIndexed(debugSphereIndexCount);
     }
 
     pass.end();
@@ -1091,6 +1143,71 @@ async function main() {
 
     const templates = await loadMarblesFromGLTF();
     initPhysics(templates);
+
+    const vsLine = device.createShaderModule({ code: document.getElementById('vs-line').textContent });
+    const fsLine = device.createShaderModule({ code: document.getElementById('fs-line').textContent });
+
+    const lineBGL = device.createBindGroupLayout({
+        entries: [{
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE }
+        }]
+    });
+
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGL] }),
+        vertex: {
+            module: vsLine,
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }]
+        },
+        fragment: { module: fsLine, entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' }
+    });
+
+    const boxLineVerts = new Float32Array([
+        -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,   0.5,  0.5, -0.5,  -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,   0.5,  0.5,  0.5,  -0.5,  0.5,  0.5
+    ]);
+    const boxLineIndices = new Uint16Array([0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]);
+    debugBoxIndexCount = boxLineIndices.length;
+    debugBoxVertexBuffer = device.createBuffer({ size: boxLineVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugBoxVertexBuffer, 0, boxLineVerts);
+    debugBoxIndexBuffer = device.createBuffer({ size: boxLineIndices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugBoxIndexBuffer, 0, boxLineIndices);
+
+    const SPHERE_SEGS = 32;
+    const sphereLineVerts = [];
+    const sphereLineIndices = [];
+    const rings = [[1,0,2],[0,1,2],[1,2,0]];
+    for (let r = 0; r < 3; r++) {
+        const base = r * SPHERE_SEGS;
+        for (let i = 0; i < SPHERE_SEGS; i++) {
+            const a = (i / SPHERE_SEGS) * Math.PI * 2;
+            const v = [0, 0, 0];
+            v[rings[r][0]] = Math.cos(a);
+            v[rings[r][1]] = Math.sin(a);
+            v[rings[r][2]] = 0;
+            sphereLineVerts.push(...v);
+            sphereLineIndices.push(base + i, base + (i + 1) % SPHERE_SEGS);
+        }
+    }
+    const sphereLineVertsF32 = new Float32Array(sphereLineVerts);
+    const sphereLineIndicesU16 = new Uint16Array(sphereLineIndices);
+    debugSphereIndexCount = sphereLineIndicesU16.length;
+    debugSphereVertexBuffer = device.createBuffer({ size: sphereLineVertsF32.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugSphereVertexBuffer, 0, sphereLineVertsF32);
+    debugSphereIndexBuffer = device.createBuffer({ size: sphereLineIndicesU16.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugSphereIndexBuffer, 0, sphereLineIndicesU16);
+
+    lineUniformBuffer = device.createBuffer({ size: NUM_LINE_OBJECTS * LINE_ALIGN, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    lineUniformData = new Float32Array(NUM_LINE_OBJECTS * LINE_ALIGN / 4);
+    lineBindGroup = device.createBindGroup({
+        layout: lineBGL,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuffer, size: LINE_STRUCT_SIZE } }]
+    });
 
     requestAnimationFrame(render);
 

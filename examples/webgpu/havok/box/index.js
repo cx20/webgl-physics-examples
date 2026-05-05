@@ -24,6 +24,10 @@ const BOX_SIZE = 1;
 const BOX_COUNT = DOT_ROWS.length * DOT_ROWS[0].length;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 
+const LINE_ALIGN = 256;
+const LINE_STRUCT_SIZE = 144;
+const NUM_LINE_OBJECTS = BOX_COUNT + 1;
+
 const GROUND_TEXTURE_FILE = '../../../../assets/textures/grass.jpg';
 const GROUND_UV_REPEAT = 6;
 
@@ -43,6 +47,14 @@ let groundTextureView;
 
 let cubeMesh;
 let groundMesh;
+
+let linePipeline;
+let debugBoxVertexBuffer;
+let debugBoxIndexBuffer;
+let debugBoxIndexCount = 0;
+let lineUniformBuffer;
+let lineBindGroup;
+let lineUniformData;
 
 const boxBodyIds = [];
 const boxTints = [];
@@ -274,6 +286,16 @@ function createRenderItem(textureView) {
     return { uniformBuffer, bindGroup };
 }
 
+function setLineSlot(slotIndex, vpMatrix, modelMat, r, g, b, a) {
+    const base = slotIndex * (LINE_ALIGN / 4);
+    lineUniformData.set(vpMatrix, base);
+    lineUniformData.set(modelMat, base + 16);
+    lineUniformData[base + 32] = r;
+    lineUniformData[base + 33] = g;
+    lineUniformData[base + 34] = b;
+    lineUniformData[base + 35] = a;
+}
+
 function writeUniforms(uniformBuffer, tint) {
     device.queue.writeBuffer(uniformBuffer, 0, viewProj);
     device.queue.writeBuffer(uniformBuffer, 64, model);
@@ -380,6 +402,16 @@ function render(timeMs) {
     mat4.perspective(projection, Math.PI / 4, canvas.width / canvas.height, 0.1, 150);
     mat4.multiply(viewProj, projection, view);
 
+    mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -2, 0], [30, 0.4, 30]);
+    setLineSlot(0, viewProj, model, 0, 1, 0, 1);
+    for (let i = 0; i < BOX_COUNT; i++) {
+        const posR = HK.HP_Body_GetPosition(boxBodyIds[i]);
+        const rotR = HK.HP_Body_GetOrientation(boxBodyIds[i]);
+        mat4.fromRotationTranslationScale(model, rotR[1], posR[1], [BOX_SIZE, BOX_SIZE, BOX_SIZE]);
+        setLineSlot(i + 1, viewProj, model, 1, 1, 0, 1);
+    }
+    device.queue.writeBuffer(lineUniformBuffer, 0, lineUniformData);
+
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
         colorAttachments: [{
@@ -411,6 +443,14 @@ function render(timeMs) {
         mat4.fromRotationTranslationScale(model, rotResult[1], posResult[1], [BOX_SIZE, BOX_SIZE, BOX_SIZE]);
         writeUniforms(boxRenderItems[i].uniformBuffer, [boxTints[i][0], boxTints[i][1], boxTints[i][2], 1]);
         drawMesh(pass, cubeMesh, boxRenderItems[i].bindGroup);
+    }
+
+    pass.setPipeline(linePipeline);
+    pass.setVertexBuffer(0, debugBoxVertexBuffer);
+    pass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
+    for (let i = 0; i < NUM_LINE_OBJECTS; i++) {
+        pass.setBindGroup(0, lineBindGroup, [i * LINE_ALIGN]);
+        pass.drawIndexed(debugBoxIndexCount);
     }
 
     pass.end();
@@ -492,6 +532,53 @@ async function init() {
 
     initPhysics();
     initRenderItems();
+
+    const vsLine = device.createShaderModule({ code: document.getElementById('vs-line').textContent });
+    const fsLine = device.createShaderModule({ code: document.getElementById('fs-line').textContent });
+
+    const lineBGL = device.createBindGroupLayout({
+        entries: [{
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE }
+        }]
+    });
+
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGL] }),
+        vertex: {
+            module: vsLine,
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }]
+        },
+        fragment: { module: fsLine, entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' }
+    });
+
+    const boxLineVerts = new Float32Array([
+        -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,   0.5,  0.5, -0.5,  -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,   0.5,  0.5,  0.5,  -0.5,  0.5,  0.5
+    ]);
+    const boxLineIndices = new Uint16Array([
+        0,1, 1,2, 2,3, 3,0,
+        4,5, 5,6, 6,7, 7,4,
+        0,4, 1,5, 2,6, 3,7
+    ]);
+    debugBoxIndexCount = boxLineIndices.length;
+
+    debugBoxVertexBuffer = device.createBuffer({ size: boxLineVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugBoxVertexBuffer, 0, boxLineVerts);
+    debugBoxIndexBuffer = device.createBuffer({ size: boxLineIndices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugBoxIndexBuffer, 0, boxLineIndices);
+
+    lineUniformBuffer = device.createBuffer({ size: NUM_LINE_OBJECTS * LINE_ALIGN, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    lineUniformData = new Float32Array(NUM_LINE_OBJECTS * LINE_ALIGN / 4);
+    lineBindGroup = device.createBindGroup({
+        layout: lineBGL,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuffer, size: LINE_STRUCT_SIZE } }]
+    });
+
     requestAnimationFrame(render);
 }
 

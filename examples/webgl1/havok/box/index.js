@@ -45,6 +45,11 @@ let groundMesh;
 let groundTexture;
 let whiteTexture;
 
+let lineProgram;
+let lineAttribs;
+let lineUniforms;
+let debugBoxMesh;
+
 const boxBodyIds = [];
 const boxTints = [];
 
@@ -192,6 +197,57 @@ function getTintColor(code) {
         'b': [0.0, 0.0, 1.0]
     };
     return map[code] || [1, 1, 1];
+}
+
+function createDebugWireframeBoxMesh() {
+    const positions = new Float32Array([
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5,  0.5, -0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5,
+    ]);
+    const indices = new Uint16Array([
+        0, 1, 1, 2, 2, 3, 3, 0,
+        4, 5, 5, 6, 6, 7, 7, 4,
+        0, 4, 1, 5, 2, 6, 3, 7
+    ]);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    return { vbo, ibo, count: indices.length };
+}
+
+function drawPhysicsDebug() {
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineUniforms.viewProj, false, viewProj);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, debugBoxMesh.vbo);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugBoxMesh.ibo);
+
+    mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -2, 0], [30, 0.4, 30]);
+    gl.uniformMatrix4fv(lineUniforms.model, false, model);
+    gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+
+    gl.uniform4fv(lineUniforms.color, [1.0, 1.0, 0.0, 1.0]);
+    for (let i = 0; i < BOX_COUNT; i++) {
+        const posResult = HK.HP_Body_GetPosition(boxBodyIds[i]);
+        checkResult(posResult[0], 'HP_Body_GetPosition debug');
+        const rotResult = HK.HP_Body_GetOrientation(boxBodyIds[i]);
+        checkResult(rotResult[0], 'HP_Body_GetOrientation debug');
+        mat4.fromRotationTranslationScale(model, rotResult[1], posResult[1], [BOX_SIZE, BOX_SIZE, BOX_SIZE]);
+        gl.uniformMatrix4fv(lineUniforms.model, false, model);
+        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    }
 }
 
 function createBoxGeometry() {
@@ -419,6 +475,8 @@ function render(timeMs) {
         drawMesh(cubeMesh, whiteTexture, boxTints[i], model);
     }
 
+    drawPhysicsDebug();
+
     requestAnimationFrame(render);
 }
 
@@ -459,6 +517,18 @@ async function init() {
 
     gl.useProgram(program);
     gl.uniform1i(uniforms.texture, 0);
+
+    lineProgram = createProgram(
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    lineAttribs = { position: gl.getAttribLocation(lineProgram, 'aPosition') };
+    lineUniforms = {
+        viewProj: gl.getUniformLocation(lineProgram, 'uViewProj'),
+        model: gl.getUniformLocation(lineProgram, 'uModel'),
+        color: gl.getUniformLocation(lineProgram, 'uColor')
+    };
+    debugBoxMesh = createDebugWireframeBoxMesh();
 
     cubeMesh = createBoxGeometry();
     groundMesh = createGroundPlaneData(GROUND_UV_REPEAT);
