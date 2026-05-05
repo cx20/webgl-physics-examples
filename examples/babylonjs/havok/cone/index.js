@@ -5,7 +5,33 @@ let canvas;
 
 const CONE_COUNT = 120;
 const SCALE = 1 / 50;
+function setupPhysicsDebugWireframe(scene) {
+    if (!BABYLON.Debug || !BABYLON.Debug.PhysicsViewer) {
+        return;
+    }
 
+    const physicsViewer = new BABYLON.Debug.PhysicsViewer(scene);
+    const seenImpostors = new WeakSet();
+    const seenBodies = new WeakSet();
+
+    scene.registerBeforeRender(function () {
+        scene.meshes.forEach(function (mesh) {
+            if (!mesh) {
+                return;
+            }
+
+            if (mesh.physicsImpostor && !seenImpostors.has(mesh.physicsImpostor) && physicsViewer.showImpostor) {
+                physicsViewer.showImpostor(mesh.physicsImpostor, mesh);
+                seenImpostors.add(mesh.physicsImpostor);
+            }
+
+            if (mesh.physicsBody && !seenBodies.has(mesh.physicsBody) && physicsViewer.showBody) {
+                physicsViewer.showBody(mesh.physicsBody);
+                seenBodies.add(mesh.physicsBody);
+            }
+        });
+    });
+}
 async function init() {
     canvas = document.querySelector("#c");
     globalThis.HK = await HavokPhysics({
@@ -35,6 +61,7 @@ async function init() {
 function createScene() {
     const scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.HavokPlugin());
+    setupPhysicsDebugWireframe(scene);
     scene.clearColor = new BABYLON.Color4(0.24, 0.25, 0.28, 1.0);
 
     const camera = new BABYLON.ArcRotateCamera(
