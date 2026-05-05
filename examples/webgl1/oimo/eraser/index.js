@@ -4,6 +4,19 @@ let c = document.getElementById("c");
 let gl = c.getContext("experimental-webgl");
 gl.clearColor(0.7, 0.7, 0.7, 1.0);
 gl.enable(gl.DEPTH_TEST);
+let eraserIBO, eraserPosVBO;
+let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let boxWireVB, boxWireIB;
+let lineVP = mat4.create();
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([
+    0,1, 1,2, 2,3, 3,0,
+    4,5, 5,6, 6,7, 7,4,
+    0,4, 1,5, 2,6, 3,7
+]);
 gl.depthFunc(gl.LEQUAL);
 let ext = gl.getExtension("ANGLE_instanced_arrays");
 
@@ -139,14 +152,17 @@ let indeces = new Int16Array([
     12, 15, 14, 12, 14, 13,
     16, 17, 18, 16, 18, 19,
     20, 23, 22, 20, 22, 21 ]);
-gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+eraserIBO = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eraserIBO);
 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indeces, gl.STATIC_DRAW);
 let indexCount = indeces.length;
 
 let strides = [3, 3, 2];
 let vertices = [position, normal, textureCoords];
 for (let i = 0; i < strides.length; i++) {
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    let buf = gl.createBuffer();
+    if (i === 0) eraserPosVBO = buf;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, vertices[i], gl.STATIC_DRAW);
     gl.vertexAttribPointer(i, strides[i], gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(i);
@@ -187,6 +203,38 @@ img.onload = function(){
 img.src = "../../../../assets/textures/eraser_001/eraser.png";
 
 // physics
+(function() {
+    let viewMat = mat4.create();
+    mat4.lookAt(viewMat, [0.0, 0.0, 40.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+    mat4.multiply(lineVP, perspective(45, c.width / c.height, 0.1, 1000.0), viewMat);
+})();
+lineProgram = gl.createProgram();
+(function() {
+    let vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, document.getElementById('vs-line').textContent);
+    gl.compileShader(vs);
+    let fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, document.getElementById('fs-line').textContent);
+    gl.compileShader(fs);
+    gl.attachShader(lineProgram, vs);
+    gl.attachShader(lineProgram, fs);
+    gl.linkProgram(lineProgram);
+})();
+linePosLoc = gl.getAttribLocation(lineProgram, 'aPosition');
+lineVPLoc = gl.getUniformLocation(lineProgram, 'uViewProj');
+lineModelLoc = gl.getUniformLocation(lineProgram, 'uModel');
+lineColorLoc = gl.getUniformLocation(lineProgram, 'uColor');
+boxWireVB = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+gl.bufferData(gl.ARRAY_BUFFER, BOX_WIRE_VERTS, gl.STATIC_DRAW);
+boxWireIB = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, BOX_WIRE_INDICES, gl.STATIC_DRAW);
+gl.useProgram(p1);
+gl.bindBuffer(gl.ARRAY_BUFFER, eraserPosVBO);
+gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eraserIBO);
+
 let world = new OIMO.World();
 world.gravity = new OIMO.Vec3(0, -0.98, 0);
 
@@ -264,8 +312,32 @@ animate();
 (function () {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(p1);
-    //gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, max);
     ext.drawElementsInstancedANGLE(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, max);
+
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineVPLoc, false, lineVP);
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(linePosLoc);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    let wm = mat4.create();
+    let gp = ground.getPosition();
+    mat4.fromRotationTranslationScale(wm, [0,0,0,1], [gp.x, gp.y, gp.z], [13, 0.1, 13]);
+    gl.uniformMatrix4fv(lineModelLoc, false, wm);
+    gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
+    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
+    for (let i = 0; i < max; i++) {
+        let q = quat.fromValues(rotArray[i*4], rotArray[i*4+1], rotArray[i*4+2], rotArray[i*4+3]);
+        mat4.fromRotationTranslationScale(wm, q,
+            [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [2, 0.4, 1]);
+        gl.uniformMatrix4fv(lineModelLoc, false, wm);
+        gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    }
+    gl.useProgram(p1);
+    gl.bindBuffer(gl.ARRAY_BUFFER, eraserPosVBO);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eraserIBO);
 
     requestAnimationFrame(arguments.callee);
 })();

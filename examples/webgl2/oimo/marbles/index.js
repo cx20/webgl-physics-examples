@@ -20,6 +20,19 @@ let skyboxVbo;
 let world;
 const marbles = [];
 
+let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let boxWireVB, boxWireIB;
+let sphWireVB, sphWireIB, sphWireCount;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([
+    0,1, 1,2, 2,3, 3,0,
+    4,5, 5,6, 6,7, 7,4,
+    0,4, 1,5, 2,6, 3,7
+]);
+
 const projection = mat4.create();
 const view = mat4.create();
 const viewProj = mat4.create();
@@ -658,6 +671,29 @@ async function loadMarbleTemplates() {
     });
 }
 
+function buildSphereWire() {
+    const SEG = 32;
+    const verts = [];
+    const idx = [];
+    for (let ring = 0; ring < 3; ring++) {
+        const base = verts.length / 3;
+        for (let i = 0; i < SEG; i++) {
+            const a = (i / SEG) * Math.PI * 2;
+            if (ring === 0) verts.push(Math.cos(a), Math.sin(a), 0);
+            else if (ring === 1) verts.push(Math.cos(a), 0, Math.sin(a));
+            else verts.push(0, Math.cos(a), Math.sin(a));
+            idx.push(base + i, base + (i + 1) % SEG);
+        }
+    }
+    sphWireVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphWireVB);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    sphWireIB = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphWireIB);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+    sphWireCount = idx.length;
+}
+
 function resetBodyVelocity(body) {
     if (body.linearVelocity && body.linearVelocity.set) {
         body.linearVelocity.set(0, 0, 0);
@@ -702,7 +738,7 @@ function initPhysics(templates) {
             restitution: 0.3
         });
 
-        marbles.push({ body, primitives: template.primitives, scale: template.scale });
+        marbles.push({ body, primitives: template.primitives, scale: template.scale, radius: template.radius });
     }
 }
 
@@ -913,6 +949,31 @@ function render(timeMs) {
     drawGround();
     drawMarbles();
 
+    gl.bindVertexArray(null);
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineVPLoc, false, viewProj);
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(linePosLoc);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    const lineModel = mat4.create();
+    mat4.fromRotationTranslationScale(lineModel, quat.create(), [0, -5, 0], [80, 4, 80]);
+    gl.uniformMatrix4fv(lineModelLoc, false, lineModel);
+    gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
+    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphWireIB);
+    gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
+    for (const marble of marbles) {
+        const p = marble.body.getPosition();
+        const q = marble.body.getQuaternion();
+        const r = marble.radius * 2;
+        mat4.fromRotationTranslationScale(lineModel, quat.fromValues(q.x, q.y, q.z, q.w), [p.x, p.y, p.z], [r, r, r]);
+        gl.uniformMatrix4fv(lineModelLoc, false, lineModel);
+        gl.drawElements(gl.LINES, sphWireCount, gl.UNSIGNED_SHORT, 0);
+    }
+
     requestAnimationFrame(render);
 }
 
@@ -979,6 +1040,22 @@ async function main() {
 
     const templates = await loadMarbleTemplates();
     initPhysics(templates);
+
+    lineProgram = createProgram(
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    linePosLoc = gl.getAttribLocation(lineProgram, 'aPosition');
+    lineVPLoc = gl.getUniformLocation(lineProgram, 'uViewProj');
+    lineModelLoc = gl.getUniformLocation(lineProgram, 'uModel');
+    lineColorLoc = gl.getUniformLocation(lineProgram, 'uColor');
+    boxWireVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.bufferData(gl.ARRAY_BUFFER, BOX_WIRE_VERTS, gl.STATIC_DRAW);
+    boxWireIB = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, BOX_WIRE_INDICES, gl.STATIC_DRAW);
+    buildSphereWire();
 
     requestAnimationFrame(render);
 

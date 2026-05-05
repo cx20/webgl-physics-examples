@@ -47,6 +47,19 @@ let projection = mat4.create();
 let view = mat4.create();
 let model = mat4.create();
 
+let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let boxWireVB, boxWireIB;
+let sphWireVB, sphWireIB, sphWireCount;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([
+    0,1, 1,2, 2,3, 3,0,
+    4,5, 5,6, 6,7, 7,4,
+    0,4, 1,5, 2,6, 3,7
+]);
+
 function resize() {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.floor(window.innerWidth * dpr);
@@ -275,6 +288,29 @@ function getTintColor(code) {
     return colorHash[code] || [1.0, 1.0, 1.0];
 }
 
+function buildSphereWire() {
+    const SEG = 32;
+    const verts = [];
+    const idx = [];
+    for (let ring = 0; ring < 3; ring++) {
+        const base = verts.length / 3;
+        for (let i = 0; i < SEG; i++) {
+            const a = (i / SEG) * Math.PI * 2;
+            if (ring === 0) verts.push(Math.cos(a), Math.sin(a), 0);
+            else if (ring === 1) verts.push(Math.cos(a), 0, Math.sin(a));
+            else verts.push(0, Math.cos(a), Math.sin(a));
+            idx.push(base + i, base + (i + 1) % SEG);
+        }
+    }
+    sphWireVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphWireVB);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    sphWireIB = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphWireIB);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+    sphWireCount = idx.length;
+}
+
 function initPhysics() {
     world = new OIMO.World({
         timestep: 1 / 60,
@@ -369,6 +405,30 @@ function render(timeMs) {
         drawMesh(sphereMesh, textures[item.textureIndex], item.tint, model);
     }
 
+    gl.bindVertexArray(null);
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineVPLoc, false, viewProj);
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(linePosLoc);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    const wm = mat4.create();
+    mat4.fromRotationTranslationScale(wm, quat.create(), ground.pos, ground.size);
+    gl.uniformMatrix4fv(lineModelLoc, false, wm);
+    gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
+    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphWireIB);
+    gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
+    for (const item of balls) {
+        const p = item.body.getPosition();
+        const q = item.body.getQuaternion();
+        mat4.fromRotationTranslationScale(wm, quat.fromValues(q.x, q.y, q.z, q.w), [p.x, p.y, p.z], [item.radius, item.radius, item.radius]);
+        gl.uniformMatrix4fv(lineModelLoc, false, wm);
+        gl.drawElements(gl.LINES, sphWireCount, gl.UNSIGNED_SHORT, 0);
+    }
+
     requestAnimationFrame(render);
 }
 
@@ -426,6 +486,24 @@ async function main() {
     groundTexture = await loadTexture(GROUND_TEXTURE_FILE);
 
     initPhysics();
+
+    lineProgram = createProgram(
+        gl,
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    linePosLoc = gl.getAttribLocation(lineProgram, 'aPosition');
+    lineVPLoc = gl.getUniformLocation(lineProgram, 'uViewProj');
+    lineModelLoc = gl.getUniformLocation(lineProgram, 'uModel');
+    lineColorLoc = gl.getUniformLocation(lineProgram, 'uColor');
+    boxWireVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.bufferData(gl.ARRAY_BUFFER, BOX_WIRE_VERTS, gl.STATIC_DRAW);
+    boxWireIB = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, BOX_WIRE_INDICES, gl.STATIC_DRAW);
+    buildSphereWire();
+
     requestAnimationFrame(render);
 }
 

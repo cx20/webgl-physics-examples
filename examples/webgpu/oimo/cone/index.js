@@ -31,6 +31,36 @@ const view = mat4.create();
 const model = mat4.create();
 const rotationIdentity = quat.create();
 
+let linePipeline, lineVtxBuf, lineIdxBuf, cylWireVB, cylWireIB, cylWireCount, lineUniformBuf, lineBG;
+const LINE_STRUCT_SIZE = 144, LINE_ALIGN = 256;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]);
+const LINE_MAX = 165; // 1 ground + 4 walls + 160 cones
+const lineUniformData = new Float32Array(LINE_ALIGN / 4 * LINE_MAX);
+
+function buildCylWire() {
+    const SEG = 16; const verts = []; const idx = [];
+    for (let cap = 0; cap < 2; cap++) {
+        const y = cap === 0 ? -0.5 : 0.5; const base = verts.length / 3;
+        for (let i = 0; i < SEG; i++) {
+            const a = (i / SEG) * Math.PI * 2;
+            verts.push(Math.cos(a), y, Math.sin(a));
+            idx.push(base + i, base + (i + 1) % SEG);
+        }
+    }
+    idx.push(0, SEG, SEG/4, SEG+SEG/4, SEG/2, SEG+SEG/2, 3*SEG/4, SEG+3*SEG/4);
+    const vd = new Float32Array(verts);
+    const id = new Uint16Array(idx);
+    cylWireVB = device.createBuffer({ size: vd.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(cylWireVB, 0, vd);
+    cylWireIB = device.createBuffer({ size: id.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(cylWireIB, 0, id);
+    cylWireCount = idx.length;
+}
+
 function generateCubeMesh() {
     const p = [
         -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5,
@@ -326,6 +356,8 @@ function render(timeMs) {
     mat4.fromRotationTranslationScale(model, rotationIdentity, ground.pos, ground.size);
     writeUniforms(staticRenderItems[0].uniformBuffer, [0.22, 0.22, 0.24, 1.0]);
     drawMesh(pass, cubeMesh, staticRenderItems[0].bindGroup);
+    lineUniformData.set(viewProj, 0); lineUniformData.set(model, 16);
+    lineUniformData[32]=0; lineUniformData[33]=1; lineUniformData[34]=0; lineUniformData[35]=1;
 
     for (let i = 0; i < cones.length; i++) {
         const item = cones[i];
@@ -338,6 +370,9 @@ function render(timeMs) {
         mat4.fromRotationTranslationScale(model, rotation, tr, s);
         writeUniforms(renderItem.uniformBuffer, [1, 1, 1, 1.0]);
         drawMesh(pass, coneMesh, renderItem.bindGroup);
+        const base = (5 + i) * (LINE_ALIGN / 4);
+        lineUniformData.set(viewProj, base); lineUniformData.set(model, base + 16);
+        lineUniformData[base+32]=1; lineUniformData[base+33]=1; lineUniformData[base+34]=0; lineUniformData[base+35]=1;
     }
 
     for (let i = 0; i < basketWalls.length; i++) {
@@ -347,6 +382,24 @@ function render(timeMs) {
         mat4.fromRotationTranslationScale(model, rotationIdentity, wallPos, wall.size);
         writeUniforms(renderItem.uniformBuffer, [0.25, 0.28, 0.3, 0.28]);
         drawMesh(pass, cubeMesh, renderItem.bindGroup);
+        const base = (1 + i) * (LINE_ALIGN / 4);
+        lineUniformData.set(viewProj, base); lineUniformData.set(model, base + 16);
+        lineUniformData[base+32]=0; lineUniformData[base+33]=1; lineUniformData[base+34]=0; lineUniformData[base+35]=1;
+    }
+
+    device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+    pass.setPipeline(linePipeline);
+    pass.setVertexBuffer(0, lineVtxBuf);
+    pass.setIndexBuffer(lineIdxBuf, 'uint16');
+    for (let i = 0; i < 5; i++) {
+        pass.setBindGroup(0, lineBG, [i * LINE_ALIGN]);
+        pass.drawIndexed(24);
+    }
+    pass.setVertexBuffer(0, cylWireVB);
+    pass.setIndexBuffer(cylWireIB, 'uint16');
+    for (let i = 0; i < cones.length; i++) {
+        pass.setBindGroup(0, lineBG, [(5 + i) * LINE_ALIGN]);
+        pass.drawIndexed(cylWireCount);
     }
 
     pass.end();
@@ -425,6 +478,31 @@ async function main() {
 
     initPhysics();
     initRenderItems();
+
+    lineVtxBuf = device.createBuffer({ size: BOX_WIRE_VERTS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineVtxBuf, 0, BOX_WIRE_VERTS);
+    lineIdxBuf = device.createBuffer({ size: BOX_WIRE_INDICES.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineIdxBuf, 0, BOX_WIRE_INDICES);
+    lineUniformBuf = device.createBuffer({ size: LINE_ALIGN * LINE_MAX, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const lineBGLayout = device.createBindGroupLayout({
+        entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE } }]
+    });
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGLayout] }),
+        vertex: { module: device.createShaderModule({ code: document.getElementById('vs-line').textContent }),
+            entryPoint: 'main', buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }] },
+        fragment: { module: device.createShaderModule({ code: document.getElementById('fs-line').textContent }),
+            entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' }
+    });
+    lineBG = device.createBindGroup({
+        layout: lineBGLayout,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuf, size: LINE_STRUCT_SIZE } }]
+    });
+    buildCylWire();
+
     requestAnimationFrame(render);
 }
 

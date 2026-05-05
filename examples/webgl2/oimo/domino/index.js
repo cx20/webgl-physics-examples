@@ -57,6 +57,20 @@ gl.clearColor(0.05, 0.05, 0.1, 1.0);
 gl.enable(gl.DEPTH_TEST);
 gl.depthFunc(gl.LEQUAL);
 
+let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let boxWireVB, boxWireIB;
+let dominoPosVBO;
+let lineVP = mat4.create();
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([
+    0,1, 1,2, 2,3, 3,0,
+    4,5, 5,6, 6,7, 7,4,
+    0,4, 1,5, 2,6, 3,7
+]);
+
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
@@ -100,6 +114,11 @@ gl.uniformMatrix4fv(
     false,
     perspective(45, canvas.width / canvas.height, 0.1, 200)
 );
+(function() {
+    let viewMat = mat4.create();
+    mat4.lookAt(viewMat, [60, 50, 0], [0, 0, 0], [0, 1, 0]);
+    mat4.multiply(lineVP, perspective(45, canvas.width / canvas.height, 0.1, 200), viewMat);
+})();
 
 // --- Geometry (box) ---
 let bw = 1, bh = 2, bd = 0.3;
@@ -139,6 +158,7 @@ let aCol      = gl.getAttribLocation(program, 'col');
 // Per-vertex buffers
 for (let i = 0; i < 2; i++) {
     let buf = gl.createBuffer();
+    if (i === 0) dominoPosVBO = buf;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, [position, normal][i], gl.STATIC_DRAW);
     let loc = [aPosition, aNormal][i];
@@ -220,6 +240,33 @@ gl.bufferData(gl.ARRAY_BUFFER, colArray, gl.STATIC_DRAW);
 // Re-bind element array after color setup
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 
+lineProgram = gl.createProgram();
+(function() {
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, document.getElementById('vs-line').textContent);
+    gl.compileShader(vs);
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, document.getElementById('fs-line').textContent);
+    gl.compileShader(fs);
+    gl.attachShader(lineProgram, vs);
+    gl.attachShader(lineProgram, fs);
+    gl.linkProgram(lineProgram);
+})();
+linePosLoc = gl.getAttribLocation(lineProgram, 'aPosition');
+lineVPLoc = gl.getUniformLocation(lineProgram, 'uViewProj');
+lineModelLoc = gl.getUniformLocation(lineProgram, 'uModel');
+lineColorLoc = gl.getUniformLocation(lineProgram, 'uColor');
+boxWireVB = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+gl.bufferData(gl.ARRAY_BUFFER, BOX_WIRE_VERTS, gl.STATIC_DRAW);
+boxWireIB = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, BOX_WIRE_INDICES, gl.STATIC_DRAW);
+gl.useProgram(program);
+gl.bindBuffer(gl.ARRAY_BUFFER, dominoPosVBO);
+gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
 function uploadInstanceData() {
     let pIdx = 0, qIdx = 0;
     for (let i = 0; i < number; i++) {
@@ -261,5 +308,29 @@ setInterval(function () {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 
     gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, number);
+
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineVPLoc, false, lineVP);
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(linePosLoc);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    const wm = mat4.create();
+    mat4.fromRotationTranslationScale(wm, quat.create(), [0, -0.1, 0], [100, 0.2, 100]);
+    gl.uniformMatrix4fv(lineModelLoc, false, wm);
+    gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
+    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
+    for (let i = 0; i < number; i++) {
+        const q = quat.fromValues(quatArray[i*4], quatArray[i*4+1], quatArray[i*4+2], quatArray[i*4+3]);
+        mat4.fromRotationTranslationScale(wm, q, [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [bw*2, bh*2, bd*2]);
+        gl.uniformMatrix4fv(lineModelLoc, false, wm);
+        gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    }
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, dominoPosVBO);
+    gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
     requestAnimationFrame(render);
 })();

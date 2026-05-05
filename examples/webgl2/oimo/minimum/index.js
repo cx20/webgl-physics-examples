@@ -2,6 +2,18 @@ let canvas;
 let gl;
 let attributeLocations = [];
 let uniformLocations = [];
+let mainProgram;
+let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let boxWireVB, boxWireIB;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([
+    0,1, 1,2, 2,3, 3,0,
+    4,5, 5,6, 6,7, 7,4,
+    0,4, 1,5, 2,6, 3,7
+]);
 
 let modelViewMatrix;
 let projectionMatrix;
@@ -73,20 +85,20 @@ function createShader(type, source) {
 }
 
 function initShaders() {
-    const program = gl.createProgram();
+    mainProgram = gl.createProgram();
     const vertexShader = createShader(gl.VERTEX_SHADER, document.getElementById('vs').textContent);
     const fragmentShader = createShader(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent);
 
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    gl.useProgram(program);
+    gl.attachShader(mainProgram, vertexShader);
+    gl.attachShader(mainProgram, fragmentShader);
+    gl.linkProgram(mainProgram);
+    gl.useProgram(mainProgram);
 
-    attributeLocations[0] = gl.getAttribLocation(program, 'position');
-    attributeLocations[1] = gl.getAttribLocation(program, 'textureCoord');
-    uniformLocations[0] = gl.getUniformLocation(program, 'pjMatrix');
-    uniformLocations[1] = gl.getUniformLocation(program, 'mvMatrix');
-    uniformLocations[2] = gl.getUniformLocation(program, 'textureSampler');
+    attributeLocations[0] = gl.getAttribLocation(mainProgram, 'position');
+    attributeLocations[1] = gl.getAttribLocation(mainProgram, 'textureCoord');
+    uniformLocations[0] = gl.getUniformLocation(mainProgram, 'pjMatrix');
+    uniformLocations[1] = gl.getUniformLocation(mainProgram, 'mvMatrix');
+    uniformLocations[2] = gl.getUniformLocation(mainProgram, 'textureSampler');
 
     gl.enableVertexAttribArray(attributeLocations[0]);
     gl.enableVertexAttribArray(attributeLocations[1]);
@@ -241,6 +253,32 @@ function draw() {
     drawBody(groundBody, [4, 0.1, 4]);
     drawBody(boxBody, [1, 1, 1]);
 
+    const wm = mat4.create();
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineVPLoc, false, projectionMatrix);
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(linePosLoc);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    const gp = groundBody.getPosition();
+    const gr = groundBody.getQuaternion();
+    mat4.fromRotationTranslationScale(wm, quat.fromValues(gr.x, gr.y, gr.z, gr.w), [gp.x, gp.y, gp.z], [4, 0.1, 4]);
+    gl.uniformMatrix4fv(lineModelLoc, false, wm);
+    gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
+    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    const bp = boxBody.getPosition();
+    const br = boxBody.getQuaternion();
+    mat4.fromRotationTranslationScale(wm, quat.fromValues(br.x, br.y, br.z, br.w), [bp.x, bp.y, bp.z], [1, 1, 1]);
+    gl.uniformMatrix4fv(lineModelLoc, false, wm);
+    gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
+    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    gl.useProgram(mainProgram);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+    gl.vertexAttribPointer(attributeLocations[0], 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, coordBuffer);
+    gl.vertexAttribPointer(attributeLocations[1], 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertexIndexBuffer);
+
     gl.flush();
 }
 
@@ -255,4 +293,34 @@ initShaders();
 initBuffers();
 addGround();
 addBox();
+
+lineProgram = gl.createProgram();
+(function() {
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, document.getElementById('vs-line').textContent);
+    gl.compileShader(vs);
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, document.getElementById('fs-line').textContent);
+    gl.compileShader(fs);
+    gl.attachShader(lineProgram, vs);
+    gl.attachShader(lineProgram, fs);
+    gl.linkProgram(lineProgram);
+})();
+linePosLoc = gl.getAttribLocation(lineProgram, 'aPosition');
+lineVPLoc = gl.getUniformLocation(lineProgram, 'uViewProj');
+lineModelLoc = gl.getUniformLocation(lineProgram, 'uModel');
+lineColorLoc = gl.getUniformLocation(lineProgram, 'uColor');
+boxWireVB = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+gl.bufferData(gl.ARRAY_BUFFER, BOX_WIRE_VERTS, gl.STATIC_DRAW);
+boxWireIB = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, BOX_WIRE_INDICES, gl.STATIC_DRAW);
+gl.useProgram(mainProgram);
+gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+gl.vertexAttribPointer(attributeLocations[0], 3, gl.FLOAT, false, 0, 0);
+gl.bindBuffer(gl.ARRAY_BUFFER, coordBuffer);
+gl.vertexAttribPointer(attributeLocations[1], 2, gl.FLOAT, false, 0, 0);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertexIndexBuffer);
+
 animate();
