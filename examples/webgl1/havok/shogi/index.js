@@ -1,7 +1,7 @@
 const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 let c = document.getElementById("c");
 let gl = c.getContext("experimental-webgl");
-const SHOW_DEBUG_WIREFRAME = false;
+const SHOW_DEBUG_WIREFRAME = true;
 gl.clearColor(0.0, 0.0, 0.0, 1.0);
 gl.enable(gl.DEPTH_TEST);
 gl.depthFunc(gl.LEQUAL);

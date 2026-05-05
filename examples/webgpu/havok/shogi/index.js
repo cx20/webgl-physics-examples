@@ -14,12 +14,37 @@ const IDENTITY_QUATERNION = [0, 0, 0, 1];
 let HK, worldId, bodies;
 let posArray, rotArray;
 
+const LINE_ALIGN = 256;
+const LINE_STRUCT_SIZE = 144;
+const SHOGI_VMAT = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-40,1]);
+let currentPMatrix = null;
+
+let linePipeline;
+let debugBoxVertexBuffer;
+let debugBoxIndexBuffer;
+let debugBoxIndexCount = 0;
+let lineUniformBuffer;
+let lineBindGroup;
+let lineUniformData;
+let shogiLineModel = null;
+
 const MAX = 300;
+const NUM_LINE_OBJECTS = MAX + 1;
 const DOT_SIZE = 2;
 const pw = DOT_SIZE * 0.8 * 1.0;
 const ph = DOT_SIZE * 0.8 * 1.0;
 const pd = DOT_SIZE * 0.8 * 0.2;
 const SHOGI_PHYSICS_SIZE = [pw, ph * 1.2, pd * 1.4];
+
+function setLineSlot(slotIndex, vpMatrix, modelMat, r, g, b, a) {
+    const base = slotIndex * (LINE_ALIGN / 4);
+    lineUniformData.set(vpMatrix, base);
+    lineUniformData.set(modelMat, base + 16);
+    lineUniformData[base + 32] = r;
+    lineUniformData[base + 33] = g;
+    lineUniformData[base + 34] = b;
+    lineUniformData[base + 35] = a;
+}
 
 function enumToNumber(value) {
     if (typeof value === 'number') {
@@ -114,8 +139,8 @@ async function init() {
         canvas.height = window.innerHeight;
         depthTexture.destroy();
         depthTexture = createDepthTexture();
-        const pMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 1000.0);
-        device.queue.writeBuffer(uniformBuffer, 0, pMatrix);
+        currentPMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 1000.0);
+        device.queue.writeBuffer(uniformBuffer, 0, currentPMatrix);
     });
 
     const gpu = navigator['gpu'];
@@ -290,8 +315,8 @@ async function init() {
         size: 64,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    const pMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 1000.0);
-    device.queue.writeBuffer(uniformBuffer, 0, pMatrix);
+    currentPMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 1000.0);
+    device.queue.writeBuffer(uniformBuffer, 0, currentPMatrix);
 
     // Texture
     const shogiTexture = await createTextureFromImage('../../../../assets/textures/shogi_001/shogi.png');
@@ -423,6 +448,46 @@ async function init() {
         bodies[i] = createBody(shogiShapeId, HK.MotionType.DYNAMIC, [p.x, p.y, p.z], IDENTITY_QUATERNION, true);
     }
 
+    const vsLine = device.createShaderModule({ code: document.getElementById('vs-line').textContent });
+    const fsLine = device.createShaderModule({ code: document.getElementById('fs-line').textContent });
+    const lineBGL = device.createBindGroupLayout({
+        entries: [{
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE }
+        }]
+    });
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGL] }),
+        vertex: {
+            module: vsLine,
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }]
+        },
+        fragment: { module: fsLine, entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less-equal' }
+    });
+
+    const boxLineVerts = new Float32Array([
+        -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,   0.5,  0.5, -0.5,  -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,   0.5,  0.5,  0.5,  -0.5,  0.5,  0.5
+    ]);
+    const boxLineIndices = new Uint16Array([0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]);
+    debugBoxIndexCount = boxLineIndices.length;
+    debugBoxVertexBuffer = device.createBuffer({ size: boxLineVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugBoxVertexBuffer, 0, boxLineVerts);
+    debugBoxIndexBuffer = device.createBuffer({ size: boxLineIndices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(debugBoxIndexBuffer, 0, boxLineIndices);
+
+    lineUniformBuffer = device.createBuffer({ size: NUM_LINE_OBJECTS * LINE_ALIGN, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    lineUniformData = new Float32Array(NUM_LINE_OBJECTS * LINE_ALIGN / 4);
+    lineBindGroup = device.createBindGroup({
+        layout: lineBGL,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuffer, size: LINE_STRUCT_SIZE } }]
+    });
+    shogiLineModel = mat4.create();
+
     updateInstanceArrays();
 
     setInterval(function () {
@@ -547,6 +612,21 @@ function render() {
     device.queue.writeBuffer(offsetBuffer, 0, posArray);
     device.queue.writeBuffer(rotBuffer,    0, rotArray);
 
+    if (currentPMatrix && shogiLineModel) {
+        const lineViewProj = mat4mul(currentPMatrix, SHOGI_VMAT);
+        mat4.fromRotationTranslation(shogiLineModel, IDENTITY_QUATERNION, [0, -10, 0]);
+        mat4.scale(shogiLineModel, shogiLineModel, [13, 0.1, 13]);
+        setLineSlot(0, lineViewProj, shogiLineModel, 0, 1, 0, 1);
+        for (let i = 0; i < MAX; i++) {
+            const pos = [posArray[i*3], posArray[i*3+1], posArray[i*3+2]];
+            const rot = [rotArray[i*4], rotArray[i*4+1], rotArray[i*4+2], rotArray[i*4+3]];
+            mat4.fromRotationTranslation(shogiLineModel, rot, pos);
+            mat4.scale(shogiLineModel, shogiLineModel, SHOGI_PHYSICS_SIZE);
+            setLineSlot(i + 1, lineViewProj, shogiLineModel, 1, 1, 0, 1);
+        }
+        device.queue.writeBuffer(lineUniformBuffer, 0, lineUniformData);
+    }
+
     const textureView = ctx.getCurrentTexture().createView();
     const commandEncoder = device.createCommandEncoder();
     const passEncoder = commandEncoder.beginRenderPass({
@@ -584,6 +664,16 @@ function render() {
     passEncoder.setIndexBuffer(indexBuffer, 'uint16');
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.drawIndexed(indexNum, MAX, 0, 0, 0);
+
+    if (linePipeline) {
+        passEncoder.setPipeline(linePipeline);
+        passEncoder.setVertexBuffer(0, debugBoxVertexBuffer);
+        passEncoder.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
+        for (let i = 0; i < NUM_LINE_OBJECTS; i++) {
+            passEncoder.setBindGroup(0, lineBindGroup, [i * LINE_ALIGN]);
+            passEncoder.drawIndexed(debugBoxIndexCount);
+        }
+    }
 
     passEncoder.end();
     device.queue.submit([commandEncoder.finish()]);

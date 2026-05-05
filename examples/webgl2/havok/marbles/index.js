@@ -32,6 +32,12 @@ let groundMesh;
 let groundTexture;
 let envCubeTexture = null;
 
+let lineProgram;
+let lineAttribs;
+let lineUniforms;
+let debugBoxMesh;
+let debugSphereMesh;
+
 function rand(min, max) {
     return min + Math.random() * (max - min);
 }
@@ -661,6 +667,85 @@ async function loadMarbleTemplates() {
     });
 }
 
+function createDebugWireframeBoxMesh() {
+    const positions = new Float32Array([
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5,  0.5, -0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5
+    ]);
+    const indices = new Uint16Array([
+        0,1, 1,2, 2,3, 3,0,
+        4,5, 5,6, 6,7, 7,4,
+        0,4, 1,5, 2,6, 3,7
+    ]);
+    const meshVao = gl.createVertexArray();
+    gl.bindVertexArray(meshVao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao: meshVao, count: indices.length };
+}
+
+function createDebugWireframeSphereMesh() {
+    const SEG = 32;
+    const positions = [];
+    for (let i = 0; i < SEG; i++) {
+        const a0 = (i / SEG) * Math.PI * 2;
+        const a1 = ((i + 1) / SEG) * Math.PI * 2;
+        const c0 = Math.cos(a0), s0 = Math.sin(a0);
+        const c1 = Math.cos(a1), s1 = Math.sin(a1);
+        positions.push(c0, s0, 0,  c1, s1, 0);
+        positions.push(0, s0, c0,  0, s1, c1);
+        positions.push(c0, 0, s0,  c1, 0, s1);
+    }
+    const posFloat = new Float32Array(positions);
+    const meshVao = gl.createVertexArray();
+    gl.bindVertexArray(meshVao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, posFloat, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    return { vao: meshVao, count: posFloat.length / 3 };
+}
+
+function drawPhysicsDebug() {
+    const model = mat4.create();
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineUniforms.viewProj, false, viewProj);
+
+    gl.bindVertexArray(debugBoxMesh.vao);
+    gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
+    mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -5, 0], [80, 4, 80]);
+    gl.uniformMatrix4fv(lineUniforms.model, false, model);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    gl.bindVertexArray(null);
+
+    gl.bindVertexArray(debugSphereMesh.vao);
+    gl.uniform4f(lineUniforms.color, 1, 1, 0, 1);
+    for (const marble of marbles) {
+        const pResult = HK.HP_Body_GetPosition(marble.body);
+        const qResult = HK.HP_Body_GetOrientation(marble.body);
+        const r = marble.radius;
+        mat4.fromRotationTranslationScale(model, qResult[1], pResult[1], [r, r, r]);
+        gl.uniformMatrix4fv(lineUniforms.model, false, model);
+        gl.drawArrays(gl.LINES, 0, debugSphereMesh.count);
+    }
+    gl.bindVertexArray(null);
+}
+
 function resetBodyVelocity(body) {
     checkResult(HK.HP_Body_SetLinearVelocity(body, [0, 0, 0]), 'HP_Body_SetLinearVelocity');
     checkResult(HK.HP_Body_SetAngularVelocity(body, [0, 0, 0]), 'HP_Body_SetAngularVelocity');
@@ -780,7 +865,7 @@ function initPhysics(templates) {
             true
         );
 
-        marbles.push({ body, primitives: template.primitives, scale: template.scale });
+        marbles.push({ body, primitives: template.primitives, scale: template.scale, radius: template.radius });
     }
 }
 
@@ -996,6 +1081,7 @@ function render(timeMs) {
 
     drawGround();
     drawMarbles();
+    drawPhysicsDebug();
 
     requestAnimationFrame(render);
 }
@@ -1043,6 +1129,21 @@ async function main() {
         metallic: gl.getUniformLocation(program, 'uMetallic'),
         roughness: gl.getUniformLocation(program, 'uRoughness')
     };
+
+    lineProgram = createProgram(
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    lineAttribs = {
+        position: gl.getAttribLocation(lineProgram, 'aPosition')
+    };
+    lineUniforms = {
+        viewProj: gl.getUniformLocation(lineProgram, 'uViewProj'),
+        model: gl.getUniformLocation(lineProgram, 'uModel'),
+        color: gl.getUniformLocation(lineProgram, 'uColor')
+    };
+    debugBoxMesh = createDebugWireframeBoxMesh();
+    debugSphereMesh = createDebugWireframeSphereMesh();
 
     resize();
     window.addEventListener('resize', resize);

@@ -20,6 +20,12 @@ let skyboxAttribs;
 let skyboxUniforms;
 let skyboxVbo;
 
+let lineProgram;
+let lineAttribs;
+let lineUniforms;
+let debugBoxMesh;
+let debugSphereMesh;
+
 let HK;
 let worldId;
 const marbles = [];
@@ -32,6 +38,92 @@ const viewNoTranslation = mat4.create();
 let groundMesh;
 let groundTexture;
 let envCubeTexture = null;
+
+function createDebugWireframeBoxMesh() {
+    const positions = new Float32Array([
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5,  0.5, -0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5,
+    ]);
+    const indices = new Uint16Array([
+        0, 1, 1, 2, 2, 3, 3, 0,
+        4, 5, 5, 6, 6, 7, 7, 4,
+        0, 4, 1, 5, 2, 6, 3, 7
+    ]);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    return { vbo, ibo, count: indices.length };
+}
+
+function createDebugWireframeSphereMesh() {
+    const SEG = 32;
+    const positions = [];
+    for (let i = 0; i < SEG; i++) {
+        const a = (i / SEG) * Math.PI * 2;
+        positions.push(Math.cos(a), Math.sin(a), 0);
+    }
+    for (let i = 0; i < SEG; i++) {
+        const a = (i / SEG) * Math.PI * 2;
+        positions.push(0, Math.sin(a), Math.cos(a));
+    }
+    for (let i = 0; i < SEG; i++) {
+        const a = (i / SEG) * Math.PI * 2;
+        positions.push(Math.cos(a), 0, Math.sin(a));
+    }
+    const indices = [];
+    for (let ring = 0; ring < 3; ring++) {
+        const base = ring * SEG;
+        for (let i = 0; i < SEG; i++) {
+            indices.push(base + i, base + (i + 1) % SEG);
+        }
+    }
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    return { vbo, ibo, count: indices.length };
+}
+
+function drawPhysicsDebug() {
+    const model = mat4.create();
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineUniforms.viewProj, false, viewProj);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, debugBoxMesh.vbo);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugBoxMesh.ibo);
+
+    mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -5, 0], [80, 4, 80]);
+    gl.uniformMatrix4fv(lineUniforms.model, false, model);
+    gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
+    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, debugSphereMesh.vbo);
+    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugSphereMesh.ibo);
+    gl.uniform4fv(lineUniforms.color, [1.0, 1.0, 0.0, 1.0]);
+
+    for (const marble of marbles) {
+        const posResult = HK.HP_Body_GetPosition(marble.body);
+        checkResult(posResult[0], 'HP_Body_GetPosition debug');
+        const r = marble.radius;
+        mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, posResult[1], [r, r, r]);
+        gl.uniformMatrix4fv(lineUniforms.model, false, model);
+        gl.drawElements(gl.LINES, debugSphereMesh.count, gl.UNSIGNED_SHORT, 0);
+    }
+}
 
 function rand(min, max) {
     return min + Math.random() * (max - min);
@@ -1013,6 +1105,8 @@ function render(timeMs) {
     drawGround();
     drawMarbles();
 
+    drawPhysicsDebug();
+
     requestAnimationFrame(render);
 }
 
@@ -1028,6 +1122,19 @@ async function main() {
     const vsSource = document.getElementById('vs').textContent;
     const fsSource = document.getElementById('fs').textContent;
     program = createProgram(vsSource, fsSource);
+
+    lineProgram = createProgram(
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    lineAttribs = { position: gl.getAttribLocation(lineProgram, 'aPosition') };
+    lineUniforms = {
+        viewProj: gl.getUniformLocation(lineProgram, 'uViewProj'),
+        model: gl.getUniformLocation(lineProgram, 'uModel'),
+        color: gl.getUniformLocation(lineProgram, 'uColor')
+    };
+    debugBoxMesh = createDebugWireframeBoxMesh();
+    debugSphereMesh = createDebugWireframeSphereMesh();
 
     attribs = {
         position: gl.getAttribLocation(program, 'aPosition'),
