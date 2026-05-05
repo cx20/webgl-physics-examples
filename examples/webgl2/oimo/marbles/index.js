@@ -968,7 +968,7 @@ function render(timeMs) {
     for (const marble of marbles) {
         const p = marble.body.getPosition();
         const q = marble.body.getQuaternion();
-        const r = marble.radius * 2;
+        const r = marble.radius;
         mat4.fromRotationTranslationScale(lineModel, quat.fromValues(q.x, q.y, q.z, q.w), [p.x, p.y, p.z], [r, r, r]);
         gl.uniformMatrix4fv(lineModelLoc, false, lineModel);
         gl.drawElements(gl.LINES, sphWireCount, gl.UNSIGNED_SHORT, 0);
