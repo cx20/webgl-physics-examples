@@ -42,7 +42,33 @@ function registerPhysicsExtensions() {
 
     physicsExtensionsRegistered = true;
 }
+function setupPhysicsDebugWireframe(scene) {
+    if (!BABYLON.Debug || !BABYLON.Debug.PhysicsViewer) {
+        return;
+    }
 
+    const physicsViewer = new BABYLON.Debug.PhysicsViewer(scene);
+    const seenImpostors = new WeakSet();
+    const seenBodies = new WeakSet();
+
+    scene.registerBeforeRender(function () {
+        scene.meshes.forEach(function (mesh) {
+            if (!mesh) {
+                return;
+            }
+
+            if (mesh.physicsImpostor && !seenImpostors.has(mesh.physicsImpostor) && physicsViewer.showImpostor) {
+                physicsViewer.showImpostor(mesh.physicsImpostor, mesh);
+                seenImpostors.add(mesh.physicsImpostor);
+            }
+
+            if (mesh.physicsBody && !seenBodies.has(mesh.physicsBody) && physicsViewer.showBody) {
+                physicsViewer.showBody(mesh.physicsBody);
+                seenBodies.add(mesh.physicsBody);
+            }
+        });
+    });
+}
 async function init() {
     canvas = document.querySelector('#c');
     globalThis.HK = await HavokPhysics({
@@ -74,7 +100,7 @@ async function createScene() {
 
     const hk = new BABYLON.HavokPlugin();
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), hk);
-
+    setupPhysicsDebugWireframe(scene);
     const camera = new BABYLON.ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 2.2, 15, new BABYLON.Vector3(0, 0, 0), scene);
     camera.attachControl(canvas, true);
     camera.wheelDeltaPercentage = 0.005;

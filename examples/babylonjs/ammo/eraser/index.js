@@ -1,11 +1,37 @@
-﻿let engine;
+let engine;
 let scene;
 let canvas;
 // to go quicker
 const v3 = BABYLON.Vector3;
 const FPS = 60;    // default is 60 FPS
 const PHYSICS_SCALE = 1/10;
+function setupPhysicsDebugWireframe(scene) {
+    if (!BABYLON.Debug || !BABYLON.Debug.PhysicsViewer) {
+        return;
+    }
 
+    const physicsViewer = new BABYLON.Debug.PhysicsViewer(scene);
+    const seenImpostors = new WeakSet();
+    const seenBodies = new WeakSet();
+
+    scene.registerBeforeRender(function () {
+        scene.meshes.forEach(function (mesh) {
+            if (!mesh) {
+                return;
+            }
+
+            if (mesh.physicsImpostor && !seenImpostors.has(mesh.physicsImpostor) && physicsViewer.showImpostor) {
+                physicsViewer.showImpostor(mesh.physicsImpostor, mesh);
+                seenImpostors.add(mesh.physicsImpostor);
+            }
+
+            if (mesh.physicsBody && !seenBodies.has(mesh.physicsBody) && physicsViewer.showBody) {
+                physicsViewer.showBody(mesh.physicsBody);
+                seenBodies.add(mesh.physicsBody);
+            }
+        });
+    });
+}
 async function init() {
     canvas = document.querySelector("#c");
     engine = new BABYLON.Engine(canvas, true);
@@ -22,6 +48,7 @@ const createScene = function() {
 
     scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.AmmoJSPlugin());
+    setupPhysicsDebugWireframe(scene);
     scene.getPhysicsEngine().setTimeStep(scene.getAnimationRatio());
 
     const camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
