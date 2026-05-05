@@ -11,7 +11,7 @@ const DOT_ROWS = [
     '....nnppppnnnnr.',
     '......pppppppr..',
     '..rrrrrbrrrbr...',
-    '.rrrrrrrrbrrrb..n',
+    '.rrrrrrrbrrrb..n',
     'pprrrrrrbbbbb..n',
     'ppp.bbrbbybbybnn',
     '.p.nbbbbbbbbbbnn',
