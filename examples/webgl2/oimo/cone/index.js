@@ -25,6 +25,19 @@ let projection = mat4.create();
 let view = mat4.create();
 let model = mat4.create();
 
+let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let boxWireVB, boxWireIB;
+let cylWireVB, cylWireIB, cylWireCount;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([
+    0,1, 1,2, 2,3, 3,0,
+    4,5, 5,6, 6,7, 7,4,
+    0,4, 1,5, 2,6, 3,7
+]);
+
 function resize() {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.floor(window.innerWidth * dpr);
@@ -207,6 +220,29 @@ function generateConeMesh(segments) {
     };
 }
 
+function buildCylWire() {
+    const SEG = 16;
+    const verts = [];
+    const idx = [];
+    for (let cap = 0; cap < 2; cap++) {
+        const y = cap === 0 ? -0.5 : 0.5;
+        const base = verts.length / 3;
+        for (let i = 0; i < SEG; i++) {
+            const a = (i / SEG) * Math.PI * 2;
+            verts.push(Math.cos(a), y, Math.sin(a));
+            idx.push(base + i, base + (i + 1) % SEG);
+        }
+    }
+    idx.push(0, SEG, SEG / 4, SEG + SEG / 4, SEG / 2, SEG + SEG / 2, 3 * SEG / 4, SEG + 3 * SEG / 4);
+    cylWireVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, cylWireVB);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    cylWireIB = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cylWireIB);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+    cylWireCount = idx.length;
+}
+
 function initPhysics() {
     world = new OIMO.World({
         timestep: 1 / 60,
@@ -318,6 +354,35 @@ function render(timeMs) {
     gl.depthMask(true);
     gl.disable(gl.BLEND);
 
+    gl.bindVertexArray(null);
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineVPLoc, false, viewProj);
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(linePosLoc);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    const wm = mat4.create();
+    gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
+    mat4.fromRotationTranslationScale(wm, quat.create(), ground.pos, ground.size);
+    gl.uniformMatrix4fv(lineModelLoc, false, wm);
+    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    for (const wall of basketWalls) {
+        mat4.fromRotationTranslationScale(wm, quat.create(), wall.pos, wall.size);
+        gl.uniformMatrix4fv(lineModelLoc, false, wm);
+        gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, cylWireVB);
+    gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cylWireIB);
+    gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
+    for (const item of cones) {
+        const p = item.body.getPosition();
+        const q = item.body.getQuaternion();
+        mat4.fromRotationTranslationScale(wm, quat.fromValues(q.x, q.y, q.z, q.w), [p.x, p.y, p.z], [item.radius, item.height, item.radius]);
+        gl.uniformMatrix4fv(lineModelLoc, false, wm);
+        gl.drawElements(gl.LINES, cylWireCount, gl.UNSIGNED_SHORT, 0);
+    }
+
     requestAnimationFrame(render);
 }
 
@@ -361,6 +426,24 @@ async function main() {
     whiteTexture = createSolidTexture(255, 255, 255, 255);
 
     initPhysics();
+
+    lineProgram = createProgram(
+        gl,
+        document.getElementById('vs-line').textContent,
+        document.getElementById('fs-line').textContent
+    );
+    linePosLoc = gl.getAttribLocation(lineProgram, 'aPosition');
+    lineVPLoc = gl.getUniformLocation(lineProgram, 'uViewProj');
+    lineModelLoc = gl.getUniformLocation(lineProgram, 'uModel');
+    lineColorLoc = gl.getUniformLocation(lineProgram, 'uColor');
+    boxWireVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, boxWireVB);
+    gl.bufferData(gl.ARRAY_BUFFER, BOX_WIRE_VERTS, gl.STATIC_DRAW);
+    boxWireIB = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, BOX_WIRE_INDICES, gl.STATIC_DRAW);
+    buildCylWire();
+
     requestAnimationFrame(render);
 }
 

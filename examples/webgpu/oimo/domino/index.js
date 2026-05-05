@@ -61,6 +61,44 @@ let depthTexture;
 let world, bodys;
 let posArray, quatArray;
 
+let linePipeline, lineVtxBuf, lineIdxBuf, lineUniformBuf, lineBG;
+const LINE_STRUCT_SIZE = 144, LINE_ALIGN = 256;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]);
+const LINE_MAX = 257;
+const lineUniformData = new Float32Array(LINE_ALIGN / 4 * LINE_MAX);
+const lineModelTmp = new Float32Array(16);
+// View matrix for lookAt(60,50,0 -> 0,0,0): column-major
+const DOMINO_VIEW = new Float32Array([
+    0, -0.6401844, 0.7682213, 0,
+    0,  0.7682213, 0.6401844, 0,
+   -1,  0,         0,         0,
+    0,  0,        -78.10247,  1
+]);
+let lineViewProj = new Float32Array(16);
+
+function computeLineViewProj(aspect) {
+    const p = makePerspective(45, aspect, 0.1, 200);
+    for (let c = 0; c < 4; c++)
+        for (let row = 0; row < 4; row++) {
+            let s = 0;
+            for (let k = 0; k < 4; k++) s += p[k*4+row] * DOMINO_VIEW[c*4+k];
+            lineViewProj[c*4+row] = s;
+        }
+}
+
+function makeModelMatrix(out, px, py, pz, qx, qy, qz, qw, sx, sy, sz) {
+    const x2=qx+qx, y2=qy+qy, z2=qz+qz;
+    const xx=qx*x2, xy=qx*y2, xz=qx*z2, yy=qy*y2, yz=qy*z2, zz=qz*z2, wx=qw*x2, wy=qw*y2, wz=qw*z2;
+    out[0]=(1-(yy+zz))*sx; out[1]=(xy+wz)*sx;    out[2]=(xz-wy)*sx;    out[3]=0;
+    out[4]=(xy-wz)*sy;     out[5]=(1-(xx+zz))*sy; out[6]=(yz+wx)*sy;   out[7]=0;
+    out[8]=(xz+wy)*sz;     out[9]=(yz-wx)*sz;    out[10]=(1-(xx+yy))*sz; out[11]=0;
+    out[12]=px; out[13]=py; out[14]=pz; out[15]=1;
+}
+
 async function init() {
     canvas = document.getElementById('c');
     canvas.width  = window.innerWidth;
@@ -73,6 +111,7 @@ async function init() {
         depthTexture = createDepthTexture();
         const pMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 200);
         device.queue.writeBuffer(uniformBuffer, 0, pMatrix);
+        computeLineViewProj(canvas.width / canvas.height);
     });
 
     const gpu = navigator['gpu'];
@@ -141,6 +180,7 @@ async function init() {
     });
     const pMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 200);
     device.queue.writeBuffer(uniformBuffer, 0, pMatrix);
+    computeLineViewProj(canvas.width / canvas.height);
 
     // --- Pipeline ---
     const vModule = device.createShaderModule({ code: document.getElementById('vs').textContent });
@@ -224,6 +264,29 @@ async function init() {
         world.step();
         uploadInstanceData();
     }, 1000 / 60);
+
+    lineVtxBuf = device.createBuffer({ size: BOX_WIRE_VERTS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineVtxBuf, 0, BOX_WIRE_VERTS);
+    lineIdxBuf = device.createBuffer({ size: BOX_WIRE_INDICES.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineIdxBuf, 0, BOX_WIRE_INDICES);
+    lineUniformBuf = device.createBuffer({ size: LINE_ALIGN * LINE_MAX, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const lineBGLayout = device.createBindGroupLayout({
+        entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE } }]
+    });
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGLayout] }),
+        vertex: { module: device.createShaderModule({ code: document.getElementById('vs-line').textContent }),
+            entryPoint: 'main', buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }] },
+        fragment: { module: device.createShaderModule({ code: document.getElementById('fs-line').textContent }),
+            entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+    });
+    lineBG = device.createBindGroup({
+        layout: lineBGLayout,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuf, size: LINE_STRUCT_SIZE } }]
+    });
 
     requestAnimationFrame(render);
 }
@@ -320,6 +383,26 @@ function render() {
     passEncoder.setIndexBuffer(indexBuf, 'uint16');
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.drawIndexed(indexCount, NUMBER, 0, 0, 0);
+
+    makeModelMatrix(lineModelTmp, 0, -0.1, 0, 0, 0, 0, 1, 100, 0.2, 100);
+    lineUniformData.set(lineViewProj, 0); lineUniformData.set(lineModelTmp, 16);
+    lineUniformData[32]=0; lineUniformData[33]=1; lineUniformData[34]=0; lineUniformData[35]=1;
+    for (let i = 0; i < NUMBER; i++) {
+        const px=posArray[i*3], py=posArray[i*3+1], pz=posArray[i*3+2];
+        const qx=quatArray[i*4], qy=quatArray[i*4+1], qz=quatArray[i*4+2], qw=quatArray[i*4+3];
+        makeModelMatrix(lineModelTmp, px, py, pz, qx, qy, qz, qw, BW*2, BH*2, BD*2);
+        const base = (i + 1) * (LINE_ALIGN / 4);
+        lineUniformData.set(lineViewProj, base); lineUniformData.set(lineModelTmp, base + 16);
+        lineUniformData[base+32]=1; lineUniformData[base+33]=1; lineUniformData[base+34]=0; lineUniformData[base+35]=1;
+    }
+    device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+    passEncoder.setPipeline(linePipeline);
+    passEncoder.setVertexBuffer(0, lineVtxBuf);
+    passEncoder.setIndexBuffer(lineIdxBuf, 'uint16');
+    for (let i = 0; i < LINE_MAX; i++) {
+        passEncoder.setBindGroup(0, lineBG, [i * LINE_ALIGN]);
+        passEncoder.drawIndexed(24);
+    }
 
     passEncoder.end();
     device.queue.submit([commandEncoder.finish()]);

@@ -19,6 +19,15 @@ let world;
 let groundBody;
 let boxBody;
 let angle = 0;
+let format;
+let linePipeline, lineVtxBuf, lineIdxBuf, lineUniformBuf, lineBG;
+const LINE_STRUCT_SIZE = 144, LINE_ALIGN = 256;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]);
+const lineUniformData = new Float32Array(LINE_ALIGN / 4 * 2);
 
 async function init() {
     canvas = document.getElementById('c');
@@ -39,7 +48,7 @@ async function init() {
 
     // Setup context
     ctx = canvas.getContext('webgpu');
-    const format = gpu.getPreferredCanvasFormat();
+    format = gpu.getPreferredCanvasFormat();
     ctx.configure({
         device: device,
         format: format,
@@ -248,6 +257,30 @@ async function init() {
     addGround();
     addBox();
 
+    // Line pipeline for wireframe debug
+    lineVtxBuf = device.createBuffer({ size: BOX_WIRE_VERTS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineVtxBuf, 0, BOX_WIRE_VERTS);
+    lineIdxBuf = device.createBuffer({ size: BOX_WIRE_INDICES.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineIdxBuf, 0, BOX_WIRE_INDICES);
+    lineUniformBuf = device.createBuffer({ size: LINE_ALIGN * 2, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const lineBGLayout = device.createBindGroupLayout({
+        entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE } }]
+    });
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGLayout] }),
+        vertex: { module: device.createShaderModule({ code: document.getElementById('vs-line').textContent }),
+            entryPoint: 'main', buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }] },
+        fragment: { module: device.createShaderModule({ code: document.getElementById('fs-line').textContent }),
+            entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+    });
+    lineBG = device.createBindGroup({
+        layout: lineBGLayout,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuf, size: LINE_STRUCT_SIZE } }]
+    });
+
     // Start render loop
     requestAnimationFrame(render);
 }
@@ -417,6 +450,28 @@ async function render() {
 
         passEncoder.setBindGroup(0, boxBindGroup);
         passEncoder.drawIndexed(indexNum, 1, 0, 0, 0);
+
+        const lineVP = mat4.create();
+        mat4.multiply(lineVP, projectionMatrix, viewMatrix);
+        const gp = groundBody.getPosition(); const gr = groundBody.getQuaternion();
+        const gm = mat4.create();
+        mat4.fromRotationTranslationScale(gm, quat.fromValues(gr.x,gr.y,gr.z,gr.w), [gp.x,gp.y,gp.z], [4,0.1,4]);
+        lineUniformData.set(lineVP, 0); lineUniformData.set(gm, 16);
+        lineUniformData[32] = 0; lineUniformData[33] = 1; lineUniformData[34] = 0; lineUniformData[35] = 1;
+        const bp = boxBody.getPosition(); const bq = boxBody.getQuaternion();
+        const bm = mat4.create();
+        mat4.fromRotationTranslationScale(bm, quat.fromValues(bq.x,bq.y,bq.z,bq.w), [bp.x,bp.y,bp.z], [1,1,1]);
+        const s1 = LINE_ALIGN / 4;
+        lineUniformData.set(lineVP, s1); lineUniformData.set(bm, s1 + 16);
+        lineUniformData[s1+32] = 1; lineUniformData[s1+33] = 1; lineUniformData[s1+34] = 0; lineUniformData[s1+35] = 1;
+        device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+        passEncoder.setPipeline(linePipeline);
+        passEncoder.setVertexBuffer(0, lineVtxBuf);
+        passEncoder.setIndexBuffer(lineIdxBuf, 'uint16');
+        passEncoder.setBindGroup(0, lineBG, [0]);
+        passEncoder.drawIndexed(24);
+        passEncoder.setBindGroup(0, lineBG, [LINE_ALIGN]);
+        passEncoder.drawIndexed(24);
 
         passEncoder.end();
         device.queue.submit([commandEncoder.finish()]);

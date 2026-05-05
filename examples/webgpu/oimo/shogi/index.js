@@ -3,7 +3,7 @@ const fragmentShaderWGSL = document.getElementById('fs').textContent;
 const groundVertWGSL     = document.getElementById('gvs').textContent;
 const groundFragWGSL     = document.getElementById('gfs').textContent;
 
-let canvas, device, ctx, pipeline;
+let canvas, device, ctx, format, pipeline;
 let positionBuffer, normalBuffer, texCoordBuffer, indexBuffer, indexNum;
 let offsetBuffer, rotBuffer;
 let uniformBuffer, bindGroup;
@@ -11,6 +11,27 @@ let groundPipeline, groundVBuffer, groundIBuffer, groundMVPBuffer, groundBindGro
 let depthTexture;
 let world, bodies;
 let posArray, rotArray;
+
+let linePipeline, lineVtxBuf, lineIdxBuf, lineUniformBuf, lineBG;
+const LINE_STRUCT_SIZE = 144, LINE_ALIGN = 256;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]);
+const LINE_MAX = 301;
+const lineUniformData = new Float32Array(LINE_ALIGN / 4 * LINE_MAX);
+const lineModelTmp = new Float32Array(16);
+let lineViewProj = new Float32Array(16);
+
+function makeModelMatrix(out, px, py, pz, qx, qy, qz, qw, sx, sy, sz) {
+    const x2=qx+qx, y2=qy+qy, z2=qz+qz;
+    const xx=qx*x2, xy=qx*y2, xz=qx*z2, yy=qy*y2, yz=qy*z2, zz=qz*z2, wx=qw*x2, wy=qw*y2, wz=qw*z2;
+    out[0]=(1-(yy+zz))*sx; out[1]=(xy+wz)*sx;    out[2]=(xz-wy)*sx;    out[3]=0;
+    out[4]=(xy-wz)*sy;     out[5]=(1-(xx+zz))*sy; out[6]=(yz+wx)*sy;   out[7]=0;
+    out[8]=(xz+wy)*sz;     out[9]=(yz-wx)*sz;    out[10]=(1-(xx+yy))*sz; out[11]=0;
+    out[12]=px; out[13]=py; out[14]=pz; out[15]=1;
+}
 
 const MAX = 300;
 const DOT_SIZE = 2;
@@ -30,6 +51,7 @@ async function init() {
         depthTexture = createDepthTexture();
         const pMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 1000.0);
         device.queue.writeBuffer(uniformBuffer, 0, pMatrix);
+        lineViewProj = mat4mul(pMatrix, new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-40,1]));
     });
 
     const gpu = navigator['gpu'];
@@ -39,7 +61,7 @@ async function init() {
     device = await adapter.requestDevice();
 
     ctx = canvas.getContext('webgpu');
-    const format = gpu.getPreferredCanvasFormat();
+    format = gpu.getPreferredCanvasFormat();
     ctx.configure({ device, format, alphaMode: 'opaque' });
 
     // ---- geometry ----
@@ -304,6 +326,7 @@ async function init() {
     const mMat = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,-10,0,1]);
     const groundMVP = mat4mul(mat4mul(pMatrix, vMat), mMat);
     device.queue.writeBuffer(groundMVPBuffer, 0, groundMVP);
+    lineViewProj = mat4mul(pMatrix, vMat);
 
     depthTexture = createDepthTexture();
 
@@ -346,6 +369,29 @@ async function init() {
         }
         updateInstanceArrays();
     }, 1000 / 200);
+
+    lineVtxBuf = device.createBuffer({ size: BOX_WIRE_VERTS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineVtxBuf, 0, BOX_WIRE_VERTS);
+    lineIdxBuf = device.createBuffer({ size: BOX_WIRE_INDICES.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineIdxBuf, 0, BOX_WIRE_INDICES);
+    lineUniformBuf = device.createBuffer({ size: LINE_ALIGN * LINE_MAX, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const lineBGLayout = device.createBindGroupLayout({
+        entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE } }]
+    });
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGLayout] }),
+        vertex: { module: device.createShaderModule({ code: document.getElementById('vs-line').textContent }),
+            entryPoint: 'main', buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }] },
+        fragment: { module: device.createShaderModule({ code: document.getElementById('fs-line').textContent }),
+            entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+    });
+    lineBG = device.createBindGroup({
+        layout: lineBGLayout,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuf, size: LINE_STRUCT_SIZE } }]
+    });
 
     requestAnimationFrame(render);
 }
@@ -481,6 +527,26 @@ function render() {
     passEncoder.setIndexBuffer(indexBuffer, 'uint16');
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.drawIndexed(indexNum, MAX, 0, 0, 0);
+
+    makeModelMatrix(lineModelTmp, 0, -10, 0, 0, 0, 0, 1, 13, 0.1, 13);
+    lineUniformData.set(lineViewProj, 0); lineUniformData.set(lineModelTmp, 16);
+    lineUniformData[32]=0; lineUniformData[33]=1; lineUniformData[34]=0; lineUniformData[35]=1;
+    for (let i = 0; i < MAX; i++) {
+        const px=posArray[i*3], py=posArray[i*3+1], pz=posArray[i*3+2];
+        const qx=rotArray[i*4], qy=rotArray[i*4+1], qz=rotArray[i*4+2], qw=rotArray[i*4+3];
+        makeModelMatrix(lineModelTmp, px, py, pz, qx, qy, qz, qw, pw*2, ph*2, pd*2);
+        const base = (i + 1) * (LINE_ALIGN / 4);
+        lineUniformData.set(lineViewProj, base); lineUniformData.set(lineModelTmp, base + 16);
+        lineUniformData[base+32]=1; lineUniformData[base+33]=1; lineUniformData[base+34]=0; lineUniformData[base+35]=1;
+    }
+    device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+    passEncoder.setPipeline(linePipeline);
+    passEncoder.setVertexBuffer(0, lineVtxBuf);
+    passEncoder.setIndexBuffer(lineIdxBuf, 'uint16');
+    for (let i = 0; i < LINE_MAX; i++) {
+        passEncoder.setBindGroup(0, lineBG, [i * LINE_ALIGN]);
+        passEncoder.drawIndexed(24);
+    }
 
     passEncoder.end();
     device.queue.submit([commandEncoder.finish()]);

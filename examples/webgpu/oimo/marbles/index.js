@@ -34,6 +34,36 @@ const view = mat4.create();
 const viewProj = mat4.create();
 const viewNoTranslation = mat4.create();
 
+let linePipeline, lineVtxBuf, lineIdxBuf, sphWireVB, sphWireIB, sphWireCount, lineUniformBuf, lineBG;
+const LINE_STRUCT_SIZE = 144, LINE_ALIGN = 256;
+const BOX_WIRE_VERTS = new Float32Array([
+    -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
+    -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5
+]);
+const BOX_WIRE_INDICES = new Uint16Array([0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]);
+const LINE_MAX = 121; // 1 ground + 120 marbles
+const lineUniformData = new Float32Array(LINE_ALIGN / 4 * LINE_MAX);
+
+function buildSphereWire() {
+    const SEG = 32; const verts = []; const idx = [];
+    for (let ring = 0; ring < 3; ring++) {
+        const base = verts.length / 3;
+        for (let i = 0; i < SEG; i++) {
+            const a = (i / SEG) * Math.PI * 2;
+            if (ring === 0) verts.push(Math.cos(a), Math.sin(a), 0);
+            else if (ring === 1) verts.push(Math.cos(a), 0, Math.sin(a));
+            else verts.push(0, Math.cos(a), Math.sin(a));
+            idx.push(base + i, base + (i + 1) % SEG);
+        }
+    }
+    const vd = new Float32Array(verts); const id = new Uint16Array(idx);
+    sphWireVB = device.createBuffer({ size: vd.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(sphWireVB, 0, vd);
+    sphWireIB = device.createBuffer({ size: id.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(sphWireIB, 0, id);
+    sphWireCount = idx.length;
+}
+
 function rand(min, max) {
     return min + Math.random() * (max - min);
 }
@@ -706,7 +736,7 @@ function initPhysics(templates) {
             restitution: 0.3
         });
 
-        marbles.push({ body, primitives: template.primitives, scale: template.scale });
+        marbles.push({ body, primitives: template.primitives, scale: template.scale, radius: template.radius });
     }
 }
 
@@ -819,11 +849,24 @@ function render(timeMs) {
         unlitTextureOnly: 1.0
     });
     drawMesh(pass, groundMesh, groundRenderItem.bindGroup);
+    const lineGroundModel = mat4.create();
+    const lineIdentity = quat.create();
+    mat4.fromRotationTranslationScale(lineGroundModel, lineIdentity, [0, -5, 0], [80, 4, 80]);
+    lineUniformData.set(viewProj, 0); lineUniformData.set(lineGroundModel, 16);
+    lineUniformData[32]=0; lineUniformData[33]=1; lineUniformData[34]=0; lineUniformData[35]=1;
 
+    let marbleIdx = 0;
     for (const marble of marbles) {
         const p = marble.body.getPosition();
         const q = marble.body.getQuaternion();
         const rotation = quat.fromValues(q.x, q.y, q.z, q.w);
+
+        const lineWireModel = mat4.create();
+        mat4.fromRotationTranslationScale(lineWireModel, rotation, [p.x,p.y,p.z], [marble.radius,marble.radius,marble.radius]);
+        const base = (1 + marbleIdx) * (LINE_ALIGN / 4);
+        lineUniformData.set(viewProj, base); lineUniformData.set(lineWireModel, base + 16);
+        lineUniformData[base+32]=1; lineUniformData[base+33]=1; lineUniformData[base+34]=0; lineUniformData[base+35]=1;
+        marbleIdx++;
 
         const model = mat4.create();
         mat4.fromRotationTranslation(model, rotation, [p.x, p.y, p.z]);
@@ -857,6 +900,19 @@ function render(timeMs) {
             marble.body.resetPosition(rand(-5, 5), rand(12, 30), rand(-5, 5));
             resetBodyVelocity(marble.body);
         }
+    }
+
+    device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+    pass.setPipeline(linePipeline);
+    pass.setVertexBuffer(0, lineVtxBuf);
+    pass.setIndexBuffer(lineIdxBuf, 'uint16');
+    pass.setBindGroup(0, lineBG, [0]);
+    pass.drawIndexed(24);
+    pass.setVertexBuffer(0, sphWireVB);
+    pass.setIndexBuffer(sphWireIB, 'uint16');
+    for (let i = 0; i < marbles.length; i++) {
+        pass.setBindGroup(0, lineBG, [(1 + i) * LINE_ALIGN]);
+        pass.drawIndexed(sphWireCount);
     }
 
     pass.end();
@@ -1000,6 +1056,30 @@ async function main() {
 
     const templates = await loadMarblesFromGLTF();
     initPhysics(templates);
+
+    lineVtxBuf = device.createBuffer({ size: BOX_WIRE_VERTS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineVtxBuf, 0, BOX_WIRE_VERTS);
+    lineIdxBuf = device.createBuffer({ size: BOX_WIRE_INDICES.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(lineIdxBuf, 0, BOX_WIRE_INDICES);
+    lineUniformBuf = device.createBuffer({ size: LINE_ALIGN * LINE_MAX, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const lineBGLayout = device.createBindGroupLayout({
+        entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: LINE_STRUCT_SIZE } }]
+    });
+    linePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [lineBGLayout] }),
+        vertex: { module: device.createShaderModule({ code: document.getElementById('vs-line').textContent }),
+            entryPoint: 'main', buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }] },
+        fragment: { module: device.createShaderModule({ code: document.getElementById('fs-line').textContent }),
+            entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' }
+    });
+    lineBG = device.createBindGroup({
+        layout: lineBGLayout,
+        entries: [{ binding: 0, resource: { buffer: lineUniformBuf, size: LINE_STRUCT_SIZE } }]
+    });
+    buildSphereWire();
 
     requestAnimationFrame(render);
 
