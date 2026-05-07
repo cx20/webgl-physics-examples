@@ -252,7 +252,8 @@ function drawPhysicsDebug() {
     for (let i = 0; i < BALL_COUNT; i++) {
         const posResult = HK.HP_Body_GetPosition(ballBodyIds[i]);
         checkResult(posResult[0], 'HP_Body_GetPosition debug');
-        mat4.fromRotationTranslationScale(modelMatrix, IDENTITY_QUATERNION, posResult[1], [0.5, 0.5, 0.5]);
+        const rotResult = HK.HP_Body_GetOrientation(ballBodyIds[i]);
+        mat4.fromRotationTranslationScale(modelMatrix, rotResult[1], posResult[1], [0.5, 0.5, 0.5]);
         gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
         gl.drawElements(gl.LINES, debugSphereMesh.count, gl.UNSIGNED_SHORT, 0);
     }
