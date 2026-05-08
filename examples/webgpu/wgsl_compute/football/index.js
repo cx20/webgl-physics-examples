@@ -29,6 +29,11 @@ const STATE_FLOATS = 16;
 const SUBSTEPS = 4;
 const RADIUS = 0.5;
 const GROUND_Y = -2.0;
+const GROUND_HALF = 15.0;
+const SPAWN_Y_OFFSET = 4.0;
+const RESTITUTION = 0.82;
+const FRICTION = 0.035;
+const LINEAR_DAMPING = 0.999;
 
 let device, context, format, depthTexture;
 let renderPipeline, computePipeline;
@@ -174,7 +179,7 @@ function createInitialStates() {
             const base = i * STATE_FLOATS;
             const seed = ((col * 17 + rowIndex * 31) % 97) / 97;
             states[base + 0] = -10 + col * 1.5 + seed * 0.08;
-            states[base + 1] = (ROWS.length - 1 - rowIndex) * 1.2 + seed * 0.08;
+            states[base + 1] = SPAWN_Y_OFFSET + (ROWS.length - 1 - rowIndex) * 1.2 + seed * 0.08;
             states[base + 2] = seed * 0.12;
             states[base + 3] = seed;
             states[base + 4] = ((col % 3) - 1) * 0.035;
@@ -240,11 +245,15 @@ function frame(timeMs) {
         dt / SUBSTEPS,
         9.8,
         GROUND_Y,
-        0.62,
-        0.996,
-        0.86,
+        RESTITUTION,
+        LINEAR_DAMPING,
+        FRICTION,
         RADIUS,
         timeMs * 0.001,
+        GROUND_HALF,
+        0,
+        0,
+        0,
     ]));
 
     const encoder = device.createCommandEncoder();
@@ -314,7 +323,7 @@ async function init() {
     colorBuffer.unmap();
 
     cameraBuffer = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    simParamsBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    simParamsBuffer = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     sampler = device.createSampler({
         addressModeU: 'repeat',

@@ -23,6 +23,10 @@ struct SimParams {
     friction    : f32,
     radius      : f32,
     elapsedTime : f32,
+    groundHalf  : f32,
+    pad0        : f32,
+    pad1        : f32,
+    pad2        : f32,
 }
 
 const COUNT : u32 = 256u;
@@ -60,18 +64,22 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     pos += vel * params.dt;
     angVel *= 0.995;
 
-    if (pos.y - r < params.groundY) {
+    let onGroundPlane = abs(pos.x) < params.groundHalf && abs(pos.z) < params.groundHalf;
+    if (onGroundPlane && pos.y - r < params.groundY) {
+        let impactSpeed = max(-vel.y, 0.0);
         pos.y = params.groundY + r;
-        if (vel.y < 0.0) {
-            vel.y = -vel.y * params.restitution;
+        if (impactSpeed > 0.0) {
+            let bounceSpeed = impactSpeed * params.restitution;
+            vel.y = select(bounceSpeed, max(bounceSpeed, 0.22), impactSpeed > 0.55);
         }
-        vel.x *= params.friction;
-        vel.z *= params.friction;
+        let tangentDecay = max(1.0 - params.friction, 0.0);
+        vel.x *= tangentDecay;
+        vel.z *= tangentDecay;
 
         let rolling = vec3<f32>(-vel.z / max(r, 0.001), angVel.y * 0.8, vel.x / max(r, 0.001));
-        angVel = mix(angVel, rolling, 0.12);
+        angVel = mix(angVel, rolling, 0.18);
 
-        if (abs(vel.y) < 0.08) {
+        if (abs(vel.y) < 0.03) {
             vel.y = 0.0;
         }
     }
@@ -98,15 +106,15 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
             let relVel = vel - other.velocity.xyz;
             let vn = dot(relVel, n);
             if (vn < 0.0) {
-                vel += n * (-(1.0 + params.restitution) * vn * 0.5);
+                vel += n * (-(1.0 + params.restitution) * vn * 0.65);
             }
 
             let tangent = relVel - n * vn;
             let tangentLen = length(tangent);
             if (tangentLen > 0.0001) {
                 let t = tangent / tangentLen;
-                vel -= t * min(tangentLen * 0.04, 0.08);
-                angVel += cross(n, t) * tangentLen * 0.08;
+                vel -= t * min(tangentLen * params.friction, 0.12);
+                angVel += cross(n, t) * tangentLen * 0.11;
             }
         }
     }
@@ -119,13 +127,13 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         rot = normalize(quatMul(dq, rot));
     }
 
-    if (pos.y < -24.0) {
+    if (pos.y < params.groundY - 12.0 || abs(pos.x) > params.groundHalf + 16.0 || abs(pos.z) > params.groundHalf + 16.0) {
         let col = f32(i % 16u);
         let row = f32(i / 16u);
-        pos = vec3<f32>(-10.0 + col * 1.5, 12.0 + (15.0 - row) * 1.2, seed * 0.2);
-        vel = vec3<f32>(0.0, -0.05, 0.0);
+        pos = vec3<f32>(-10.0 + col * 1.5, 16.0 + (15.0 - row) * 1.2, seed * 0.2);
+        vel = vec3<f32>((seed - 0.5) * 0.08, -0.05, (0.5 - seed) * 0.08);
         rot = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-        angVel = vec3<f32>(0.0);
+        angVel = vec3<f32>(seed * 0.6, seed * 0.3, -seed * 0.4);
     }
 
     dstStates[i].position = vec4<f32>(pos, seed);
