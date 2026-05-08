@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Domino Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<script id="cs" type="x-shader/x-compute">
+struct DominoState {
+    base   : vec4<f32>,
+    motion : vec4<f32>,
+}
+
+struct SimParams {
+    dt      : f32,
+    gravity : f32,
+    damping : f32,
+    pad     : f32,
+}
+
+const GRID  : u32 = 16u;
+const COUNT : u32 = 256u;
+
+@group(0) @binding(0) var<storage, read_write> states : array<DominoState>;
+@group(0) @binding(1) var<uniform> params : SimParams;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) {
+        return;
+    }
+
+    var state  = states[i];
+    var angle  = state.motion.x;
+    var angVel = state.motion.y;
+    var phase = state.motion.z;
+    let row    = i % GRID;
+
+    if (phase < 0.5 && row > 0u) {
+        let prev = states[i - 1u].motion;
+        if (prev.x < -0.78) {
+            phase = 1.0;
+            angle = min(angle, -0.04);
+            angVel = -2.1;
+        }
+    }
+
+    if (phase > 0.5 && phase < 1.5) {
+        let torque = -params.gravity * 0.42 * max(cos(angle), 0.24);
+        angVel = (angVel + torque * params.dt) * params.damping;
+        angle += angVel * params.dt;
+
+        if (angle < -1.47) {
+            angle = -1.47;
+            angVel = 0.0;
+            phase = 2.0;
+        }
+    }
+
+    states[i].motion = vec4<f32>(angle, angVel, phase, 0.0);
+}
+</script>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+}
+
+struct DominoState {
+    base   : vec4<f32>,
+    motion : vec4<f32>,
+}
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) color : vec3<f32>,
+}
+
+const COUNT : u32 = 256u;
+const BW : f32 = 1.0;
+const BH : f32 = 2.0;
+const BD : f32 = 0.3;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<DominoState>;
+@group(0) @binding(2) var<storage, read> colors : array<vec4<f32>>;
+
+fn rotateX(p : vec3<f32>, angle : f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    return vec3<f32>(p.x, p.y * c - p.z * s, p.y * s + p.z * c);
+}
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @builtin(instance_index) instance : u32,
+) -> VSOut {
+    var out : VSOut;
+    var worldPos : vec3<f32>;
+    var worldNormal : vec3<f32>;
+
+    if (instance < COUNT) {
+        let state = states[instance];
+        let angle = state.motion.x;
+        let local = position * vec3<f32>(BW * 2.0, BH * 2.0, BD * 2.0);
+        let pivotLocal = vec3<f32>(0.0, -BH, -BD);
+        let pivotWorld = vec3<f32>(state.base.x, 0.0, state.base.z - BD);
+
+        worldPos = pivotWorld + rotateX(local - pivotLocal, angle);
+        worldNormal = normalize(rotateX(normal, angle));
+    } else {
+        worldPos = position * vec3<f32>(52.0, 0.16, 52.0) + vec3<f32>(0.0, -0.08, 0.0);
+        worldNormal = normal;
+    }
+
+    let light = normalize(vec3<f32>(0.45, 0.9, 0.35));
+    let shade = max(dot(worldNormal, light), 0.28);
+    out.color = colors[instance].rgb * shade;
+    out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@fragment
+fn main(@location(0) color : vec3<f32>) -> @location(0) vec4<f32> {
+    let gamma = pow(color, vec3<f32>(0.82));
+    return vec4<f32>(gamma, 1.0);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
