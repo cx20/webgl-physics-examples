@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Minimum Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+</head>
+<body>
+
+<script id="cs" type="x-shader/x-compute">
+struct PhysicsState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    restitution : f32,
+    halfSize    : f32,
+    friction    : f32,
+    mass        : f32,
+    iInv        : f32,  // inverse moment of inertia: 6/(m*L^2) for uniform cube
+}
+
+@group(0) @binding(0) var<storage, read_write> state  : PhysicsState;
+@group(0) @binding(1) var<uniform>             params : SimParams;
+
+fn quatMul(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+// Rotate vector v by unit quaternion q  (Rodrigues formula)
+fn rotByQuat(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@compute @workgroup_size(1)
+fn main() {
+    var pos    = state.position.xyz;
+    var vel    = state.velocity.xyz;
+    var rot    = state.rotation;
+    var angVel = state.angularVel.xyz;
+
+    let mInv = 1.0 / params.mass;
+    let iInv = params.iInv;
+    let h    = params.halfSize;
+    let mu   = params.friction;  // Coulomb friction coefficient
+
+    // Very slight air drag on angular velocity
+    angVel *= 0.999;
+
+    // Semi-implicit Euler: integrate velocity then position
+    vel.y -= params.gravity * params.dt;
+    pos   += vel * params.dt;
+
+    // Integrate rotation via unit-quaternion
+    let angSpeed = length(angVel);
+    if (angSpeed > 0.0001) {
+        let axis      = angVel / angSpeed;
+        let halfAngle = angSpeed * params.dt * 0.5;
+        let dq        = vec4<f32>(axis * sin(halfAngle), cos(halfAngle));
+        rot = normalize(quatMul(dq, rot));
+    }
+
+    // ── OBB vs ground-plane (n = +Y) ─────────────────────────────────────
+    var numContact = 0u;
+    var sumR       = vec3<f32>(0.0);
+    var minWorldY  = 0.0;
+
+    for (var mask = 0u; mask < 8u; mask++) {
+        let lx = select(-h, h, (mask & 1u) != 0u);
+        let ly = select(-h, h, (mask & 2u) != 0u);
+        let lz = select(-h, h, (mask & 4u) != 0u);
+        let r_world = rotByQuat(vec3<f32>(lx, ly, lz), rot);
+        let worldY  = pos.y + r_world.y;
+        if (worldY < params.groundY) {
+            numContact++;
+            sumR += r_world;
+            if (numContact == 1u || worldY < minWorldY) { minWorldY = worldY; }
+        }
+    }
+
+    if (numContact > 0u) {
+        let r = sumR / f32(numContact);  // average contact lever arm
+
+        // ── Normal impulse (n = (0,1,0)) ─────────────────────────────────
+        // v_contact.y = vel.y + angVel.z·rx - angVel.x·rz
+        let vn = vel.y + angVel.z * r.x - angVel.x * r.z;
+        var jn = 0.0;
+        if (vn < 0.0) {
+            // Velocity-dependent restitution: |vn|<1 → soft landing, no bounce
+            let e  = select(params.restitution, 0.0, abs(vn) < 1.0);
+            // denom = 1/m + n·(I_inv·(r×n))×r  = 1/m + I_inv·(rx²+rz²)
+            let dn = mInv + iInv * (r.x * r.x + r.z * r.z);
+            jn     = -(1.0 + e) * vn / dn;
+
+            vel.y    += jn * mInv;
+            // r × (jn·n) = jn·(-rz, 0, rx)
+            angVel.x -= iInv * jn * r.z;
+            angVel.z += iInv * jn * r.x;
+        }
+
+        // ── Coulomb friction (tangential impulse, sequential impulse) ─────
+        // Recompute contact velocity after normal impulse
+        let vt    = vec3<f32>(vel.x + angVel.y*r.z - angVel.z*r.y,
+                              0.0,
+                              vel.z + angVel.x*r.y - angVel.y*r.x);
+        let vtLen = length(vt);
+        if (vtLen > 0.0001) {
+            let tDir    = vt / vtLen;
+            // denom_t = 1/m + I_inv·|r×t̂|²   (from Lagrange identity)
+            let rCrossT = cross(r, tDir);
+            let denom_t = mInv + iInv * dot(rCrossT, rCrossT);
+            // For resting contact (jn≈0), use gravity-based normal force estimate
+            let jn_eff  = max(abs(jn), params.mass * params.gravity * params.dt);
+            let jt      = clamp(-vtLen / denom_t, -mu * jn_eff, mu * jn_eff);
+
+            vel    += (jt * mInv) * tDir;
+            angVel += iInv * jt * rCrossT;
+        }
+
+        // Positional correction: push deepest vertex back to ground surface
+        pos.y += params.groundY - minWorldY;
+
+        // Sleep: kill micro-velocities when nearly at rest on ground
+        if (length(vel) < 0.05 && length(angVel) < 0.05) {
+            vel    = vec3<f32>(0.0);
+            angVel = vec3<f32>(0.0);
+        }
+    }
+
+    // Safety reset
+    if (pos.y < -30.0) {
+        pos    = vec3<f32>(0.0, 12.0, 0.0);
+        vel    = vec3<f32>(0.0, 0.0, 0.0);
+        rot    = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        angVel = vec3<f32>(0.3, 0.8, 0.2);
+    }
+
+    state.position   = vec4<f32>(pos, 0.0);
+    state.velocity   = vec4<f32>(vel, 0.0);
+    state.rotation   = rot;
+    state.angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    viewProjection : mat4x4<f32>,
+    model          : mat4x4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0)       uv       : vec2<f32>,
+}
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) uv       : vec2<f32>,
+) -> VSOut {
+    var out : VSOut;
+    out.Position = uniforms.viewProjection * uniforms.model * vec4<f32>(position, 1.0);
+    out.uv       = uv;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@group(0) @binding(1) var texSampler : sampler;
+@group(0) @binding(2) var tex        : texture_2d<f32>;
+
+@fragment
+fn main(@location(0) uv : vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(tex, texSampler, uv);
+}
+</script>
+
+<script id="vs-line" type="x-shader/x-vertex">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model    : mat4x4<f32>,
+    color    : vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@vertex
+fn main(@location(0) pos : vec3<f32>) -> @builtin(position) vec4<f32> {
+    return uniforms.viewProj * uniforms.model * vec4<f32>(pos, 1.0);
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model    : mat4x4<f32>,
+    color    : vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return uniforms.color;
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
