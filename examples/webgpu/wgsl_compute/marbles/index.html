@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Falling Marbles (glTF) Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<script id="cs" type="x-shader/x-compute">
+struct MarbleState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct MarbleInfo {
+    data : vec4<f32>, // radius, renderScale, restitution, friction
+}
+
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    damping     : f32,
+    elapsedTime : f32,
+    groundHalf  : f32,
+    spawnRange  : f32,
+    spawnHeight : f32,
+}
+
+const COUNT : u32 = 120u;
+
+@group(0) @binding(0) var<storage, read> srcStates : array<MarbleState>;
+@group(0) @binding(1) var<storage, read_write> dstStates : array<MarbleState>;
+@group(0) @binding(2) var<storage, read> infos : array<MarbleInfo>;
+@group(0) @binding(3) var<uniform> params : SimParams;
+
+fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn spawnPosition(i : u32, seed : f32) -> vec3<f32> {
+    let col = f32(i % 12u);
+    let row = f32(i / 12u);
+    let x = (col - 5.5) * 0.88 + (seed - 0.5) * 0.8;
+    let y = params.spawnHeight + row * 0.38 + seed * 3.0;
+    let z = sin(seed * 31.416 + f32(i) * 0.19) * params.spawnRange;
+    return vec3<f32>(x, y, z);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) {
+        return;
+    }
+
+    let info = infos[i].data;
+    let r = info.x;
+    let restitution = info.z;
+    let friction = info.w;
+    let seed = srcStates[i].position.w;
+
+    var pos = srcStates[i].position.xyz;
+    var vel = srcStates[i].velocity.xyz;
+    var rot = srcStates[i].rotation;
+    var angVel = srcStates[i].angularVel.xyz;
+    var contactCount = 0u;
+
+    vel.y -= params.gravity * params.dt;
+    vel *= params.damping;
+    pos += vel * params.dt;
+    angVel *= 0.995;
+
+    let onGroundPlane = abs(pos.x) + r < params.groundHalf && abs(pos.z) + r < params.groundHalf;
+    if (onGroundPlane && pos.y - r < params.groundY) {
+        let impactSpeed = max(-vel.y, 0.0);
+        pos.y = params.groundY + r;
+        if (impactSpeed > 0.0) {
+            let bounceSpeed = impactSpeed * restitution;
+            vel.y = select(bounceSpeed, max(bounceSpeed, 0.08), impactSpeed > 0.35);
+        }
+
+        let tangentDecay = max(1.0 - friction, 0.0);
+        vel.x *= tangentDecay;
+        vel.z *= tangentDecay;
+        let rollingAngVel = vec3<f32>(-vel.z / r, angVel.y * 0.96, vel.x / r);
+        angVel = mix(angVel, rollingAngVel, 0.34);
+        contactCount++;
+
+        if (abs(vel.y) < 0.025) {
+            vel.y = 0.0;
+        }
+    }
+
+    for (var j = 0u; j < COUNT; j++) {
+        if (j == i) {
+            continue;
+        }
+
+        let other = srcStates[j];
+        let otherInfo = infos[j].data;
+        let otherRadius = otherInfo.x;
+        var delta = pos - other.position.xyz;
+        var dist = length(delta);
+        if (dist < 0.0001) {
+            let a = params.elapsedTime + seed * 6.28318;
+            delta = vec3<f32>(cos(a), 0.2, sin(a)) * 0.001;
+            dist = length(delta);
+        }
+
+        let minDist = r + otherRadius;
+        if (dist < minDist) {
+            contactCount++;
+            let n = delta / dist;
+            let penetration = minDist - dist;
+            pos += n * penetration * 0.64;
+
+            let relVel = vel - other.velocity.xyz;
+            let vn = dot(relVel, n);
+            if (vn < 0.0) {
+                let pairRestitution = (restitution + otherInfo.z) * 0.5;
+                vel += n * (-(1.0 + pairRestitution) * vn * 0.72);
+            }
+
+            let gravityDir = vec3<f32>(0.0, -1.0, 0.0);
+            let gravityTangent = gravityDir - n * dot(gravityDir, n);
+            let gravityTangentLen = length(gravityTangent);
+            if (n.y > 0.08 && gravityTangentLen > 0.0001) {
+                let slideDir = gravityTangent / gravityTangentLen;
+                vel += slideDir * params.gravity * params.dt * 0.65;
+                pos += slideDir * penetration * 0.18;
+            }
+
+            let tangent = relVel - n * vn;
+            let tangentLen = length(tangent);
+            if (tangentLen > 0.0001) {
+                let pairFriction = (friction + otherInfo.w) * 0.5;
+                let t = tangent / tangentLen;
+                vel -= t * min(tangentLen * pairFriction, 0.035);
+                angVel += cross(n, t) * tangentLen * 0.04;
+            }
+        }
+    }
+
+    let speed = length(angVel);
+    if (speed > 0.0001) {
+        let axis = angVel / speed;
+        let halfAngle = speed * params.dt * 0.5;
+        let dq = vec4<f32>(axis * sin(halfAngle), cos(halfAngle));
+        rot = normalize(quatMul(dq, rot));
+    }
+
+    if (pos.y < params.groundY - 16.0 || abs(pos.x) > params.groundHalf + 8.0 || abs(pos.z) > params.groundHalf + 8.0) {
+        pos = spawnPosition(i, seed);
+        vel = vec3<f32>((seed - 0.5) * 0.45, -0.05, (0.5 - seed) * 0.45);
+        rot = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        angVel = vec3<f32>(seed * 0.5, seed * 0.25, -seed * 0.4);
+    }
+
+    dstStates[i].position = vec4<f32>(pos, seed);
+    dstStates[i].velocity = vec4<f32>(vel, 0.0);
+    dstStates[i].rotation = rot;
+    dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+    cameraPos      : vec4<f32>,
+}
+
+struct MarbleState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct MarbleInfo {
+    data : vec4<f32>,
+}
+
+struct StaticItem {
+    position : vec4<f32>,
+    scale    : vec4<f32>,
+    color    : vec4<f32>,
+}
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) tint : vec3<f32>,
+    @location(3) worldPos : vec3<f32>,
+    @location(4) texMix : f32,
+}
+
+const COUNT : u32 = 120u;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<MarbleState>;
+@group(0) @binding(2) var<storage, read> infos : array<MarbleInfo>;
+@group(0) @binding(3) var<storage, read> statics : array<StaticItem>;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>,
+    @builtin(instance_index) instance : u32,
+) -> VSOut {
+    var out : VSOut;
+    var worldPos : vec3<f32>;
+    var worldNormal : vec3<f32>;
+
+    if (instance < COUNT) {
+        let state = states[instance];
+        let info = infos[instance].data;
+        worldPos = rotByQuat(position * info.y, state.rotation) + state.position.xyz;
+        worldNormal = normalize(rotByQuat(normal, state.rotation));
+        out.uv = uv;
+        out.tint = vec3<f32>(1.0);
+        out.texMix = 1.0;
+    } else {
+        let item = statics[instance - COUNT];
+        worldPos = position * item.scale.xyz + item.position.xyz;
+        worldNormal = normal;
+        out.uv = uv;
+        out.tint = item.color.rgb;
+        out.texMix = 1.0;
+    }
+
+    out.normal = worldNormal;
+    out.worldPos = worldPos;
+    out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+    cameraPos      : vec4<f32>,
+}
+
+struct Material {
+    baseColor : vec4<f32>,
+    params0   : vec4<f32>, // ior, iridescenceFactor, iridescenceIor, hasIridescenceMap
+    params1   : vec4<f32>, // thicknessMin, thicknessMax, hasThicknessMap, envIntensity
+    params2   : vec4<f32>, // envExposure, envDiffuseStrength, metallic, roughness
+    flags     : vec4<f32>, // hasTexture, unlitTextureOnly, unused, unused
+}
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(1) @binding(0) var<uniform> material : Material;
+@group(1) @binding(1) var texSampler : sampler;
+@group(1) @binding(2) var tex : texture_2d<f32>;
+@group(1) @binding(3) var iridescenceTex : texture_2d<f32>;
+@group(1) @binding(4) var iridescenceThicknessTex : texture_2d<f32>;
+@group(1) @binding(5) var envCubeTex : texture_cube<f32>;
+
+fn sq(x: f32) -> f32 {
+    return x * x;
+}
+
+fn sq3(x: vec3<f32>) -> vec3<f32> {
+    return x * x;
+}
+
+fn saturate(x: f32) -> f32 {
+    return clamp(x, 0.0, 1.0);
+}
+
+fn fresnelSchlick(f0: vec3<f32>, cosTheta: f32) -> vec3<f32> {
+    let c = saturate(cosTheta);
+    return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - c, 5.0);
+}
+
+fn iorToFresnel0(transmittedIor: f32, incidentIor: f32) -> f32 {
+    return sq((transmittedIor - incidentIor) / (transmittedIor + incidentIor));
+}
+
+fn fresnel0ToIor(fresnel0: vec3<f32>) -> vec3<f32> {
+    let sqrtF0 = sqrt(fresnel0);
+    return (vec3<f32>(1.0) + sqrtF0) / (vec3<f32>(1.0) - sqrtF0);
+}
+
+fn evalSensitivity(opd: f32, shift: vec3<f32>) -> vec3<f32> {
+    let M_PI = 3.14159265359;
+    let XYZ_TO_REC709 = mat3x3<f32>(
+         3.2404542, -0.9692660,  0.0556434,
+        -1.5371385,  1.8760108, -0.2040259,
+        -0.4985314,  0.0415560,  1.0572252
+    );
+
+    let phase = 2.0 * M_PI * opd * 1.0e-9;
+    let val = vec3<f32>(5.4856e-13, 4.4201e-13, 5.2481e-13);
+    let pos = vec3<f32>(1.6810e+06, 1.7953e+06, 2.2084e+06);
+    let varv = vec3<f32>(4.3278e+09, 9.3046e+09, 6.6121e+09);
+
+    var xyz = val * sqrt(2.0 * M_PI * varv) * cos(pos * phase + shift) * exp(-sq(phase) * varv);
+    xyz.x += 9.7470e-14 * sqrt(2.0 * M_PI * 4.5282e+09) * cos(2.2399e+06 * phase + shift.x) * exp(-4.5282e+09 * sq(phase));
+    xyz = xyz / vec3<f32>(1.0685e-7);
+
+    return XYZ_TO_REC709 * xyz;
+}
+
+fn evalIridescence(outsideIor: f32, eta2: f32, cosTheta1: f32, thinFilmThickness: f32, baseF0: vec3<f32>) -> vec3<f32> {
+    let M_PI = 3.14159265359;
+
+    let iridescenceIor = mix(outsideIor, eta2, smoothstep(0.0, 0.03, thinFilmThickness));
+    let sinTheta2Sq = sq(outsideIor / iridescenceIor) * (1.0 - sq(cosTheta1));
+    let cosTheta2Sq = 1.0 - sinTheta2Sq;
+    if (cosTheta2Sq < 0.0) {
+        return vec3<f32>(1.0);
+    }
+
+    let cosTheta2 = sqrt(cosTheta2Sq);
+    let r0 = iorToFresnel0(iridescenceIor, outsideIor);
+    let r12 = r0 + (1.0 - r0) * pow(1.0 - cosTheta1, 5.0);
+    let t121 = 1.0 - r12;
+
+    var phi12 = 0.0;
+    if (iridescenceIor < outsideIor) {
+        phi12 = M_PI;
+    }
+    let phi21 = M_PI - phi12;
+
+    let baseIOR = fresnel0ToIor(clamp(baseF0, vec3<f32>(0.0), vec3<f32>(0.9999)));
+    let r1 = sq3((baseIOR - vec3<f32>(iridescenceIor)) / (baseIOR + vec3<f32>(iridescenceIor)));
+    let r23 = fresnelSchlick(r1, cosTheta2);
+
+    var phi23 = vec3<f32>(0.0);
+    if (baseIOR.x < iridescenceIor) { phi23.x = M_PI; }
+    if (baseIOR.y < iridescenceIor) { phi23.y = M_PI; }
+    if (baseIOR.z < iridescenceIor) { phi23.z = M_PI; }
+
+    let opd = 2.0 * iridescenceIor * thinFilmThickness * cosTheta2;
+    let phi = vec3<f32>(phi21) + phi23;
+
+    let r123 = clamp(vec3<f32>(r12) * r23, vec3<f32>(1e-5), vec3<f32>(0.9999));
+    let rr123 = sqrt(r123);
+    let rs = sq3(vec3<f32>(t121)) * r23 / (vec3<f32>(1.0) - r123);
+
+    let c0 = vec3<f32>(r12) + rs;
+    var i = c0;
+
+    var cm = rs - vec3<f32>(t121);
+    for (var m: i32 = 1; m <= 2; m = m + 1) {
+        cm = cm * rr123;
+        let sm = 2.0 * evalSensitivity(f32(m) * opd, f32(m) * phi);
+        i = i + cm * sm;
+    }
+
+    return max(i, vec3<f32>(0.0));
+}
+
+@fragment
+fn main(
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) tint : vec3<f32>,
+    @location(3) worldPos : vec3<f32>,
+    @location(4) texMix : f32,
+) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
+    let N = normalize(normal);
+    let V = normalize(camera.cameraPos.xyz - worldPos);
+    let H = normalize(lightDir + V);
+    let ndotv = max(dot(N, V), 0.0);
+    let ndotl = max(dot(N, lightDir), 0.0);
+    let ndoth = max(dot(N, H), 0.0);
+
+    let metallic = clamp(material.params2.z, 0.0, 1.0);
+    let roughness = clamp(material.params2.w, 0.04, 1.0);
+
+    let baseTex = textureSample(tex, texSampler, uv);
+    let base = material.baseColor * mix(vec4<f32>(1.0), baseTex, material.flags.x * texMix);
+    if (material.flags.y > 0.5) {
+        return vec4<f32>(base.rgb, base.a);
+    }
+
+    let ior = max(material.params0.x, 1.0);
+    let f0s = sq((ior - 1.0) / (ior + 1.0));
+    let baseF0 = mix(vec3<f32>(f0s), base.rgb, metallic);
+    let fresnel = fresnelSchlick(baseF0, ndotv);
+
+    var irFactor = material.params0.y;
+    if (material.params0.w > 0.5) {
+        irFactor = irFactor * textureSample(iridescenceTex, texSampler, uv).r;
+    }
+
+    var irThickness = material.params1.y;
+    if (material.params1.z > 0.5) {
+        let t = textureSample(iridescenceThicknessTex, texSampler, uv).g;
+        irThickness = mix(material.params1.x, material.params1.y, t);
+    }
+
+    let irFresnel = evalIridescence(1.0, material.params0.z, ndotv, irThickness, baseF0);
+    let specColor = mix(fresnel, irFresnel, clamp(irFactor * 1.25, 0.0, 1.0));
+
+    let shininess = mix(256.0, 8.0, roughness * roughness);
+    let specLobe = pow(max(ndoth, 0.0), shininess);
+    let kd = (1.0 - metallic) * (1.0 - max(max(specColor.r, specColor.g), specColor.b));
+    let directDiffuse = base.rgb * (0.15 + 0.85 * ndotl) * kd;
+    let directSpec = specColor * specLobe * mix(0.3, 1.1, metallic);
+    let rimSpec = specColor * pow(1.0 - ndotv, 2.0) * 0.35;
+
+    var color = directDiffuse + directSpec + rimSpec;
+    let R = normalize(reflect(-V, N));
+    let blurredR = normalize(mix(R, N, roughness * roughness));
+    let envDiffuse = textureSample(envCubeTex, texSampler, N).rgb;
+    let envSpec = textureSample(envCubeTex, texSampler, blurredR).rgb;
+    let envIntensity = material.params1.w;
+    let envExposure = material.params2.x;
+    let envDiffuseStrength = material.params2.y;
+    color += base.rgb * envDiffuse * envExposure * ((0.08 + 0.22 * (1.0 - roughness)) * kd * envIntensity * envDiffuseStrength);
+    color += specColor * envSpec * envExposure * ((0.55 + 0.65 * metallic) * envIntensity);
+
+    color = color / (color + vec3<f32>(1.0));
+    color = pow(color, vec3<f32>(1.0 / 2.2));
+    return vec4<f32>(color, base.a);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
