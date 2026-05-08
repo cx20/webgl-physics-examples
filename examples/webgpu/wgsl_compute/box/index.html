@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Stacked Boxes Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<script id="cs" type="x-shader/x-compute">
+struct BoxState {
+    position : vec4<f32>,
+    velocity : vec4<f32>,
+}
+
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    restitution : f32,
+    damping     : f32,
+    friction    : f32,
+    halfSize    : f32,
+    elapsedTime : f32,
+}
+
+const COUNT : u32 = 256u;
+
+@group(0) @binding(0) var<storage, read> srcStates : array<BoxState>;
+@group(0) @binding(1) var<storage, read_write> dstStates : array<BoxState>;
+@group(0) @binding(2) var<uniform> params : SimParams;
+
+fn signOrOne(v : f32) -> f32 {
+    return select(-1.0, 1.0, v >= 0.0);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) {
+        return;
+    }
+
+    var pos = srcStates[i].position.xyz;
+    var vel = srcStates[i].velocity.xyz;
+    let seed = srcStates[i].position.w;
+    var unrest = srcStates[i].velocity.w;
+    let h = params.halfSize;
+    let size = h * 2.0;
+    var supportCount = 0u;
+    var loadCount = 0u;
+    var supportCenter = vec2<f32>(0.0);
+
+    vel.y -= params.gravity * params.dt;
+    vel *= params.damping;
+    pos += vel * params.dt;
+
+    if (pos.y - h < params.groundY) {
+        pos.y = params.groundY + h;
+        if (vel.y < 0.0) {
+            vel.y = -vel.y * params.restitution;
+        }
+        vel.x *= params.friction;
+        vel.z *= params.friction;
+        if (abs(vel.y) < 0.08) {
+            vel.y = 0.0;
+        }
+    }
+
+    for (var j = 0u; j < COUNT; j++) {
+        if (j == i) {
+            continue;
+        }
+
+        let other = srcStates[j];
+        let delta = pos - other.position.xyz;
+        let overlap = vec3<f32>(size) - abs(delta);
+        let belowGap = (pos.y - other.position.y) - size;
+        let aboveGap = (other.position.y - pos.y) - size;
+        let nearColumn = abs(delta.x) < 0.72 && abs(delta.z) < 0.72;
+
+        if (nearColumn && belowGap > -0.08 && belowGap < 0.28) {
+            supportCount++;
+            supportCenter += other.position.xz;
+        }
+
+        if (nearColumn && aboveGap > -0.08 && aboveGap < 0.38) {
+            loadCount++;
+        }
+
+        if (overlap.x > 0.0 && overlap.y > 0.0 && overlap.z > 0.0) {
+            if (overlap.y <= overlap.x && overlap.y <= overlap.z) {
+                let s = signOrOne(delta.y);
+                pos.y += s * overlap.y * 0.52;
+                if ((s > 0.0 && vel.y < other.velocity.y) || (s < 0.0 && vel.y > other.velocity.y)) {
+                    vel.y = other.velocity.y * params.restitution;
+                    vel.x *= params.friction;
+                    vel.z *= params.friction;
+                }
+            } else if (overlap.x <= overlap.z) {
+                let s = signOrOne(delta.x);
+                pos.x += s * overlap.x * 0.52;
+                vel.x = max(abs(vel.x) * params.restitution, 0.02) * s;
+            } else {
+                let s = signOrOne(delta.z);
+                pos.z += s * overlap.z * 0.52;
+                vel.z = max(abs(vel.z) * params.restitution, 0.02) * s;
+            }
+        }
+    }
+
+    let heightFactor = smoothstep(2.5, 14.0, pos.y - params.groundY);
+    var supportOffset = 0.42;
+    if (supportCount > 0u) {
+        let centered = supportCenter / f32(supportCount);
+        supportOffset = length(pos.xz - centered);
+    }
+
+    let supportWeakness = clamp(supportOffset * 1.8 + select(0.55, 0.0, supportCount > 0u), 0.0, 1.0);
+    let loadFactor = clamp(f32(loadCount) * 0.35, 0.0, 1.0);
+    let sway = vec2<f32>(
+        sin(params.elapsedTime * 1.6 + seed * 23.17),
+        cos(params.elapsedTime * 1.3 + seed * 19.41),
+    );
+    let stackStress = heightFactor * (0.2 + supportWeakness * 0.9 + loadFactor * 0.35);
+    unrest = clamp(unrest + stackStress * params.dt * 0.55 - params.dt * 0.04, 0.0, 1.0);
+
+    if (unrest > 0.08) {
+        let push = normalize(sway + vec2<f32>(0.18, -0.32)) * unrest * stackStress * params.dt * 2.6;
+        vel.x += push.x;
+        vel.z += push.y;
+    }
+
+    if (length(vel) < 0.015 && pos.y - h <= params.groundY + 0.02) {
+        vel = vec3<f32>(0.0);
+    }
+
+    dstStates[i].position = vec4<f32>(pos, seed);
+    dstStates[i].velocity = vec4<f32>(vel, unrest);
+}
+</script>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+}
+
+struct BoxState {
+    position : vec4<f32>,
+    velocity : vec4<f32>,
+}
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) color : vec3<f32>,
+}
+
+const COUNT : u32 = 256u;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<BoxState>;
+@group(0) @binding(2) var<storage, read> colors : array<vec4<f32>>;
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @builtin(instance_index) instance : u32,
+) -> VSOut {
+    var out : VSOut;
+    var worldPos : vec3<f32>;
+    var worldNormal = normal;
+
+    if (instance < COUNT) {
+        let p = states[instance].position.xyz;
+        worldPos = position + p;
+    } else {
+        worldPos = position * vec3<f32>(32.0, 0.4, 32.0) + vec3<f32>(0.0, -2.2, 0.0);
+    }
+
+    let light = normalize(vec3<f32>(0.5, 0.9, 0.35));
+    let shade = max(dot(normalize(worldNormal), light), 0.26);
+    out.color = colors[instance].rgb * shade;
+    out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@fragment
+fn main(@location(0) color : vec3<f32>) -> @location(0) vec4<f32> {
+    let gamma = pow(color, vec3<f32>(0.82));
+    return vec4<f32>(gamma, 1.0);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+
+<script src="index.js"></script>
+</body>
+</html>
