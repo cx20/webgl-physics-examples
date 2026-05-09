@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Falling glTF Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<script id="cs" type="x-shader/x-compute">
+struct PhysicsState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    restitution : f32,
+    halfExtents : vec4<f32>,
+    friction    : f32,
+    mass        : f32,
+    inertiaInv  : f32,
+    pad         : f32,
+}
+
+@group(0) @binding(0) var<storage, read_write> state : PhysicsState;
+@group(0) @binding(1) var<uniform> params : SimParams;
+
+fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@compute @workgroup_size(1)
+fn main() {
+    var pos = state.position.xyz;
+    var vel = state.velocity.xyz;
+    var rot = state.rotation;
+    var angVel = state.angularVel.xyz;
+    let half = params.halfExtents.xyz;
+
+    vel.y -= params.gravity * params.dt;
+    vel *= 0.999;
+    pos += vel * params.dt;
+    angVel *= 0.998;
+
+    let speed = length(angVel);
+    if (speed > 0.0001) {
+        let axis = angVel / speed;
+        let halfAngle = speed * params.dt * 0.5;
+        let dq = vec4<f32>(axis * sin(halfAngle), cos(halfAngle));
+        rot = normalize(quatMul(dq, rot));
+    }
+
+    var contactCount = 0u;
+    var minWorldY = 0.0;
+    var sumR = vec3<f32>(0.0);
+    for (var mask = 0u; mask < 8u; mask++) {
+        let lx = select(-half.x, half.x, (mask & 1u) != 0u);
+        let ly = select(-half.y, half.y, (mask & 2u) != 0u);
+        let lz = select(-half.z, half.z, (mask & 4u) != 0u);
+        let r = rotByQuat(vec3<f32>(lx, ly, lz), rot);
+        let worldY = pos.y + r.y;
+        if (worldY < params.groundY) {
+            if (contactCount == 0u || worldY < minWorldY) {
+                minWorldY = worldY;
+            }
+            sumR += r;
+            contactCount++;
+        }
+    }
+
+    if (contactCount > 0u) {
+        let r = sumR / f32(contactCount);
+        let vn = vel.y + angVel.z * r.x - angVel.x * r.z;
+        var normalImpulse = 0.0;
+        if (vn < 0.0) {
+            let e = select(params.restitution, 0.0, abs(vn) < 0.8);
+            let denom = (1.0 / params.mass) + params.inertiaInv * (r.x * r.x + r.z * r.z);
+            normalImpulse = -(1.0 + e) * vn / denom;
+            vel.y += normalImpulse / params.mass;
+            angVel.x -= params.inertiaInv * normalImpulse * r.z;
+            angVel.z += params.inertiaInv * normalImpulse * r.x;
+        }
+
+        let tangentVel = vec3<f32>(
+            vel.x + angVel.y * r.z - angVel.z * r.y,
+            0.0,
+            vel.z + angVel.x * r.y - angVel.y * r.x
+        );
+        let tangentLen = length(tangentVel);
+        if (tangentLen > 0.0001) {
+            let t = tangentVel / tangentLen;
+            let rCrossT = cross(r, t);
+            let denomT = (1.0 / params.mass) + params.inertiaInv * dot(rCrossT, rCrossT);
+            let normalEstimate = max(abs(normalImpulse), params.mass * params.gravity * params.dt);
+            let jt = clamp(-tangentLen / denomT, -params.friction * normalEstimate, params.friction * normalEstimate);
+            vel += (jt / params.mass) * t;
+            angVel += params.inertiaInv * jt * rCrossT;
+        }
+
+        pos.y += params.groundY - minWorldY;
+        if (length(vel) < 0.04 && length(angVel) < 0.04) {
+            vel = vec3<f32>(0.0);
+            angVel = vec3<f32>(0.0);
+        }
+    }
+
+    if (pos.y < -24.0) {
+        pos = vec3<f32>(0.0, 12.0, 0.0);
+        vel = vec3<f32>(0.0, 0.0, 0.0);
+        rot = normalize(vec4<f32>(0.15, 0.25, 0.0, 0.955));
+        angVel = vec3<f32>(0.45, 0.7, 0.25);
+    }
+
+    state.position = vec4<f32>(pos, 0.0);
+    state.velocity = vec4<f32>(vel, 0.0);
+    state.rotation = rot;
+    state.angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<script id="vs" type="x-shader/x-vertex">
+struct RenderUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    mode : vec4<f32>,
+}
+
+struct PhysicsState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms : RenderUniforms;
+@group(0) @binding(3) var<storage, read> state : PhysicsState;
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+}
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>,
+) -> VSOut {
+    var out : VSOut;
+    let local = uniforms.model * vec4<f32>(position, 1.0);
+    let localNormal = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    let world = rotByQuat(local.xyz, state.rotation) + state.position.xyz;
+    out.position = uniforms.viewProj * vec4<f32>(world, 1.0);
+    out.normal = normalize(rotByQuat(localNormal, state.rotation));
+    out.uv = uv;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct RenderUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    mode : vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : RenderUniforms;
+@group(0) @binding(1) var samp : sampler;
+@group(0) @binding(2) var tex : texture_2d<f32>;
+
+@fragment
+fn main(@location(0) normal : vec3<f32>, @location(1) uv : vec2<f32>) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
+    let diffuse = max(dot(normalize(normal), lightDir), 0.28);
+    let texColor = textureSample(tex, samp, uv);
+    let base = uniforms.baseColor * texColor;
+    return vec4<f32>(pow(base.rgb * diffuse, vec3<f32>(0.82)), base.a);
+}
+</script>
+
+<script id="gvs" type="x-shader/x-vertex">
+struct GroundUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : GroundUniforms;
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+}
+@vertex
+fn main(@location(0) position : vec3<f32>, @location(1) normal : vec3<f32>) -> VSOut {
+    var out : VSOut;
+    out.position = uniforms.viewProj * uniforms.model * vec4<f32>(position, 1.0);
+    out.normal = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    return out;
+}
+</script>
+
+<script id="gfs" type="x-shader/x-fragment">
+struct GroundUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : GroundUniforms;
+@fragment
+fn main(@location(0) normal : vec3<f32>) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
+    let diffuse = max(dot(normalize(normal), lightDir), 0.35);
+    return vec4<f32>(uniforms.color.rgb * diffuse, uniforms.color.a);
+}
+</script>
+
+<script id="wvs" type="x-shader/x-vertex">
+struct WireUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+    mode : vec4<f32>,
+}
+struct PhysicsState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : WireUniforms;
+@group(0) @binding(1) var<storage, read> state : PhysicsState;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
+    let local = uniforms.model * vec4<f32>(position, 1.0);
+    let world = rotByQuat(local.xyz, state.rotation) + state.position.xyz;
+    return uniforms.viewProj * vec4<f32>(world, 1.0);
+}
+</script>
+
+<script id="wfs" type="x-shader/x-fragment">
+struct WireUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+    mode : vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms : WireUniforms;
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return uniforms.color;
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+<div id="hint" style="position:fixed;top:8px;left:8px;color:#ddd;background:rgba(0,0,0,0.45);padding:4px 8px;border-radius:4px;font:13px monospace;pointer-events:none">
+    W: debug collider ON
+</div>
+<script src="index.js"></script>
+</body>
+</html>
