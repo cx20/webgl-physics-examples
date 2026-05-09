@@ -513,6 +513,9 @@ async function buildModel(url) {
         worldScale: vec3.fromValues(1, 1, 1),
         bodyId: null,
         debugSize: null,
+        debugShapeType: 'box',
+        debugGLMesh: null,
+        debugTransformMatrix: null,
         initialPosition: null,
         initialRotation: null,
         physicsExt: node.extensions ? node.extensions.KHR_physics_rigid_bodies : null
@@ -785,29 +788,89 @@ function applyPhysicsMaterial(shapeId, materialDef) {
 }
 
 function createPhysicsShape(node, shapeDef, motionDef, materialDef) {
-    if (!shapeDef || shapeDef.type !== 'box' || !shapeDef.box) {
-        throw new Error('This sample currently supports KHR_implicit_shapes box colliders only.');
+    if (!shapeDef) {
+        throw new Error('Invalid KHR_implicit_shapes definition.');
     }
 
-    const size = [
-        Math.abs(shapeDef.box.size[0] * node.worldScale[0]),
-        Math.abs(shapeDef.box.size[1] * node.worldScale[1]),
-        Math.abs(shapeDef.box.size[2] * node.worldScale[2])
-    ];
+    let shapeId;
+    let size;
+    let shapeType = shapeDef.type;
+    let volume = 0.0001;
 
-    const created = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
-    checkResult(created[0], 'HP_Shape_CreateBox');
-    const shapeId = created[1];
+    if (shapeDef.type === 'box' && shapeDef.box) {
+        const boxSize = shapeDef.box.size || [1, 1, 1];
+        size = [
+            Math.abs(boxSize[0] * node.worldScale[0]),
+            Math.abs(boxSize[1] * node.worldScale[1]),
+            Math.abs(boxSize[2] * node.worldScale[2])
+        ];
+
+        const created = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
+        checkResult(created[0], 'HP_Shape_CreateBox');
+        shapeId = created[1];
+        volume = Math.max(size[0] * size[1] * size[2], 0.0001);
+    } else if (shapeDef.type === 'sphere' && shapeDef.sphere) {
+        const baseRadius = shapeDef.sphere.radius !== undefined ? shapeDef.sphere.radius : 0.5;
+        const maxScale = Math.max(
+            Math.abs(node.worldScale[0]),
+            Math.abs(node.worldScale[1]),
+            Math.abs(node.worldScale[2])
+        );
+        const radius = Math.max(Math.abs(baseRadius * maxScale), 0.0001);
+        const created = HK.HP_Shape_CreateSphere([0, 0, 0], radius);
+        checkResult(created[0], 'HP_Shape_CreateSphere');
+        shapeId = created[1];
+        size = [radius * 2, radius * 2, radius * 2];
+        volume = Math.max((4.0 / 3.0) * Math.PI * radius * radius * radius, 0.0001);
+    } else if (shapeDef.type === 'capsule' && shapeDef.capsule) {
+        const capsuleDef = shapeDef.capsule;
+        const radiusTop = capsuleDef.radiusTop !== undefined ? capsuleDef.radiusTop : 0.5;
+        const radiusBottom = capsuleDef.radiusBottom !== undefined ? capsuleDef.radiusBottom : 0.5;
+        const height = capsuleDef.height !== undefined ? capsuleDef.height : 1.0;
+        const avgRadius = (radiusTop + radiusBottom) * 0.5;
+        const scaleXZ = Math.max(Math.abs(node.worldScale[0]), Math.abs(node.worldScale[2]));
+        const scaledRadius = Math.max(avgRadius * scaleXZ, 0.0001);
+        const scaledHalfShaft = Math.max(height * Math.abs(node.worldScale[1]) * 0.5, 0);
+        const created = HK.HP_Shape_CreateCapsule([0, -scaledHalfShaft, 0], [0, scaledHalfShaft, 0], scaledRadius);
+        checkResult(created[0], 'HP_Shape_CreateCapsule');
+        shapeId = created[1];
+        size = [scaledRadius * 2, scaledHalfShaft * 2 + scaledRadius * 2, scaledRadius * 2];
+        volume = Math.max(Math.PI * scaledRadius * scaledRadius * (scaledHalfShaft * 2) + (4.0 / 3.0) * Math.PI * scaledRadius * scaledRadius * scaledRadius, 0.0001);
+    } else if (shapeDef.type === 'cylinder' && shapeDef.cylinder) {
+        const cylDef = shapeDef.cylinder;
+        const cRadiusTop = cylDef.radiusTop !== undefined ? cylDef.radiusTop : 0.5;
+        const cRadiusBottom = cylDef.radiusBottom !== undefined ? cylDef.radiusBottom : 0.5;
+        const cHeight = cylDef.height !== undefined ? cylDef.height : 1.0;
+        const maxCylRadius = Math.max(Math.max(cRadiusTop, cRadiusBottom), 0.0001);
+        const scaleXZ = Math.max(Math.abs(node.worldScale[0]), Math.abs(node.worldScale[2]));
+        const scaledCylRadius = Math.max(maxCylRadius * scaleXZ, 0.0001);
+        const scaledCylHalfHeight = Math.max(cHeight * Math.abs(node.worldScale[1]) * 0.5, 0.0001);
+        if (typeof HK.HP_Shape_CreateCylinder === 'function') {
+            const created = HK.HP_Shape_CreateCylinder([0, -scaledCylHalfHeight, 0], [0, scaledCylHalfHeight, 0], scaledCylRadius);
+            checkResult(created[0], 'HP_Shape_CreateCylinder');
+            shapeId = created[1];
+        } else {
+            const s = [scaledCylRadius * 2, scaledCylHalfHeight * 2, scaledCylRadius * 2];
+            const created = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, s);
+            checkResult(created[0], 'HP_Shape_CreateBox');
+            shapeId = created[1];
+            shapeType = 'box';
+        }
+        size = [scaledCylRadius * 2, scaledCylHalfHeight * 2, scaledCylRadius * 2];
+        volume = Math.max(Math.PI * scaledCylRadius * scaledCylRadius * scaledCylHalfHeight * 2, 0.0001);
+    } else {
+        throw new Error('Unsupported KHR_implicit_shapes collider type: ' + String(shapeDef.type));
+    }
 
     if (motionDef) {
-        const volume = Math.max(size[0] * size[1] * size[2], 0.0001);
-        const density = motionDef.mass !== undefined ? motionDef.mass / volume : 1;
+        const specMass = motionDef.mass !== undefined ? motionDef.mass : undefined;
+        const density = (specMass !== undefined && specMass > 0) ? specMass / volume : 1;
         checkResult(HK.HP_Shape_SetDensity(shapeId, density), 'HP_Shape_SetDensity');
     }
 
     applyPhysicsMaterial(shapeId, materialDef);
 
-    return { shapeId, size };
+    return { shapeId, size, shapeType };
 }
 
 function initPhysics() {
@@ -834,7 +897,7 @@ function initPhysics() {
             ? materialDefs[node.physicsExt.collider.physicsMaterial]
             : null;
 
-        const { shapeId, size } = createPhysicsShape(node, shapeDef, motionDef, materialDef);
+        const { shapeId, size, shapeType } = createPhysicsShape(node, shapeDef, motionDef, materialDef);
         const position = vec3.create();
         const rotation = quat.create();
         mat4.getTranslation(position, node.restWorldMatrix);
@@ -843,6 +906,8 @@ function initPhysics() {
         node.initialPosition = [position[0], position[1], position[2]];
         node.initialRotation = [rotation[0], rotation[1], rotation[2], rotation[3]];
         node.debugSize = size;
+        node.debugShapeType = shapeType;
+        node.debugTransformMatrix = mat4.create();
 
         const motionType = motionDef ? HK.MotionType.DYNAMIC : HK.MotionType.STATIC;
         node.bodyId = createBody(shapeId, motionType, node.initialPosition, node.initialRotation, !!motionDef);
@@ -863,12 +928,92 @@ function updatePhysicsTransforms() {
 
         const position = pResult[1];
         const rotation = qResult[1];
+        const rot = quat.fromValues(rotation[0], rotation[1], rotation[2], rotation[3]);
+        const pos = vec3.fromValues(position[0], position[1], position[2]);
         mat4.fromRotationTranslationScale(
             node.worldMatrix,
-            quat.fromValues(rotation[0], rotation[1], rotation[2], rotation[3]),
-            vec3.fromValues(position[0], position[1], position[2]),
+            rot,
+            pos,
             node.worldScale
         );
+
+        if (node.debugTransformMatrix) {
+            mat4.fromRotationTranslation(node.debugTransformMatrix, rot, pos);
+        }
+    }
+}
+
+function buildPhysicsDebugMeshes() {
+    if (typeof HK.HP_Shape_CreateDebugDisplayGeometry !== 'function') {
+        return;
+    }
+
+    for (const node of physicsNodes) {
+        if (node.debugShapeType === 'box') {
+            continue;
+        }
+
+        const shapeRes = HK.HP_Body_GetShape(node.bodyId);
+        if (!shapeRes) continue;
+
+        const geomRes = HK.HP_Shape_CreateDebugDisplayGeometry(shapeRes[1]);
+        if (!geomRes) continue;
+
+        const geomHandle = geomRes[1];
+        let infoRes;
+        try {
+            infoRes = HK.HP_DebugGeometry_GetInfo(geomHandle);
+        } catch (_e) {
+            HK.HP_DebugGeometry_Release(geomHandle);
+            continue;
+        }
+
+        if (!infoRes) {
+            HK.HP_DebugGeometry_Release(geomHandle);
+            continue;
+        }
+
+        const info = infoRes[1];
+        const posOffset = info[0];
+        const numVerts = info[1];
+        const triOffset = info[2];
+        const numTris = info[3];
+
+        const positions = new Float32Array(HK.HEAPU8.buffer, posOffset, numVerts * 3).slice();
+        const triIndices = new Uint32Array(HK.HEAPU8.buffer, triOffset, numTris * 3).slice();
+        HK.HP_DebugGeometry_Release(geomHandle);
+
+        if (numVerts === 0 || numTris === 0) continue;
+
+        const lineIndices = new Uint32Array(numTris * 6);
+        for (let tri = 0; tri < numTris; tri++) {
+            const i0 = triIndices[tri * 3 + 0];
+            const i1 = triIndices[tri * 3 + 1];
+            const i2 = triIndices[tri * 3 + 2];
+            lineIndices[tri * 6 + 0] = i0;
+            lineIndices[tri * 6 + 1] = i1;
+            lineIndices[tri * 6 + 2] = i1;
+            lineIndices[tri * 6 + 3] = i2;
+            lineIndices[tri * 6 + 4] = i2;
+            lineIndices[tri * 6 + 5] = i0;
+        }
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        const useUint32 = !!extUint;
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, useUint32 ? lineIndices : new Uint16Array(lineIndices), gl.STATIC_DRAW);
+
+        node.debugTransformMatrix = mat4.create();
+        node.debugGLMesh = {
+            positionBuffer,
+            indexBuffer,
+            count: lineIndices.length,
+            indexType: useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT
+        };
     }
 }
 
@@ -895,20 +1040,36 @@ function drawPhysicsDebug() {
     gl.useProgram(lineProgram);
     gl.uniformMatrix4fv(lineUniforms.viewProj, false, viewProj);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, debugBoxMesh.positionBuffer);
-    gl.enableVertexAttribArray(lineAttribs.position);
-    gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugBoxMesh.indexBuffer);
-
+    const wasDepthTestEnabled = gl.isEnabled(gl.DEPTH_TEST);
+    gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     for (const node of physicsNodes) {
-        const model = mat4.clone(node.worldMatrix);
-        mat4.scale(model, model, node.debugSize);
-        gl.uniformMatrix4fv(lineUniforms.model, false, model);
-        gl.uniform4fv(lineUniforms.color, node.physicsExt.motion ? [1.0, 0.35, 0.2, 1.0] : [0.2, 0.9, 0.35, 1.0]);
-        if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        const color = node.physicsExt.motion ? [1.0, 0.35, 0.2, 1.0] : [0.2, 0.9, 0.35, 1.0];
+
+        if (node.debugGLMesh && node.debugTransformMatrix) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, node.debugGLMesh.positionBuffer);
+            gl.enableVertexAttribArray(lineAttribs.position);
+            gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, node.debugGLMesh.indexBuffer);
+            gl.uniformMatrix4fv(lineUniforms.model, false, node.debugTransformMatrix);
+            gl.uniform4fv(lineUniforms.color, color);
+            gl.drawElements(gl.LINES, node.debugGLMesh.count, node.debugGLMesh.indexType, 0);
+        } else {
+            const model = node.debugTransformMatrix ? mat4.clone(node.debugTransformMatrix) : mat4.clone(node.worldMatrix);
+            mat4.scale(model, model, node.debugSize);
+            gl.bindBuffer(gl.ARRAY_BUFFER, debugBoxMesh.positionBuffer);
+            gl.enableVertexAttribArray(lineAttribs.position);
+            gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugBoxMesh.indexBuffer);
+            gl.uniformMatrix4fv(lineUniforms.model, false, model);
+            gl.uniform4fv(lineUniforms.color, color);
+            gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        }
     }
     gl.enable(gl.CULL_FACE);
+    if (wasDepthTestEnabled) {
+        gl.enable(gl.DEPTH_TEST);
+    }
 }
 
 function renderFrame(timeSec) {
@@ -1028,6 +1189,7 @@ window.addEventListener('keydown', event => {
     cameraHeight = Math.max(sizeY * 0.9, 5.5);
 
     initPhysics();
+    buildPhysicsDebugMeshes();
     updatePhysicsTransforms();
 
     requestAnimationFrame((ts) => renderFrame(ts * 0.001));
