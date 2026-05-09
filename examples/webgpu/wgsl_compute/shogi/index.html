@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Falling Shogi Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<!-- ================================================================
+  Compute Shader
+  State per piece (16 floats = 4 × vec4<f32>):
+    position  : xyz=pos,    w=seed(uint bits)
+    velocity  : xyz=vel,    w=pad
+    rotation  : xyzw quaternion
+    angularVel: xyz=angVel, w=pad
+================================================================ -->
+<script id="cs" type="x-shader/x-compute">
+struct PieceState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    damping     : f32,
+    angDamping  : f32,
+    restitution : f32,
+    friction    : f32,
+    spawnRange  : f32,
+}
+
+const COUNT : u32 = 300u;
+// Half-extents matching SHOGI_PHYSICS_SIZE = [pw, ph*1.2, pd*1.4]
+// pw=1.6, ph=1.6, pd=0.32  →  halves: [0.8, 0.96, 0.224]
+const HW : f32 = 0.80;
+const HH : f32 = 0.96;
+const HD : f32 = 0.224;
+
+@group(0) @binding(0) var<storage, read>       srcStates : array<PieceState>;
+@group(0) @binding(1) var<storage, read_write> dstStates : array<PieceState>;
+@group(0) @binding(2) var<uniform>             params    : SimParams;
+
+fn hash(n : u32) -> u32 {
+    var x = n ^ (n >> 17u);
+    x = x * 0xbf324c81u;
+    x ^= x >> 11u;
+    x = x * 0x68b665e5u;
+    x ^= x >> 16u;
+    return x;
+}
+
+fn hashF(n : u32) -> f32 {
+    return f32(hash(n) & 0xffffffu) * (1.0 / f32(0xffffffu));
+}
+
+fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn rotateQ(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+fn normalizeQ(q : vec4<f32>) -> vec4<f32> {
+    let l = length(q);
+    return select(vec4<f32>(0, 0, 0, 1), q / l, l > 0.0001);
+}
+
+// Build rotation matrix (column-major: axes[0]=local-X, axes[1]=local-Y, axes[2]=local-Z)
+fn quatToAxes(q : vec4<f32>) -> mat3x3<f32> {
+    let x = q.x; let y = q.y; let z = q.z; let w = q.w;
+    return mat3x3<f32>(
+        vec3<f32>(1.0-2.0*(y*y+z*z),   2.0*(x*y+w*z),   2.0*(x*z-w*y)),
+        vec3<f32>(  2.0*(x*y-w*z), 1.0-2.0*(x*x+z*z),   2.0*(y*z+w*x)),
+        vec3<f32>(  2.0*(x*z+w*y),   2.0*(y*z-w*x), 1.0-2.0*(x*x+y*y))
+    );
+}
+
+// Project OBB half-extents onto a unit axis
+fn obbHalfProj(axes : mat3x3<f32>, L : vec3<f32>) -> f32 {
+    return abs(dot(axes[0], L)) * HW
+         + abs(dot(axes[1], L)) * HH
+         + abs(dot(axes[2], L)) * HD;
+}
+
+// SAT penetration along L: positive = overlapping, <=0 = separated
+fn satPen(T : vec3<f32>, axA : mat3x3<f32>, axB : mat3x3<f32>, L : vec3<f32>) -> f32 {
+    let lenSq = dot(L, L);
+    if (lenSq < 1e-8) { return 1e9; }
+    let Ln = L * inverseSqrt(lenSq);
+    return obbHalfProj(axA, Ln) + obbHalfProj(axB, Ln) - abs(dot(T, Ln));
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) { return; }
+
+    var pos    = srcStates[i].position.xyz;
+    let seedW  = bitcast<u32>(srcStates[i].position.w);
+    var vel    = srcStates[i].velocity.xyz;
+    var rot    = srcStates[i].rotation;
+    var angVel = srcStates[i].angularVel.xyz;
+
+    // Respawn when piece falls out of the play area
+    if (pos.y < -15.0 || abs(pos.x) > 30.0 || abs(pos.z) > 30.0) {
+        let s  = hash(seedW + 1u);
+        pos.x  = (hashF(s)      - 0.5) * params.spawnRange;
+        pos.y  = (hashF(s + 1u) + 1.0) * 15.0;
+        pos.z  = (hashF(s + 2u) - 0.5) * params.spawnRange;
+        // Random tumble on respawn
+        let av = vec3<f32>(
+            (hashF(s + 3u) - 0.5) * 6.0,
+            (hashF(s + 4u) - 0.5) * 2.0,
+            (hashF(s + 5u) - 0.5) * 6.0,
+        );
+        dstStates[i].position   = vec4<f32>(pos, bitcast<f32>(s));
+        dstStates[i].velocity   = vec4<f32>(0.0);
+        dstStates[i].rotation   = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        dstStates[i].angularVel = vec4<f32>(av, 0.0);
+        return;
+    }
+
+    // Gravity
+    vel.y -= params.gravity * params.dt;
+
+    // Integrate position
+    pos += vel * params.dt;
+
+    // Integrate rotation
+    let hw = angVel * 0.5 * params.dt;
+    let dq = quatMul(vec4<f32>(hw, 0.0), rot);
+    rot = normalizeQ(rot + dq);
+
+    // Ground collision: find lowest OBB corner and compute contact torque
+    var minY  = 1e9;
+    var cLocal = vec3<f32>(0.0, -HH, 0.0);  // contact local pos
+    for (var ix = 0; ix < 2; ix++) {
+        for (var iy = 0; iy < 2; iy++) {
+            for (var iz = 0; iz < 2; iz++) {
+                let lx = select(-HW, HW, ix == 1);
+                let ly = select(-HH, HH, iy == 1);
+                let lz = select(-HD, HD, iz == 1);
+                let local = vec3<f32>(lx, ly, lz);
+                let wy = pos.y + rotateQ(rot, local).y;
+                if (wy < minY) {
+                    minY   = wy;
+                    cLocal = local;
+                }
+            }
+        }
+    }
+    if (minY < params.groundY && abs(pos.x) < 6.5 && abs(pos.z) < 6.5) {
+        pos.y += params.groundY - minY;
+        if (vel.y < 0.0) {
+            let r  = rotateQ(rot, cLocal);
+            let jY = -vel.y * (1.0 + params.restitution);
+            // Torque from normal (vertical) impulse
+            angVel += cross(r, vec3<f32>(0.0, jY, 0.0)) * 0.20;
+            // Torque from friction (horizontal velocity removed by ground contact)
+            let dVelF = vec3<f32>(vel.x * (params.friction - 1.0), 0.0, vel.z * (params.friction - 1.0));
+            angVel += cross(r, dVelF) * 0.25;
+
+            vel.y  = -vel.y * params.restitution;
+            vel.x *= params.friction;
+            vel.z *= params.friction;
+        }
+        angVel *= 0.80;
+    }
+
+    // Piece-to-piece OBB collision (SAT)
+    let axA    = quatToAxes(rot);
+    let BSR2   = 6.76; // quick-reject: bounding sphere diameter^2 = (2*1.3)^2
+    for (var j = 0u; j < COUNT; j++) {
+        if (j == i) { continue; }
+        let jPos = srcStates[j].position.xyz;
+        let T    = jPos - pos;
+        if (dot(T, T) > BSR2) { continue; }  // bounding-sphere early exit
+        let axB = quatToAxes(srcStates[j].rotation);
+
+        var minPen  = 1e9;
+        var minAxis = vec3<f32>(1.0, 0.0, 0.0);
+        var sep     = false;
+
+        // A face normals (3)
+        for (var k = 0; k < 3; k++) {
+            if (sep) { break; }
+            let pen = satPen(T, axA, axB, axA[k]);
+            if (pen <= 0.0) { sep = true; break; }
+            if (pen < minPen) { minPen = pen; minAxis = axA[k]; }
+        }
+        // B face normals (3)
+        for (var k = 0; k < 3; k++) {
+            if (sep) { break; }
+            let pen = satPen(T, axA, axB, axB[k]);
+            if (pen <= 0.0) { sep = true; break; }
+            if (pen < minPen) { minPen = pen; minAxis = axB[k]; }
+        }
+        // Edge cross products (9)
+        for (var a = 0; a < 3; a++) {
+            if (sep) { break; }
+            for (var b = 0; b < 3; b++) {
+                if (sep) { break; }
+                let L   = cross(axA[a], axB[b]);
+                let pen = satPen(T, axA, axB, L);
+                if (pen <= 0.0) { sep = true; break; }
+                if (pen < minPen) { minPen = pen; minAxis = L; }
+            }
+        }
+        if (sep) { continue; }
+
+        // Orient push-out normal from j toward i
+        var n = minAxis;
+        if (dot(n, pos - jPos) < 0.0) { n = -n; }
+
+        // Push-out (take half)
+        pos += n * (minPen * 0.5);
+
+        // Contact point on piece i: project direction-toward-j onto i's local axes, clamp to half-extents
+        let cLx = clamp(dot(T, axA[0]), -HW, HW);
+        let cLy = clamp(dot(T, axA[1]), -HH, HH);
+        let cLz = clamp(dot(T, axA[2]), -HD, HD);
+        let r_i = axA[0]*cLx + axA[1]*cLy + axA[2]*cLz;
+
+        let jVel  = srcStates[j].velocity.xyz;
+        let relV  = vel - jVel;
+        let relVn = dot(relV, n);
+        if (relVn < 0.0) {
+            let Jn = -(relVn * (1.0 + 0.2) * 0.5);
+            // Normal impulse: linear + angular
+            vel    += n * Jn;
+            angVel += cross(r_i, n * Jn) * 0.5;
+            // Tangential friction impulse: generates spin when pieces scrape
+            let relVt    = relV - relVn * n;
+            let relVtLen = length(relVt);
+            if (relVtLen > 0.001) {
+                let Jt   = min(0.4 * Jn, relVtLen * 0.5);
+                let tDir = relVt / relVtLen;
+                vel    -= tDir * Jt;
+                angVel += cross(r_i, -tDir * Jt) * 1.5;
+            }
+        }
+    }
+
+    vel    *= params.damping;
+    angVel *= params.angDamping;
+
+    dstStates[i].position   = vec4<f32>(pos, bitcast<f32>(seedW));
+    dstStates[i].velocity   = vec4<f32>(vel, 0.0);
+    dstStates[i].rotation   = rot;
+    dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<!-- Vertex shader: instanced shogi pieces with texture (matches Havok layout) -->
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    pMatrix : mat4x4<f32>,
+}
+
+struct PieceState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position : vec4<f32>,
+    @location(0) vTextureCoord  : vec2<f32>,
+    @location(1) vColor         : vec3<f32>,
+}
+
+@binding(0) @group(0) var<uniform>       uniforms : Uniforms;
+@binding(3) @group(0) var<storage, read> states   : array<PieceState>;
+
+fn qtransform(q : vec4<f32>, p : vec3<f32>) -> vec3<f32> {
+    return p + 2.0 * cross(cross(p, q.xyz) - q.w * p, q.xyz);
+}
+
+@vertex
+fn main(
+    @location(0) position     : vec3<f32>,
+    @location(1) normal       : vec3<f32>,
+    @location(2) textureCoord : vec2<f32>,
+    @builtin(instance_index) instance : u32,
+) -> VertexOutput {
+    var output : VertexOutput;
+
+    let eye    = vec3<f32>(0.0, 0.0, 40.0);
+    let center = vec3<f32>(0.0, 0.0, 0.0);
+    let up     = vec3<f32>(0.0, 1.0, 0.0);
+
+    let ww = normalize(eye - center);
+    let uu = normalize(cross(up, ww));
+    let vv = normalize(cross(ww, uu));
+    let vMatrix = mat4x4<f32>(
+        uu.x, vv.x, ww.x, 0.0,
+        uu.y, vv.y, ww.y, 0.0,
+        uu.z, vv.z, ww.z, 0.0,
+        -dot(uu, eye), -dot(uu, eye), -dot(ww, eye), 1.0
+    );
+
+    let state  = states[instance];
+    let rot    = state.rotation;
+    let offset = state.position.xyz;
+
+    let nor      = qtransform(rot, normal);
+    let light    = normalize(vec3<f32>(1.0, 1.0, 1.0));
+    let lighting = max(dot(light, (vMatrix * vec4<f32>(nor, 0.0)).xyz), 0.4);
+    output.vColor        = vec3<f32>(lighting);
+    output.vTextureCoord = textureCoord;
+
+    let pos = qtransform(rot, position) + offset;
+    output.position = uniforms.pMatrix * vMatrix * vec4<f32>(pos, 1.0);
+    return output;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@binding(1) @group(0) var mySampler : sampler;
+@binding(2) @group(0) var myTexture : texture_2d<f32>;
+
+@fragment
+fn main(
+    @location(0) vTextureCoord : vec2<f32>,
+    @location(1) vColor        : vec3<f32>,
+) -> @location(0) vec4<f32> {
+    let col = pow(vColor, vec3<f32>(0.6));
+    return textureSample(myTexture, mySampler, vTextureCoord) * vec4<f32>(col, 1.0);
+}
+</script>
+
+<!-- Ground shaders -->
+<script id="gvs" type="x-shader/x-vertex">
+struct GroundUniforms {
+    mvpMatrix : mat4x4<f32>,
+};
+@binding(0) @group(0) var<uniform> groundUniforms : GroundUniforms;
+@vertex
+fn main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
+    return groundUniforms.mvpMatrix * vec4<f32>(position, 1.0);
+}
+</script>
+<script id="gfs" type="x-shader/x-fragment">
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.6, 0.6, 0.6, 1.0);
+}
+</script>
+
+<!-- Wireframe debug: OBB box per piece (line-list, 'W' to toggle) -->
+<script id="wvs" type="x-shader/x-vertex">
+struct Uniforms { pMatrix : mat4x4<f32>, }
+struct PieceState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+@binding(0) @group(0) var<uniform>       uniforms : Uniforms;
+@binding(1) @group(0) var<storage, read> states   : array<PieceState>;
+fn qtransform(q : vec4<f32>, p : vec3<f32>) -> vec3<f32> {
+    return p + 2.0 * cross(cross(p, q.xyz) - q.w * p, q.xyz);
+}
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @builtin(instance_index) instance : u32,
+) -> @builtin(position) vec4<f32> {
+    let eye    = vec3<f32>(0.0, 0.0, 40.0);
+    let center = vec3<f32>(0.0, 0.0,  0.0);
+    let up     = vec3<f32>(0.0, 1.0,  0.0);
+    let ww = normalize(eye - center);
+    let uu = normalize(cross(up, ww));
+    let vv = cross(ww, uu);
+    let vMat = mat4x4<f32>(
+        vec4<f32>(uu.x, vv.x, ww.x, 0.0),
+        vec4<f32>(uu.y, vv.y, ww.y, 0.0),
+        vec4<f32>(uu.z, vv.z, ww.z, 0.0),
+        vec4<f32>(-dot(uu,eye), -dot(vv,eye), -dot(ww,eye), 1.0)
+    );
+    let state    = states[instance];
+    let worldPos = state.position.xyz + qtransform(state.rotation, position);
+    return uniforms.pMatrix * vMat * vec4<f32>(worldPos, 1.0);
+}
+</script>
+<script id="wfs" type="x-shader/x-fragment">
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 1.0, 0.0, 1.0);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+<div id="wireHint" style="position:fixed;top:8px;left:8px;color:#0f0;font:13px monospace;pointer-events:none">W: wireframe ON</div>
+<script src="index.js"></script>
+</body>
+</html>
