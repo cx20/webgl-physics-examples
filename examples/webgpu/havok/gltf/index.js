@@ -4,6 +4,7 @@ const { mat4, vec3, quat } = glMatrix;
 const DUCK_GLTF_URL = 'https://rawcdn.githack.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
 const FALL_SCALE = 5.0;
 const SHOW_DEBUG_BBOX = true;
+let showWireframe = SHOW_DEBUG_BBOX;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 
 let canvas;
@@ -782,7 +783,7 @@ function render(timeMs) {
 
     drawDuckNodes(pass);
 
-    if (SHOW_DEBUG_BBOX) {
+    if (showWireframe) {
         const pResult = HK.HP_Body_GetPosition(duckBody);
         checkResult(pResult[0], 'HP_Body_GetPosition');
         const qResult = HK.HP_Body_GetOrientation(duckBody);
@@ -902,6 +903,12 @@ async function main() {
 
     resize();
     window.addEventListener('resize', resize);
+    window.addEventListener('keydown', event => {
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
 
     groundMesh = createGroundMesh();
     groundRenderItem = createTriangleRenderItem(whiteTextureView);

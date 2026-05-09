@@ -3,6 +3,7 @@ const { mat4, vec3, quat } = glMatrix;
 
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/ShapeTypes/ShapeTypes.glb';
 const SHOW_DEBUG_COLLIDERS = true;
+let showWireframe = SHOW_DEBUG_COLLIDERS;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const RESET_Y_THRESHOLD = -20;
 
@@ -1521,7 +1522,7 @@ function render(timeMs) {
 
     drawModelNodes(pass);
 
-    if (SHOW_DEBUG_COLLIDERS) {
+    if (showWireframe) {
         pass.setPipeline(linePipeline);
 
         for (const node of physicsNodes) {
@@ -1644,6 +1645,12 @@ async function main() {
 
     resize();
     window.addEventListener('resize', resize);
+    window.addEventListener('keydown', event => {
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
 
     debugBoxMesh = createDebugLineMesh();
     debugLineUniformBuffer = device.createBuffer({
