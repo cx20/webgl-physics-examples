@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Falling Coins Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<script id="cs" type="x-shader/x-compute">
+struct CoinState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct CoinInfo {
+    size     : vec4<f32>, // radius, halfHeight, textureIndex, seed
+    material : vec4<f32>, // restitution, friction, metallic, roughness
+    color    : vec4<f32>,
+}
+
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    damping     : f32,
+    angDamping  : f32,
+    restitution : f32,
+    friction    : f32,
+    spawnRange  : f32,
+}
+
+const COIN_CAPACITY : u32 = 300u;
+const GROUND_HALF : f32 = 6.5;
+const PHYSICS_THICKNESS_SCALE : f32 = 1.0;
+
+@group(0) @binding(0) var<storage, read> srcStates : array<CoinState>;
+@group(0) @binding(1) var<storage, read_write> dstStates : array<CoinState>;
+@group(0) @binding(2) var<storage, read> infos : array<CoinInfo>;
+@group(0) @binding(3) var<uniform> params : SimParams;
+
+fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn rotateQ(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+fn normalizeQ(q : vec4<f32>) -> vec4<f32> {
+    let l = length(q);
+    return select(vec4<f32>(0.0, 0.0, 0.0, 1.0), q / l, l > 0.0001);
+}
+
+fn boxCorner(index : u32, halfExtents : vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        select(-halfExtents.x, halfExtents.x, (index & 1u) != 0u),
+        select(-halfExtents.y, halfExtents.y, (index & 2u) != 0u),
+        select(-halfExtents.z, halfExtents.z, (index & 4u) != 0u),
+    );
+}
+
+fn quatToAxes(q : vec4<f32>) -> mat3x3<f32> {
+    let x = q.x; let y = q.y; let z = q.z; let w = q.w;
+    return mat3x3<f32>(
+        vec3<f32>(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y)),
+        vec3<f32>(2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x)),
+        vec3<f32>(2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y)),
+    );
+}
+
+fn obbHalfProj(axes : mat3x3<f32>, halfExtents : vec3<f32>, axis : vec3<f32>) -> f32 {
+    return abs(dot(axes[0], axis)) * halfExtents.x
+         + abs(dot(axes[1], axis)) * halfExtents.y
+         + abs(dot(axes[2], axis)) * halfExtents.z;
+}
+
+fn satPen(T : vec3<f32>, axesA : mat3x3<f32>, axesB : mat3x3<f32>, halfA : vec3<f32>, halfB : vec3<f32>, axis : vec3<f32>) -> f32 {
+    let lenSq = dot(axis, axis);
+    if (lenSq < 1e-8) {
+        return 1e9;
+    }
+    let n = axis * inverseSqrt(lenSq);
+    return obbHalfProj(axesA, halfA, n) + obbHalfProj(axesB, halfB, n) - abs(dot(T, n));
+}
+
+fn rand(seed : f32) -> f32 {
+    return fract(sin(seed * 12.9898 + 78.233) * 43758.5453);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COIN_CAPACITY) {
+        return;
+    }
+
+    let info = infos[i];
+    let radius = info.size.x;
+    let halfHeight = info.size.y;
+    let seed = srcStates[i].position.w;
+    let restitution = info.material.x;
+    let friction = info.material.y;
+
+    var pos = srcStates[i].position.xyz;
+    var vel = srcStates[i].velocity.xyz;
+    var rot = srcStates[i].rotation;
+    var angVel = srcStates[i].angularVel.xyz;
+
+    let outsideGround = abs(pos.x) > GROUND_HALF + radius || abs(pos.z) > GROUND_HALF + radius;
+    if (pos.y < params.groundY - 8.0 || (outsideGround && pos.y < params.groundY - 1.5)) {
+        let s = seed + 1.37;
+        pos = vec3<f32>(
+            (rand(s) - 0.5) * params.spawnRange,
+            params.groundY + 18.0 + rand(s + 1.0) * 14.0,
+            (rand(s + 2.0) - 0.5) * params.spawnRange,
+        );
+        angVel = vec3<f32>(
+            (rand(s + 3.0) - 0.5) * 6.0,
+            (rand(s + 4.0) - 0.5) * 2.0,
+            (rand(s + 5.0) - 0.5) * 6.0,
+        );
+        dstStates[i].position = vec4<f32>(pos, s);
+        dstStates[i].velocity = vec4<f32>((rand(s + 6.0) - 0.5) * 0.8, -1.0 - rand(s + 7.0) * 2.0, (rand(s + 8.0) - 0.5) * 0.8, 0.0);
+        dstStates[i].rotation = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+        return;
+    }
+
+    vel.y -= params.gravity * params.dt;
+    pos += vel * params.dt;
+
+    let hw = angVel * 0.5 * params.dt;
+    let dq = quatMul(vec4<f32>(hw, 0.0), rot);
+    rot = normalizeQ(rot + dq);
+
+    let physicsHalfHeight = halfHeight * PHYSICS_THICKNESS_SCALE;
+    let halfExtents = vec3<f32>(radius, physicsHalfHeight, radius);
+    var minY = 1e9;
+    var contactLocal = vec3<f32>(0.0, -physicsHalfHeight, 0.0);
+    for (var corner = 0u; corner < 8u; corner++) {
+        let local = boxCorner(corner, halfExtents);
+        let worldY = pos.y + rotateQ(rot, local).y;
+        if (worldY < minY) {
+            minY = worldY;
+            contactLocal = local;
+        }
+    }
+    if (minY < params.groundY && abs(pos.x) < GROUND_HALF && abs(pos.z) < GROUND_HALF) {
+        pos.y += params.groundY - minY;
+        if (vel.y < 0.0) {
+            let contactArm = rotateQ(rot, contactLocal);
+            let jY = -vel.y * (1.0 + params.restitution);
+            angVel += cross(contactArm, vec3<f32>(0.0, jY, 0.0)) * 0.20;
+            let dVelF = vec3<f32>(vel.x * (params.friction - 1.0), 0.0, vel.z * (params.friction - 1.0));
+            angVel += cross(contactArm, dVelF) * 0.25;
+
+            vel.y = -vel.y * params.restitution;
+            vel.x *= params.friction;
+            vel.z *= params.friction;
+        }
+        angVel *= 0.80;
+    }
+
+    let axesA = quatToAxes(rot);
+    let boundA = length(halfExtents);
+    for (var j = 0u; j < COIN_CAPACITY; j++) {
+        if (j == i) {
+            continue;
+        }
+        let other = srcStates[j];
+        let otherInfo = infos[j];
+        let otherHalfExtents = vec3<f32>(otherInfo.size.x, otherInfo.size.y * PHYSICS_THICKNESS_SCALE, otherInfo.size.x);
+        let T = other.position.xyz - pos;
+        let bound = boundA + length(otherHalfExtents);
+        if (dot(T, T) > bound * bound) {
+            continue;
+        }
+
+        let axesB = quatToAxes(other.rotation);
+        var minPen = 1e9;
+        var minAxis = vec3<f32>(1.0, 0.0, 0.0);
+        var separated = false;
+
+        for (var axisA = 0u; axisA < 3u; axisA++) {
+            if (separated) { break; }
+            let pen = satPen(T, axesA, axesB, halfExtents, otherHalfExtents, axesA[axisA]);
+            if (pen <= 0.0) { separated = true; break; }
+            if (pen < minPen) { minPen = pen; minAxis = axesA[axisA]; }
+        }
+        for (var axisB = 0u; axisB < 3u; axisB++) {
+            if (separated) { break; }
+            let pen = satPen(T, axesA, axesB, halfExtents, otherHalfExtents, axesB[axisB]);
+            if (pen <= 0.0) { separated = true; break; }
+            if (pen < minPen) { minPen = pen; minAxis = axesB[axisB]; }
+        }
+        for (var a = 0u; a < 3u; a++) {
+            if (separated) { break; }
+            for (var b = 0u; b < 3u; b++) {
+                if (separated) { break; }
+                let axis = cross(axesA[a], axesB[b]);
+                let pen = satPen(T, axesA, axesB, halfExtents, otherHalfExtents, axis);
+                if (pen <= 0.0) { separated = true; break; }
+                if (pen < minPen) { minPen = pen; minAxis = axis; }
+            }
+        }
+        if (separated) {
+            continue;
+        }
+
+        var n = normalize(minAxis);
+        if (dot(n, pos - other.position.xyz) < 0.0) {
+            n = -n;
+        }
+        pos += n * minPen * 0.50;
+
+        let cLx = clamp(dot(T, axesA[0]), -halfExtents.x, halfExtents.x);
+        let cLy = clamp(dot(T, axesA[1]), -halfExtents.y, halfExtents.y);
+        let cLz = clamp(dot(T, axesA[2]), -halfExtents.z, halfExtents.z);
+        let contactArm = axesA[0] * cLx + axesA[1] * cLy + axesA[2] * cLz;
+
+        let relVel = vel - other.velocity.xyz;
+        let vn = dot(relVel, n);
+        if (vn < 0.0) {
+            let jn = -(vn * (1.0 + 0.2) * 0.5);
+            vel += n * jn;
+            angVel += cross(contactArm, n * jn) * 0.5;
+
+            let tangent = relVel - n * vn;
+            let tangentLen = length(tangent);
+            if (tangentLen > 0.001) {
+                let tangentDir = tangent / tangentLen;
+                let jt = min(0.4 * jn, tangentLen * 0.5);
+                vel -= tangentDir * jt;
+                angVel += cross(contactArm, -tangentDir * jt) * 1.5;
+            }
+        }
+    }
+
+    vel *= params.damping;
+    angVel *= params.angDamping;
+
+    dstStates[i].position = vec4<f32>(pos, seed);
+    dstStates[i].velocity = vec4<f32>(vel, 0.0);
+    dstStates[i].rotation = rot;
+    dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+    eyePosition : vec4<f32>,
+}
+
+struct CoinState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct CoinInfo {
+    size     : vec4<f32>,
+    material : vec4<f32>,
+    color    : vec4<f32>,
+}
+
+struct StaticItem {
+    position : vec4<f32>,
+    scale    : vec4<f32>,
+    color    : vec4<f32>,
+}
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) color : vec4<f32>,
+    @location(3) atlas : f32,
+    @location(4) mode : f32,
+    @location(5) material : vec2<f32>,
+    @location(6) worldPosition : vec3<f32>,
+}
+
+const COIN_CAPACITY : u32 = 300u;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<CoinState>;
+@group(0) @binding(2) var<storage, read> infos : array<CoinInfo>;
+@group(0) @binding(3) var<storage, read> staticItems : array<StaticItem>;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(@location(0) position : vec3<f32>, @location(1) normal : vec3<f32>, @location(2) uv : vec2<f32>, @builtin(instance_index) instance : u32) -> VSOut {
+    var out : VSOut;
+    if (instance < COIN_CAPACITY) {
+        let state = states[instance];
+        let info = infos[instance];
+        let local = vec3<f32>(position.x * info.size.x, position.y * info.size.y * 2.0, position.z * info.size.x);
+        let world = rotByQuat(local, state.rotation) + state.position.xyz;
+        out.position = camera.viewProjection * vec4<f32>(world, 1.0);
+        out.normal = normalize(rotByQuat(normal, state.rotation));
+        out.uv = uv;
+        out.color = info.color;
+        out.atlas = info.size.z;
+        out.mode = 1.0;
+        out.material = info.material.zw;
+        out.worldPosition = world;
+    } else {
+        let item = staticItems[instance - COIN_CAPACITY];
+        let world = position * item.scale.xyz + item.position.xyz;
+        out.position = camera.viewProjection * vec4<f32>(world, 1.0);
+        out.normal = normal;
+        out.uv = uv;
+        out.color = item.color;
+        out.atlas = 0.0;
+        out.mode = 0.0;
+        out.material = vec2<f32>(0.0, 0.85);
+        out.worldPosition = world;
+    }
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+    eyePosition : vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(4) var samp : sampler;
+@group(0) @binding(5) var atlasTex : texture_2d<f32>;
+@group(0) @binding(6) var envTex : texture_cube<f32>;
+
+@fragment
+fn main(@location(0) normal : vec3<f32>, @location(1) uv : vec2<f32>, @location(2) color : vec4<f32>, @location(3) atlas : f32, @location(4) mode : f32, @location(5) material : vec2<f32>, @location(6) worldPosition : vec3<f32>) -> @location(0) vec4<f32> {
+    let baseNormal = normalize(normal);
+    let lightDir = normalize(vec3<f32>(0.45, 1.0, 0.35));
+    let viewDir = normalize(camera.eyePosition.xyz - worldPosition);
+    var materialUv = uv;
+    if (mode > 0.5 && abs(baseNormal.y) < 0.85) {
+        materialUv.x = 1.0 - uv.x * 0.68;
+    }
+    let atlasUv = vec2<f32>((materialUv.x + atlas) * 0.5, materialUv.y);
+    let tex = textureSample(atlasTex, samp, atlasUv);
+    let up = select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), abs(baseNormal.y) > 0.85);
+    let tangent = normalize(cross(up, baseNormal));
+    let bitangent = normalize(cross(baseNormal, tangent));
+    let normalTex = tex.xyz * 2.0 - vec3<f32>(1.0);
+    let bumpedNormal = normalize(baseNormal + (tangent * normalTex.x + bitangent * normalTex.y) * 0.12 + baseNormal * normalTex.z * 0.04);
+    let n = normalize(select(baseNormal, bumpedNormal, mode > 0.5));
+    let halfDir = normalize(lightDir + viewDir);
+    let nDotL = max(dot(n, lightDir), 0.0);
+    let nDotV = max(dot(n, viewDir), 0.0);
+    let nDotH = max(dot(n, halfDir), 0.0);
+    let vDotH = max(dot(viewDir, halfDir), 0.0);
+    let coinShade = vec3<f32>(1.0);
+    let albedo = select(color.rgb, color.rgb * coinShade, mode > 0.5);
+    let metallic = select(0.0, material.x, mode > 0.5);
+    let roughness = clamp(material.y, 0.08, 1.0);
+    let f0 = mix(vec3<f32>(0.04), albedo, metallic);
+    let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - vDotH, 5.0);
+    let specPower = mix(96.0, 10.0, roughness);
+    let specular = fresnel * pow(nDotH, specPower) * mix(1.1, 0.32, roughness);
+    let diffuse = albedo * nDotL * (1.0 - metallic);
+    let reflectDir = normalize(reflect(-viewDir, n));
+    let envSpec = textureSample(envTex, samp, reflectDir).rgb * 1.25;
+    let envDiffuse = textureSample(envTex, samp, n).rgb * 0.28;
+    let specColor = fresnel * mix(0.72, 1.08, metallic);
+    let envReflection = envSpec * specColor * mix(0.42, 0.78, metallic) * mix(1.0, 0.58, roughness);
+    let ambient = albedo * select(0.18, 0.20, mode > 0.5);
+    let diffuseIbl = albedo * envDiffuse * (1.0 - metallic) * 0.35;
+    let colorOut = ambient + diffuseIbl + envReflection + diffuse * 0.45 + specular * max(nDotL, 0.25) * max(nDotV, 0.3);
+    return vec4<f32>(pow(max(colorOut, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), color.a);
+}
+</script>
+
+<script id="wvs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+    eyePosition : vec4<f32>,
+}
+
+struct CoinState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct CoinInfo {
+    size     : vec4<f32>,
+    material : vec4<f32>,
+    color    : vec4<f32>,
+}
+
+const PHYSICS_THICKNESS_SCALE : f32 = 1.0;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<CoinState>;
+@group(0) @binding(2) var<storage, read> infos : array<CoinInfo>;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(@location(0) position : vec3<f32>, @builtin(instance_index) instance : u32) -> @builtin(position) vec4<f32> {
+    let state = states[instance];
+    let info = infos[instance];
+    let local = vec3<f32>(position.x * info.size.x, position.y * info.size.y * PHYSICS_THICKNESS_SCALE, position.z * info.size.x);
+    let world = state.position.xyz + rotByQuat(local, state.rotation);
+    return camera.viewProjection * vec4<f32>(world, 1.0);
+}
+</script>
+
+<script id="wfs" type="x-shader/x-fragment">
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.1, 1.0, 0.35, 0.72);
+}
+</script>
+
+<script id="skybox-vs" type="x-shader/x-vertex">
+struct SkyboxUniforms {
+    projection : mat4x4<f32>,
+    viewNoTranslation : mat4x4<f32>,
+    exposure : f32,
+    _pad0 : vec3<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : SkyboxUniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) dir : vec3<f32>,
+};
+
+@vertex
+fn main(@location(0) position : vec3<f32>) -> VSOut {
+    var out : VSOut;
+    out.dir = position;
+    let pos = uniforms.projection * uniforms.viewNoTranslation * vec4<f32>(position, 1.0);
+    out.Position = vec4<f32>(pos.xy, pos.w, pos.w);
+    return out;
+}
+</script>
+
+<script id="skybox-fs" type="x-shader/x-fragment">
+struct SkyboxUniforms {
+    projection : mat4x4<f32>,
+    viewNoTranslation : mat4x4<f32>,
+    exposure : f32,
+    _pad0 : vec3<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : SkyboxUniforms;
+@group(0) @binding(1) var samp : sampler;
+@group(0) @binding(2) var envCubeTex : texture_cube<f32>;
+
+@fragment
+fn main(@location(0) dir : vec3<f32>) -> @location(0) vec4<f32> {
+    var env = textureSample(envCubeTex, samp, normalize(dir)).rgb * uniforms.exposure;
+    env = env / (env + vec3<f32>(1.0));
+    env = pow(env, vec3<f32>(1.0 / 2.2));
+    return vec4<f32>(env, 1.0);
+}
+</script>
+
+<div id="wireHint" style="position:fixed;top:8px;left:8px;color:#9f9;background:rgba(0,0,0,0.45);padding:4px 8px;border-radius:4px;font:13px monospace;pointer-events:none">W: collider wireframe OFF</div>
+<canvas id="c"></canvas>
+<script src="index.js"></script>
+</body>
+</html>
