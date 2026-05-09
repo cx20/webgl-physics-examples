@@ -344,4 +344,3 @@ let fps0 = 0;
 
     requestAnimationFrame(arguments.callee);
 })();
- 
