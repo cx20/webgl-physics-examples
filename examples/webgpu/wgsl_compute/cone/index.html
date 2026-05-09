@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader Falling Cone Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<script id="cs" type="x-shader/x-compute">
+struct ConeState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct ConeInfo {
+    data : vec4<f32>, // radius, height, restitution, friction
+}
+
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    basketHalf  : f32,
+    basketTop   : f32,
+    damping     : f32,
+    elapsedTime : f32,
+    groundHalf  : f32,
+}
+
+const COUNT : u32 = 160u;
+
+@group(0) @binding(0) var<storage, read> srcStates : array<ConeState>;
+@group(0) @binding(1) var<storage, read_write> dstStates : array<ConeState>;
+@group(0) @binding(2) var<storage, read> infos : array<ConeInfo>;
+@group(0) @binding(3) var<uniform> params : SimParams;
+
+fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn resetPosition(i : u32, seed : f32) -> vec3<f32> {
+    let col = f32(i % 16u);
+    let row = f32(i / 16u);
+    let a = seed * 6.2831853 + f32(i) * 0.37;
+    return vec3<f32>(
+        (col - 7.5) * 0.28 + cos(a) * 0.2,
+        6.0 + row * 0.55 + seed * 8.0,
+        sin(a * 1.7) * params.basketHalf * 0.7,
+    );
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) {
+        return;
+    }
+
+    let info = infos[i].data;
+    let radius = info.x;
+    let height = info.y;
+    let restitution = info.z;
+    let friction = info.w;
+    let collisionRadius = max(radius, height * 0.5);
+    let seed = srcStates[i].position.w;
+
+    var pos = srcStates[i].position.xyz;
+    var vel = srcStates[i].velocity.xyz;
+    var rot = srcStates[i].rotation;
+    var angVel = srcStates[i].angularVel.xyz;
+    var contacts = 0u;
+
+    vel.y -= params.gravity * params.dt;
+    vel *= params.damping;
+    pos += vel * params.dt;
+    angVel *= 0.996;
+
+    let bottom = height * 0.5;
+    let onGroundPlane = abs(pos.x) + radius < params.groundHalf && abs(pos.z) + radius < params.groundHalf;
+    if (onGroundPlane && pos.y - bottom < params.groundY) {
+        let impactSpeed = max(-vel.y, 0.0);
+        pos.y = params.groundY + bottom;
+        if (impactSpeed > 0.0) {
+            vel.y = impactSpeed * restitution;
+        }
+        let tangentDecay = max(1.0 - friction, 0.0);
+        vel.x *= tangentDecay;
+        vel.z *= tangentDecay;
+        let rolling = vec3<f32>(-vel.z / max(radius, 0.0001), angVel.y * 0.8, vel.x / max(radius, 0.0001));
+        angVel = mix(angVel, rolling, 0.22);
+        contacts++;
+        if (abs(vel.y) < 0.025) {
+            vel.y = 0.0;
+        }
+    }
+
+    let wallHalfThickness = 0.25;
+    let innerHalf = params.basketHalf - wallHalfThickness;
+    let outerHalf = params.basketHalf + wallHalfThickness;
+    let hitsWallHeight = pos.y - collisionRadius < params.basketTop && pos.y + collisionRadius > params.groundY;
+    let tangentDecay = max(1.0 - friction, 0.0);
+
+    if (hitsWallHeight && abs(pos.z) < outerHalf) {
+        if (pos.x > 0.0 && pos.x + collisionRadius > innerHalf && pos.x - collisionRadius < outerHalf) {
+            if (pos.x < params.basketHalf) {
+                pos.x = innerHalf - collisionRadius;
+                if (vel.x > 0.0) { vel.x = -vel.x * restitution; }
+            } else {
+                pos.x = outerHalf + collisionRadius;
+                if (vel.x < 0.0) { vel.x = -vel.x * restitution; }
+            }
+            vel.y *= tangentDecay;
+            vel.z *= tangentDecay;
+            angVel += vec3<f32>(0.0, 0.0, -vel.x) * 0.08;
+            contacts++;
+        }
+        if (pos.x < 0.0 && pos.x - collisionRadius < -innerHalf && pos.x + collisionRadius > -outerHalf) {
+            if (pos.x > -params.basketHalf) {
+                pos.x = -innerHalf + collisionRadius;
+                if (vel.x < 0.0) { vel.x = -vel.x * restitution; }
+            } else {
+                pos.x = -outerHalf - collisionRadius;
+                if (vel.x > 0.0) { vel.x = -vel.x * restitution; }
+            }
+            vel.y *= tangentDecay;
+            vel.z *= tangentDecay;
+            angVel += vec3<f32>(0.0, 0.0, -vel.x) * 0.08;
+            contacts++;
+        }
+    }
+
+    if (hitsWallHeight && abs(pos.x) < outerHalf) {
+        if (pos.z > 0.0 && pos.z + collisionRadius > innerHalf && pos.z - collisionRadius < outerHalf) {
+            if (pos.z < params.basketHalf) {
+                pos.z = innerHalf - collisionRadius;
+                if (vel.z > 0.0) { vel.z = -vel.z * restitution; }
+            } else {
+                pos.z = outerHalf + collisionRadius;
+                if (vel.z < 0.0) { vel.z = -vel.z * restitution; }
+            }
+            vel.x *= tangentDecay;
+            vel.y *= tangentDecay;
+            angVel += vec3<f32>(vel.z, 0.0, 0.0) * 0.08;
+            contacts++;
+        }
+        if (pos.z < 0.0 && pos.z - collisionRadius < -innerHalf && pos.z + collisionRadius > -outerHalf) {
+            if (pos.z > -params.basketHalf) {
+                pos.z = -innerHalf + collisionRadius;
+                if (vel.z < 0.0) { vel.z = -vel.z * restitution; }
+            } else {
+                pos.z = -outerHalf - collisionRadius;
+                if (vel.z > 0.0) { vel.z = -vel.z * restitution; }
+            }
+            vel.x *= tangentDecay;
+            vel.y *= tangentDecay;
+            angVel += vec3<f32>(vel.z, 0.0, 0.0) * 0.08;
+            contacts++;
+        }
+    }
+
+    for (var j = 0u; j < COUNT; j++) {
+        if (j == i) {
+            continue;
+        }
+
+        let other = srcStates[j];
+        let otherInfo = infos[j].data;
+        let otherRadius = max(otherInfo.x, otherInfo.y * 0.5);
+        var delta = pos - other.position.xyz;
+        var dist = length(delta);
+        if (dist < 0.0001) {
+            let a = params.elapsedTime + seed * 6.28318;
+            delta = vec3<f32>(cos(a), 0.2, sin(a)) * 0.001;
+            dist = length(delta);
+        }
+
+        let minDist = collisionRadius + otherRadius;
+        if (dist < minDist) {
+            let n = delta / dist;
+            let penetration = minDist - dist;
+            pos += n * penetration * 0.5;
+            let relVel = vel - other.velocity.xyz;
+            let vn = dot(relVel, n);
+            if (vn < 0.0) {
+                let pairRestitution = (restitution + otherInfo.z) * 0.5;
+                vel += n * (-(1.0 + pairRestitution) * vn * 0.55);
+            }
+            let tangent = relVel - n * vn;
+            let tangentLen = length(tangent);
+            if (tangentLen > 0.0001) {
+                let pairFriction = (friction + otherInfo.w) * 0.5;
+                let t = tangent / tangentLen;
+                vel -= t * min(tangentLen * pairFriction, 0.1);
+                angVel += cross(n, t) * tangentLen * 0.04;
+            }
+            contacts++;
+        }
+    }
+
+    if (contacts > 0u) {
+        angVel *= pow(0.83, f32(contacts));
+    }
+
+    let speed = length(angVel);
+    if (speed > 0.0001) {
+        let axis = angVel / speed;
+        let halfAngle = speed * params.dt * 0.5;
+        let dq = vec4<f32>(axis * sin(halfAngle), cos(halfAngle));
+        rot = normalize(quatMul(dq, rot));
+    }
+
+    if (pos.y < params.groundY - 18.0 || abs(pos.x) > params.groundHalf + 8.0 || abs(pos.z) > params.groundHalf + 8.0) {
+        pos = resetPosition(i, seed);
+        vel = vec3<f32>((seed - 0.5) * 0.12, -0.05, (0.5 - seed) * 0.12);
+        rot = vec4<f32>(sin(seed * 3.14) * 0.12, sin(seed * 6.28) * 0.18, 0.0, 0.975);
+        rot = normalize(rot);
+        angVel = vec3<f32>(seed * 0.7, seed * 0.3, -seed * 0.6);
+    }
+
+    dstStates[i].position = vec4<f32>(pos, seed);
+    dstStates[i].velocity = vec4<f32>(vel, 0.0);
+    dstStates[i].rotation = rot;
+    dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+}
+
+struct ConeState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct ConeInfo {
+    data : vec4<f32>,
+}
+
+struct StaticItem {
+    position : vec4<f32>,
+    scale    : vec4<f32>,
+    color    : vec4<f32>,
+}
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) tint : vec3<f32>,
+    @location(3) texMix : f32,
+}
+
+const COUNT : u32 = 160u;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<ConeState>;
+@group(0) @binding(2) var<storage, read> infos : array<ConeInfo>;
+@group(0) @binding(3) var<storage, read> statics : array<StaticItem>;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>,
+    @builtin(instance_index) instance : u32,
+) -> VSOut {
+    var out : VSOut;
+    var worldPos : vec3<f32>;
+    var worldNormal : vec3<f32>;
+
+    if (instance < COUNT) {
+        let state = states[instance];
+        let info = infos[instance].data;
+        worldPos = rotByQuat(position * vec3<f32>(info.x, info.y, info.x), state.rotation) + state.position.xyz;
+        worldNormal = normalize(rotByQuat(normal, state.rotation));
+        out.uv = uv;
+        out.tint = vec3<f32>(1.0);
+        out.texMix = 1.0;
+    } else {
+        let item = statics[instance - COUNT];
+        worldPos = position * item.scale.xyz + item.position.xyz;
+        worldNormal = normal;
+        out.uv = uv;
+        out.tint = item.color.rgb;
+        out.texMix = 0.0;
+    }
+
+    out.normal = worldNormal;
+    out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+@group(0) @binding(4) var texSampler : sampler;
+@group(0) @binding(5) var coneTexture : texture_2d<f32>;
+
+@fragment
+fn main(
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) tint : vec3<f32>,
+    @location(3) texMix : f32,
+) -> @location(0) vec4<f32> {
+    let sampleColor = textureSample(coneTexture, texSampler, uv).rgb;
+    let lightDir = normalize(vec3<f32>(0.55, 0.9, 0.35));
+    let diffuse = max(dot(normalize(normal), lightDir), 0.25);
+    let base = mix(vec3<f32>(1.0), sampleColor, texMix);
+    return vec4<f32>(pow(base * tint * diffuse, vec3<f32>(0.82)), 1.0);
+}
+</script>
+
+<script id="wvs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+}
+
+struct ConeState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct ConeInfo {
+    data : vec4<f32>,
+}
+
+struct StaticItem {
+    position : vec4<f32>,
+    scale    : vec4<f32>,
+    color    : vec4<f32>,
+}
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) color : vec3<f32>,
+}
+
+const COUNT : u32 = 160u;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<ConeState>;
+@group(0) @binding(2) var<storage, read> infos : array<ConeInfo>;
+@group(0) @binding(3) var<storage, read> statics : array<StaticItem>;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @builtin(instance_index) instance : u32,
+) -> VSOut {
+    var out : VSOut;
+    var worldPos : vec3<f32>;
+
+    if (instance < COUNT) {
+        let state = states[instance];
+        let info = infos[instance].data;
+        worldPos = rotByQuat(position * vec3<f32>(info.x, info.y, info.x), state.rotation) + state.position.xyz;
+        out.color = vec3<f32>(1.0, 1.0, 0.0);
+    } else {
+        let item = statics[instance - COUNT];
+        worldPos = position * item.scale.xyz + item.position.xyz;
+        out.color = vec3<f32>(0.0, 1.0, 0.0);
+    }
+
+    out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return out;
+}
+</script>
+
+<script id="wfs" type="x-shader/x-fragment">
+@fragment
+fn main(@location(0) color : vec3<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(color, 1.0);
+}
+</script>
+
+<canvas id="c" width="465" height="465"></canvas>
+<div id="hint" style="position:fixed;top:8px;left:8px;color:#ddd;background:rgba(0,0,0,0.45);padding:4px 8px;border-radius:4px;font:13px monospace;pointer-events:none">
+    W: debug collider ON
+</div>
+
+<script src="index.js"></script>
+</body>
+</html>
