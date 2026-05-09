@@ -31,8 +31,8 @@ struct SimParams {
     spawnRange  : f32,
 }
 
-const COIN_CAPACITY : u32 = 300u;
-const GROUND_HALF : f32 = 6.5;
+const COIN_CAPACITY : u32 = 2048u;
+const GROUND_HALF : f32 = 13.0;
 const PHYSICS_THICKNESS_SCALE : f32 = 1.0;
 
 @group(0) @binding(0) var<storage, read> srcStates : array<CoinState>;
@@ -290,7 +290,7 @@ struct VSOut {
     @location(6) worldPosition : vec3<f32>,
 }
 
-const COIN_CAPACITY : u32 = 300u;
+const COIN_CAPACITY : u32 = 2048u;
 
 @group(0) @binding(0) var<uniform> camera : Camera;
 @group(0) @binding(1) var<storage, read> states : array<CoinState>;
@@ -481,7 +481,7 @@ fn main(@location(0) dir : vec3<f32>) -> @location(0) vec4<f32> {
 }
 </script>
 
-<div id="wireHint" style="position:fixed;top:8px;left:8px;color:#9f9;background:rgba(0,0,0,0.45);padding:4px 8px;border-radius:4px;font:13px monospace;pointer-events:none">W: collider wireframe OFF</div>
+<div id="wireHint">W: collider wireframe OFF</div>
 <canvas id="c"></canvas>
 <script src="index.js"></script>
 </body>
