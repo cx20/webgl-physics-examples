@@ -708,7 +708,7 @@ async function init() {
     window.addEventListener('keydown', event => {
         if (event.key.toLowerCase() !== 'w' || event.repeat) return;
         showWireframe = !showWireframe;
-        document.getElementById('wireHint').textContent = 'W: collider wireframe ' + (showWireframe ? 'ON' : 'OFF');
+        document.getElementById('hint').textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
     requestAnimationFrame(frame);
 }

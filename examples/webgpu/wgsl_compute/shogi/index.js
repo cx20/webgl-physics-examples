@@ -260,7 +260,7 @@ let uniformBuffer, renderBindGroupA, renderBindGroupB, pipeline;
 let groundPipeline, groundVBuffer, groundIBuffer, groundMVPBuffer, groundBindGroup, groundICount;
 let wirePipeline, wireVBuffer, wireIBuffer, wireICount;
 let wireBindGroupA, wireBindGroupB;
-let showWireframe = true;
+let showWireframe = false;
 let srcBuffer, dstBuffer;
 let computePipeline, computeBindGroupA, computeBindGroupB;
 let simParamsBuffer;
@@ -565,11 +565,9 @@ async function init() {
 
     // Toggle wireframe with W key
     window.addEventListener('keydown', e => {
-        if (e.key === 'w' || e.key === 'W') {
-            showWireframe = !showWireframe;
-            document.getElementById('wireHint').textContent =
-                'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
-        }
+        if (e.key.toLowerCase() !== 'w' || e.repeat) return;
+        showWireframe = !showWireframe;
+        document.getElementById('hint').textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
     requestAnimationFrame(render);

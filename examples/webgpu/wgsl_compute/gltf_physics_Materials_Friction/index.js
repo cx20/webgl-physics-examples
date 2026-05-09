@@ -769,11 +769,10 @@ async function init() {
 
     // ── W key toggle ──────────────────────────────────────────────────────
     window.addEventListener('keydown', e => {
-        if (e.key === 'w' || e.key === 'W') {
-            showWireframe = !showWireframe;
-            document.getElementById('hint').textContent =
-                'W: debug OBB ' + (showWireframe ? 'ON' : 'OFF');
-        }
+        if (e.key.toLowerCase() !== 'w' || e.repeat) return;
+        showWireframe = !showWireframe;
+        document.getElementById('hint').textContent =
+            'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
     requestAnimationFrame(frame);

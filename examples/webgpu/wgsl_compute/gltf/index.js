@@ -26,7 +26,7 @@ let duckModel, groundMesh, wireMesh;
 let stateBuffer, simParamsBuffer, groundUniformBuffer, groundBindGroup, wireUniformBuffer, wireBindGroup;
 let computeBindGroup;
 let renderBindGroups = new Map();
-let showWireframe = true;
+let showWireframe = false;
 let lastTime = -1;
 let duckHalfExtents = [1, 1, 1];
 let duckCenter = [0, 0, 0];
@@ -561,10 +561,9 @@ async function init() {
     resize();
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', event => {
-        if (event.key === 'w' || event.key === 'W') {
-            showWireframe = !showWireframe;
-            document.getElementById('hint').textContent = 'W: debug collider ' + (showWireframe ? 'ON' : 'OFF');
-        }
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        document.getElementById('hint').textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
     requestAnimationFrame(frame);
