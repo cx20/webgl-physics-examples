@@ -29,6 +29,7 @@ let groundBindGroup;
 let cubeBindGroup;
 
 let linePipeline;
+let showWireframe = true;
 let debugBoxVertexBuffer;
 let debugBoxIndexBuffer;
 let debugBoxIndexCount = 0;
@@ -354,13 +355,16 @@ function render(timeMs) {
     pass.setBindGroup(0, cubeBindGroup);
     pass.drawIndexed(indexCount, 1, 0, 0, 0);
 
-    pass.setPipeline(linePipeline);
+    if (showWireframe) {
+pass.setPipeline(linePipeline);
     pass.setVertexBuffer(0, debugBoxVertexBuffer);
     pass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
     pass.setBindGroup(0, lineBindGroup, [0 * LINE_ALIGN]);
     pass.drawIndexed(debugBoxIndexCount);
     pass.setBindGroup(0, lineBindGroup, [1 * LINE_ALIGN]);
     pass.drawIndexed(debugBoxIndexCount);
+
+    }
 
     pass.end();
     device.queue.submit([encoder.finish()]);
@@ -497,6 +501,14 @@ async function init() {
 
     resize();
     window.addEventListener('resize', resize);
+
+    window.addEventListener('keydown', event => {
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
+
 
     initPhysics();
 

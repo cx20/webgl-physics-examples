@@ -20,6 +20,7 @@ const SHOGI_VMAT = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-40,1]);
 let currentPMatrix = null;
 
 let linePipeline;
+let showWireframe = true;
 let debugBoxVertexBuffer;
 let debugBoxIndexBuffer;
 let debugBoxIndexCount = 0;
@@ -141,6 +142,13 @@ async function init() {
         depthTexture = createDepthTexture();
         currentPMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 1000.0);
         device.queue.writeBuffer(uniformBuffer, 0, currentPMatrix);
+    });
+
+    window.addEventListener('keydown', event => {
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
     const gpu = navigator['gpu'];
@@ -665,7 +673,7 @@ function render() {
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.drawIndexed(indexNum, MAX, 0, 0, 0);
 
-    if (linePipeline) {
+    if (showWireframe && linePipeline) {
         passEncoder.setPipeline(linePipeline);
         passEncoder.setVertexBuffer(0, debugBoxVertexBuffer);
         passEncoder.setIndexBuffer(debugBoxIndexBuffer, 'uint16');

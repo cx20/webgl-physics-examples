@@ -49,6 +49,7 @@ let cubeMesh;
 let groundMesh;
 
 let linePipeline;
+let showWireframe = true;
 let debugBoxVertexBuffer;
 let debugBoxIndexBuffer;
 let debugBoxIndexCount = 0;
@@ -445,12 +446,15 @@ function render(timeMs) {
         drawMesh(pass, cubeMesh, boxRenderItems[i].bindGroup);
     }
 
-    pass.setPipeline(linePipeline);
+    if (showWireframe) {
+pass.setPipeline(linePipeline);
     pass.setVertexBuffer(0, debugBoxVertexBuffer);
     pass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
     for (let i = 0; i < NUM_LINE_OBJECTS; i++) {
         pass.setBindGroup(0, lineBindGroup, [i * LINE_ALIGN]);
         pass.drawIndexed(debugBoxIndexCount);
+    }
+
     }
 
     pass.end();
@@ -529,6 +533,14 @@ async function init() {
 
     resize();
     window.addEventListener('resize', resize);
+
+    window.addEventListener('keydown', event => {
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
+
 
     initPhysics();
     initRenderItems();

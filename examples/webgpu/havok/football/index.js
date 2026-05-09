@@ -60,6 +60,7 @@ let ballUniformBuffers = [];
 let ballBindGroups = [];
 
 let linePipeline;
+let showWireframe = true;
 let debugSphereVertexBuffer;
 let debugSphereIndexBuffer;
 let debugSphereIndexCount = 0;
@@ -443,7 +444,8 @@ function render(timeMs) {
         pass.drawIndexed(sphereMesh.indexCount, 1, 0, 0, 0);
     }
 
-    pass.setPipeline(linePipeline);
+    if (showWireframe) {
+pass.setPipeline(linePipeline);
     pass.setVertexBuffer(0, debugBoxVertexBuffer);
     pass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
     pass.setBindGroup(0, lineBindGroup, [0]);
@@ -454,6 +456,8 @@ function render(timeMs) {
     for (let i = 1; i < NUM_LINE_OBJECTS; i++) {
         pass.setBindGroup(0, lineBindGroup, [i * LINE_ALIGN]);
         pass.drawIndexed(debugSphereIndexCount);
+    }
+
     }
 
     pass.end();
@@ -604,6 +608,14 @@ async function init() {
 
     resize();
     window.addEventListener('resize', resize);
+
+    window.addEventListener('keydown', event => {
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
+
 
     initPhysics();
 
