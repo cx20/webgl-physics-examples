@@ -1,6 +1,8 @@
 const computeShaderWGSL = document.getElementById('cs').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
+const lineVertexShaderWGSL = document.getElementById('vs-line').textContent;
+const lineFragmentShaderWGSL = document.getElementById('fs-line').textContent;
 
 const canvas = document.getElementById('c');
 
@@ -27,15 +29,20 @@ const TEXTURE_FILES = [
 ];
 
 let device, context, format, depthTexture;
-let renderPipeline, computePipeline;
+let renderPipeline, computePipeline, linePipeline;
 let sphereMesh, cubeMesh;
+let debugSphereVertexBuffer, debugSphereIndexBuffer, debugBoxVertexBuffer, debugBoxIndexBuffer;
 let cameraBuffer, ballInfoBuffer, staticBuffer, simParamsBuffer;
 let sampler, textureView;
 let stateBuffers = [];
 let renderBindGroups = [];
 let computeBindGroups = [];
+let lineBindGroups = [];
 let currentState = 0;
 let lastTime = -1;
+let showWireframe = true;
+let debugSphereIndexCount = 0;
+let debugBoxIndexCount = 0;
 
 const projectionMatrix = new Float32Array(16);
 const viewMatrix = new Float32Array(16);
@@ -248,6 +255,42 @@ function drawMesh(pass, mesh, instanceCount, firstInstance = 0) {
     pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, firstInstance);
 }
 
+function createDebugLineMeshes() {
+    const boxLineVerts = new Float32Array([
+        -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,   0.5,  0.5, -0.5,  -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,   0.5,  0.5,  0.5,  -0.5,  0.5,  0.5,
+    ]);
+    const boxLineIndices = new Uint16Array([
+        0, 1, 1, 2, 2, 3, 3, 0,
+        4, 5, 5, 6, 6, 7, 7, 4,
+        0, 4, 1, 5, 2, 6, 3, 7,
+    ]);
+    debugBoxIndexCount = boxLineIndices.length;
+    debugBoxVertexBuffer = createVertexBuffer(boxLineVerts);
+    debugBoxIndexBuffer = createIndexBuffer(boxLineIndices);
+
+    const sphereSegments = 32;
+    const sphereLineVerts = [];
+    const sphereLineIndices = [];
+    const rings = [[1, 0, 2], [0, 1, 2], [1, 2, 0]];
+    for (let ring = 0; ring < 3; ring++) {
+        const base = ring * sphereSegments;
+        for (let i = 0; i < sphereSegments; i++) {
+            const a = (i / sphereSegments) * Math.PI * 2;
+            const v = [0, 0, 0];
+            v[rings[ring][0]] = Math.cos(a);
+            v[rings[ring][1]] = Math.sin(a);
+            sphereLineVerts.push(...v);
+            sphereLineIndices.push(base + i, base + ((i + 1) % sphereSegments));
+        }
+    }
+    const sphereLineVertsF32 = new Float32Array(sphereLineVerts);
+    const sphereLineIndicesU16 = new Uint16Array(sphereLineIndices);
+    debugSphereIndexCount = sphereLineIndicesU16.length;
+    debugSphereVertexBuffer = createVertexBuffer(sphereLineVertsF32);
+    debugSphereIndexBuffer = createIndexBuffer(sphereLineIndicesU16);
+}
+
 function frame(timeMs) {
     if (lastTime < 0) {
         lastTime = timeMs;
@@ -296,6 +339,19 @@ function frame(timeMs) {
     renderPass.setBindGroup(0, renderBindGroups[currentState]);
     drawMesh(renderPass, sphereMesh, BALL_COUNT);
     drawMesh(renderPass, cubeMesh, STATIC_COUNT, BALL_COUNT);
+
+    if (showWireframe) {
+        renderPass.setPipeline(linePipeline);
+        renderPass.setBindGroup(0, lineBindGroups[currentState]);
+
+        renderPass.setVertexBuffer(0, debugBoxVertexBuffer);
+        renderPass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
+        renderPass.drawIndexed(debugBoxIndexCount, STATIC_COUNT, 0, 0, 0);
+
+        renderPass.setVertexBuffer(0, debugSphereVertexBuffer);
+        renderPass.setIndexBuffer(debugSphereIndexBuffer, 'uint16');
+        renderPass.drawIndexed(debugSphereIndexCount, BALL_COUNT, 0, 0, STATIC_COUNT);
+    }
     renderPass.end();
 
     device.queue.submit([encoder.finish()]);
@@ -373,6 +429,22 @@ async function init() {
         depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
 
+    linePipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: device.createShaderModule({ code: lineVertexShaderWGSL }),
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }],
+        },
+        fragment: {
+            module: device.createShaderModule({ code: lineFragmentShaderWGSL }),
+            entryPoint: 'main',
+            targets: [{ format }],
+        },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
+    });
+
     computePipeline = device.createComputePipeline({
         layout: 'auto',
         compute: {
@@ -380,6 +452,8 @@ async function init() {
             entryPoint: 'main',
         },
     });
+
+    createDebugLineMeshes();
 
     for (let i = 0; i < 2; i++) {
         renderBindGroups.push(device.createBindGroup({
@@ -403,10 +477,27 @@ async function init() {
                 { binding: 3, resource: { buffer: simParamsBuffer } },
             ],
         }));
+
+        lineBindGroups.push(device.createBindGroup({
+            layout: linePipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: cameraBuffer } },
+                { binding: 1, resource: { buffer: stateBuffers[i] } },
+                { binding: 2, resource: { buffer: ballInfoBuffer } },
+                { binding: 3, resource: { buffer: staticBuffer } },
+            ],
+        }));
     }
 
     resize();
     window.addEventListener('resize', resize);
+    window.addEventListener('keydown', event => {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
 
     requestAnimationFrame(frame);
 }

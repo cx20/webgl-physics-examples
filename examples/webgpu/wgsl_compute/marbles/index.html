@@ -436,8 +436,122 @@ fn main(
 }
 </script>
 
+<script id="skybox-vs" type="x-shader/x-vertex">
+struct SkyboxUniforms {
+    projection : mat4x4<f32>,
+    viewNoTranslation : mat4x4<f32>,
+    exposure : f32,
+    _pad0 : vec3<f32>,
+};
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) dir : vec3<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : SkyboxUniforms;
+
+@vertex
+fn main(@location(0) position : vec3<f32>) -> VSOut {
+    var out : VSOut;
+    out.dir = position;
+    let pos = uniforms.projection * uniforms.viewNoTranslation * vec4<f32>(position, 1.0);
+    out.position = vec4<f32>(pos.xy, pos.w, pos.w);
+    return out;
+}
+</script>
+
+<script id="skybox-fs" type="x-shader/x-fragment">
+struct SkyboxUniforms {
+    projection : mat4x4<f32>,
+    viewNoTranslation : mat4x4<f32>,
+    exposure : f32,
+    _pad0 : vec3<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : SkyboxUniforms;
+@group(0) @binding(1) var texSampler : sampler;
+@group(0) @binding(2) var envCubeTex : texture_cube<f32>;
+
+@fragment
+fn main(@location(0) dir : vec3<f32>) -> @location(0) vec4<f32> {
+    var env = textureSample(envCubeTex, texSampler, normalize(dir)).rgb * uniforms.exposure;
+    env = env / (env + vec3<f32>(1.0));
+    env = pow(env, vec3<f32>(1.0 / 2.2));
+    return vec4<f32>(env, 1.0);
+}
+</script>
+
+<script id="vs-line" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+    cameraPos      : vec4<f32>,
+}
+
+struct MarbleState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct MarbleInfo {
+    data : vec4<f32>,
+}
+
+struct StaticItem {
+    position : vec4<f32>,
+    scale    : vec4<f32>,
+    color    : vec4<f32>,
+}
+
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) color : vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<MarbleState>;
+@group(0) @binding(2) var<storage, read> infos : array<MarbleInfo>;
+@group(0) @binding(3) var<storage, read> statics : array<StaticItem>;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(@location(0) position : vec3<f32>, @builtin(instance_index) instance : u32) -> VSOut {
+    var out : VSOut;
+    var worldPos : vec3<f32>;
+
+    if (instance == 0u) {
+        let item = statics[0];
+        worldPos = position * item.scale.xyz + item.position.xyz;
+        out.color = vec4<f32>(0.0, 1.0, 0.0, 1.0);
+    } else {
+        let marbleIndex = instance - 1u;
+        let state = states[marbleIndex];
+        let info = infos[marbleIndex].data;
+        worldPos = rotByQuat(position * info.x, state.rotation) + state.position.xyz;
+        out.color = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+    }
+
+    out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return out;
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">
+@fragment
+fn main(@location(0) color : vec4<f32>) -> @location(0) vec4<f32> {
+    return color;
+}
+</script>
+
 <canvas id="c" width="465" height="465"></canvas>
 
+<div id="hint">W: wireframe ON</div>
 <script src="index.js"></script>
 </body>
 </html>

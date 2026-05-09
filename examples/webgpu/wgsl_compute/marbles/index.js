@@ -1,6 +1,10 @@
 const computeShaderWGSL = document.getElementById('cs').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
+const skyboxVertexShaderWGSL = document.getElementById('skybox-vs').textContent;
+const skyboxFragmentShaderWGSL = document.getElementById('skybox-fs').textContent;
+const lineVertexShaderWGSL = document.getElementById('vs-line').textContent;
+const lineFragmentShaderWGSL = document.getElementById('fs-line').textContent;
 
 const canvas = document.getElementById('c');
 
@@ -20,19 +24,26 @@ const SPAWN_HEIGHT = 7.0;
 const MARBLE_SCALE = 1.0;
 
 let device, context, format, depthTexture;
-let renderPipeline, computePipeline;
+let renderPipeline, computePipeline, skyboxPipeline, linePipeline;
 let cubeMesh;
-let cameraBuffer, marbleInfoBuffer, staticBuffer, simParamsBuffer;
+let skyboxVertexBuffer, debugSphereVertexBuffer, debugSphereIndexBuffer, debugBoxVertexBuffer, debugBoxIndexBuffer;
+let cameraBuffer, skyboxUniformBuffer, marbleInfoBuffer, staticBuffer, simParamsBuffer;
 let sampler, whiteTextureView, blackCubeTextureView, envCubeTextureView, groundMaterial;
+let skyboxBindGroup;
 let marbleTemplates = [];
 let stateBuffers = [];
 let renderBindGroups = [];
 let computeBindGroups = [];
+let lineBindGroups = [];
 let currentState = 0;
 let lastTime = -1;
+let showWireframe = true;
+let debugSphereIndexCount = 0;
+let debugBoxIndexCount = 0;
 
 const projectionMatrix = new Float32Array(16);
 const viewMatrix = new Float32Array(16);
+const viewNoTranslationMatrix = new Float32Array(16);
 const viewProjectionMatrix = new Float32Array(16);
 
 function resize() {
@@ -158,7 +169,7 @@ function createSolidCubeTextureView(color = [0, 0, 0, 255]) {
     const texture = device.createTexture({
         size: [1, 1, 6],
         format: 'rgba8unorm',
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
     });
     for (let face = 0; face < 6; face++) {
         device.queue.copyExternalImageToTexture(
@@ -735,6 +746,78 @@ function drawMesh(pass, mesh, instanceCount, firstInstance = 0) {
     pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, firstInstance);
 }
 
+function drawSkybox(encoder, colorView) {
+    if (!skyboxPipeline || !skyboxBindGroup) return;
+
+    viewNoTranslationMatrix.set(viewMatrix);
+    viewNoTranslationMatrix[12] = 0;
+    viewNoTranslationMatrix[13] = 0;
+    viewNoTranslationMatrix[14] = 0;
+
+    const skyboxUniformData = new Float32Array(40);
+    skyboxUniformData.set(projectionMatrix, 0);
+    skyboxUniformData.set(viewNoTranslationMatrix, 16);
+    skyboxUniformData[32] = 1.0;
+    device.queue.writeBuffer(skyboxUniformBuffer, 0, skyboxUniformData);
+
+    const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+            view: colorView,
+            clearValue: { r: 0.12, g: 0.12, b: 0.14, a: 1.0 },
+            loadOp: 'clear',
+            storeOp: 'store',
+        }],
+        depthStencilAttachment: {
+            view: depthTexture.createView(),
+            depthClearValue: 1.0,
+            depthLoadOp: 'clear',
+            depthStoreOp: 'store',
+        },
+    });
+
+    pass.setPipeline(skyboxPipeline);
+    pass.setBindGroup(0, skyboxBindGroup);
+    pass.setVertexBuffer(0, skyboxVertexBuffer);
+    pass.draw(36, 1, 0, 0);
+    pass.end();
+}
+
+function createDebugLineMeshes() {
+    const boxLineVerts = new Float32Array([
+        -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,   0.5,  0.5, -0.5,  -0.5,  0.5, -0.5,
+        -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,   0.5,  0.5,  0.5,  -0.5,  0.5,  0.5,
+    ]);
+    const boxLineIndices = new Uint16Array([
+        0, 1, 1, 2, 2, 3, 3, 0,
+        4, 5, 5, 6, 6, 7, 7, 4,
+        0, 4, 1, 5, 2, 6, 3, 7,
+    ]);
+    debugBoxIndexCount = boxLineIndices.length;
+    debugBoxVertexBuffer = createVertexBuffer(boxLineVerts);
+    debugBoxIndexBuffer = createIndexBuffer(boxLineIndices);
+
+    const sphereSegments = 32;
+    const sphereLineVerts = [];
+    const sphereLineIndices = [];
+    const rings = [[1, 0, 2], [0, 1, 2], [1, 2, 0]];
+    for (let ring = 0; ring < 3; ring++) {
+        const base = ring * sphereSegments;
+        for (let i = 0; i < sphereSegments; i++) {
+            const a = (i / sphereSegments) * Math.PI * 2;
+            const v = [0, 0, 0];
+            v[rings[ring][0]] = Math.cos(a);
+            v[rings[ring][1]] = Math.sin(a);
+            sphereLineVerts.push(...v);
+            sphereLineIndices.push(base + i, base + ((i + 1) % sphereSegments));
+        }
+    }
+    const sphereLineVertsF32 = new Float32Array(sphereLineVerts);
+    const sphereLineIndicesU16 = new Uint16Array(sphereLineIndices);
+    debugSphereIndexCount = sphereLineIndicesU16.length;
+    debugSphereVertexBuffer = createVertexBuffer(sphereLineVertsF32);
+    debugSphereIndexBuffer = createIndexBuffer(sphereLineIndicesU16);
+}
+
 function frame(timeMs) {
     if (lastTime < 0) {
         lastTime = timeMs;
@@ -764,17 +847,18 @@ function frame(timeMs) {
         currentState = 1 - currentState;
     }
 
+    const colorView = context.getCurrentTexture().createView();
+    drawSkybox(encoder, colorView);
+
     const renderPass = encoder.beginRenderPass({
         colorAttachments: [{
-            view: context.getCurrentTexture().createView(),
-            clearValue: { r: 0.97, g: 0.97, b: 0.98, a: 1.0 },
-            loadOp: 'clear',
+            view: colorView,
+            loadOp: 'load',
             storeOp: 'store',
         }],
         depthStencilAttachment: {
             view: depthTexture.createView(),
-            depthClearValue: 1.0,
-            depthLoadOp: 'clear',
+            depthLoadOp: 'load',
             depthStoreOp: 'store',
         },
     });
@@ -790,6 +874,19 @@ function frame(timeMs) {
     }
     renderPass.setBindGroup(1, groundMaterial.bindGroup);
     drawMesh(renderPass, cubeMesh, STATIC_COUNT, MARBLE_COUNT);
+
+    if (showWireframe) {
+        renderPass.setPipeline(linePipeline);
+        renderPass.setBindGroup(0, lineBindGroups[currentState]);
+
+        renderPass.setVertexBuffer(0, debugBoxVertexBuffer);
+        renderPass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
+        renderPass.drawIndexed(debugBoxIndexCount, 1, 0, 0, 0);
+
+        renderPass.setVertexBuffer(0, debugSphereVertexBuffer);
+        renderPass.setIndexBuffer(debugSphereIndexBuffer, 'uint16');
+        renderPass.drawIndexed(debugSphereIndexCount, MARBLE_COUNT, 0, 0, 1);
+    }
     renderPass.end();
 
     device.queue.submit([encoder.finish()]);
@@ -883,6 +980,38 @@ async function init() {
         depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
 
+    skyboxPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: device.createShaderModule({ code: skyboxVertexShaderWGSL }),
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }],
+        },
+        fragment: {
+            module: device.createShaderModule({ code: skyboxFragmentShaderWGSL }),
+            entryPoint: 'main',
+            targets: [{ format }],
+        },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
+    });
+
+    linePipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: device.createShaderModule({ code: lineVertexShaderWGSL }),
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }],
+        },
+        fragment: {
+            module: device.createShaderModule({ code: lineFragmentShaderWGSL }),
+            entryPoint: 'main',
+            targets: [{ format }],
+        },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
+    });
+
     computePipeline = device.createComputePipeline({
         layout: 'auto',
         compute: {
@@ -891,6 +1020,36 @@ async function init() {
         },
     });
     assignMaterialBindGroups();
+
+    const skyboxVerts = new Float32Array([
+        -1, -1, -1,  1, -1, -1,  1,  1, -1,
+        -1, -1, -1,  1,  1, -1, -1,  1, -1,
+        -1, -1,  1,  1, -1,  1,  1,  1,  1,
+        -1, -1,  1,  1,  1,  1, -1,  1,  1,
+        -1, -1, -1, -1,  1, -1, -1,  1,  1,
+        -1, -1, -1, -1,  1,  1, -1, -1,  1,
+         1, -1, -1,  1,  1, -1,  1,  1,  1,
+         1, -1, -1,  1,  1,  1,  1, -1,  1,
+        -1, -1, -1, -1, -1,  1,  1, -1,  1,
+        -1, -1, -1,  1, -1,  1,  1, -1, -1,
+        -1,  1, -1, -1,  1,  1,  1,  1,  1,
+        -1,  1, -1,  1,  1,  1,  1,  1, -1,
+    ]);
+    skyboxVertexBuffer = createVertexBuffer(skyboxVerts);
+    skyboxUniformBuffer = device.createBuffer({
+        size: 40 * 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    skyboxBindGroup = device.createBindGroup({
+        layout: skyboxPipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: skyboxUniformBuffer } },
+            { binding: 1, resource: sampler },
+            { binding: 2, resource: envCubeTextureView || blackCubeTextureView },
+        ],
+    });
+
+    createDebugLineMeshes();
 
     for (let i = 0; i < 2; i++) {
         renderBindGroups.push(device.createBindGroup({
@@ -912,10 +1071,27 @@ async function init() {
                 { binding: 3, resource: { buffer: simParamsBuffer } },
             ],
         }));
+
+        lineBindGroups.push(device.createBindGroup({
+            layout: linePipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: cameraBuffer } },
+                { binding: 1, resource: { buffer: stateBuffers[i] } },
+                { binding: 2, resource: { buffer: marbleInfoBuffer } },
+                { binding: 3, resource: { buffer: staticBuffer } },
+            ],
+        }));
     }
 
     resize();
     window.addEventListener('resize', resize);
+    window.addEventListener('keydown', event => {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
     requestAnimationFrame(frame);
 }
 
