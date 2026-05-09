@@ -9,7 +9,7 @@ const wireFragmentShaderWGSL = document.getElementById('wfs').textContent;
 const canvas = document.getElementById('c');
 
 const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
-const MAX_COINS = 2048;
+const MAX_COINS = 4096;
 const STATIC_COUNT = 1;
 const STATE_FLOATS = 16;
 const INFO_FLOATS = 12;
@@ -400,7 +400,7 @@ async function createInitialData() {
         const type = COIN_TYPES[Math.min(COIN_TYPES.length - 1, Math.floor(randomFromIndex(coin) * COIN_TYPES.length))];
         const stateBase = coin * STATE_FLOATS;
         states[stateBase + 0] = (randomFromIndex(coin * 3 + 11) - 0.5) * SPAWN_RANGE;
-        states[stateBase + 1] = (randomFromIndex(coin * 7 + 23) + 1.0) * 15.0;
+        states[stateBase + 1] = (randomFromIndex(coin * 7 + 23) + 1.2) * 18.0;
         states[stateBase + 2] = (randomFromIndex(coin * 5 + 17) - 0.5) * SPAWN_RANGE;
         states[stateBase + 3] = seed;
         states[stateBase + 4] = 0;
@@ -444,7 +444,7 @@ function createStaticItems() {
 function writeCamera(timeMs) {
     const alpha = -Math.PI / 6;
     const beta = 76 * Math.PI / 180;
-    const radius = 24;
+    const radius = 50;
     const target = [0, -8, 0];
     const eye = [
         target[0] + Math.cos(alpha) * Math.sin(beta) * radius,
