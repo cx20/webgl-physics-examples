@@ -137,7 +137,7 @@ async function init() {
     window.addEventListener('resize', () => {
         canvas.width  = window.innerWidth;
         canvas.height = window.innerHeight;
-        depthTexture.destroy();
+        if (depthTexture) depthTexture.destroy();
         depthTexture = createDepthTexture();
         currentPMatrix = makePerspective(45, canvas.width / canvas.height, 0.1, 1000.0);
         device.queue.writeBuffer(uniformBuffer, 0, currentPMatrix);
@@ -413,7 +413,7 @@ async function init() {
     const vMat = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-40,1]);
     // Model matrix = translate(0, -10, 0) in column-major
     const mMat = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,-10,0,1]);
-    const groundMVP = mat4mul(mat4mul(pMatrix, vMat), mMat);
+    const groundMVP = mat4mul(mat4mul(currentPMatrix, vMat), mMat);
     device.queue.writeBuffer(groundMVPBuffer, 0, groundMVP);
 
     depthTexture = createDepthTexture();
