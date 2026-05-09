@@ -90,6 +90,7 @@ const modelViewMatrix = mat4.create();
 const viewProjMatrix = mat4.create();
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;
@@ -134,7 +135,7 @@ function drawPhysicsDebug() {
     mat4.scale(modelMatrix, modelMatrix, [100, 0.2, 100]);
     gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
     gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 
     gl.uniform4f(lineUniforms.color, 1, 1, 0, 1);
     for (let i = 0; i < DOMINO_COUNT; i++) {
@@ -143,7 +144,7 @@ function drawPhysicsDebug() {
         mat4.fromRotationTranslation(modelMatrix, rotResult[1], posResult[1]);
         mat4.scale(modelMatrix, modelMatrix, [DOMINO_W, DOMINO_H, DOMINO_D]);
         gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
-        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     }
 
     gl.bindVertexArray(null);
@@ -454,6 +455,14 @@ async function init() {
         color: gl.getUniformLocation(lineProgram, 'uColor')
     };
     debugBoxMesh = createDebugWireframeBoxMesh();
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
     createBoxGeometry();
     initPhysics();

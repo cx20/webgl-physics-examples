@@ -27,6 +27,7 @@ let basketWalls = [];
 const coneShapeCache = new Map();
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;
@@ -283,11 +284,11 @@ function drawPhysicsDebug() {
     gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
     mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, ground.pos, ground.size);
     gl.uniformMatrix4fv(lineUniforms.model, false, model);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     for (const wall of basketWalls) {
         mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, wall.pos, wall.size);
         gl.uniformMatrix4fv(lineUniforms.model, false, model);
-        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     }
     gl.bindVertexArray(null);
 
@@ -298,7 +299,7 @@ function drawPhysicsDebug() {
         const qResult = HK.HP_Body_GetOrientation(item.body);
         mat4.fromRotationTranslationScale(model, qResult[1], pResult[1], [item.radius, item.height, item.radius]);
         gl.uniformMatrix4fv(lineUniforms.model, false, model);
-        gl.drawArrays(gl.LINES, 0, debugConeMesh.count);
+        if (showWireframe) gl.drawArrays(gl.LINES, 0, debugConeMesh.count);
     }
     gl.bindVertexArray(null);
 }
@@ -570,6 +571,14 @@ async function main() {
         alpha: gl.getUniformLocation(program, 'uAlpha')
     };
     gl.uniform1i(uniforms.texture, 0);
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
     lineProgram = createProgram(
         gl,

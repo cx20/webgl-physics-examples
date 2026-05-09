@@ -58,6 +58,7 @@ gl.enable(gl.DEPTH_TEST);
 gl.depthFunc(gl.LEQUAL);
 
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let showWireframe = false;
 let boxWireVB, boxWireIB;
 let dominoPosVBO;
 let lineVP = mat4.create();
@@ -82,6 +83,14 @@ function resizeCanvas() {
 
 // --- Shader program ---
 let program = gl.createProgram();
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 for (let i = 0; i < 2; i++) {
     let shader = gl.createShader([gl.VERTEX_SHADER, gl.FRAGMENT_SHADER][i]);
     gl.shaderSource(shader, [
@@ -319,13 +328,13 @@ setInterval(function () {
     mat4.fromRotationTranslationScale(wm, quat.create(), [0, -0.1, 0], [100, 0.2, 100]);
     gl.uniformMatrix4fv(lineModelLoc, false, wm);
     gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
-    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
     for (let i = 0; i < number; i++) {
         const q = quat.fromValues(quatArray[i*4], quatArray[i*4+1], quatArray[i*4+2], quatArray[i*4+3]);
         mat4.fromRotationTranslationScale(wm, q, [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [bw*2, bh*2, bd*2]);
         gl.uniformMatrix4fv(lineModelLoc, false, wm);
-        gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     }
     gl.useProgram(program);
     gl.bindBuffer(gl.ARRAY_BUFFER, dominoPosVBO);

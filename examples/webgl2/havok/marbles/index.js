@@ -33,6 +33,7 @@ let groundTexture;
 let envCubeTexture = null;
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;
@@ -730,7 +731,7 @@ function drawPhysicsDebug() {
     gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
     mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -5, 0], [80, 4, 80]);
     gl.uniformMatrix4fv(lineUniforms.model, false, model);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     gl.bindVertexArray(null);
 
     gl.bindVertexArray(debugSphereMesh.vao);
@@ -741,7 +742,7 @@ function drawPhysicsDebug() {
         const r = marble.radius;
         mat4.fromRotationTranslationScale(model, qResult[1], pResult[1], [r, r, r]);
         gl.uniformMatrix4fv(lineUniforms.model, false, model);
-        gl.drawArrays(gl.LINES, 0, debugSphereMesh.count);
+        if (showWireframe) gl.drawArrays(gl.LINES, 0, debugSphereMesh.count);
     }
     gl.bindVertexArray(null);
 }
@@ -1158,6 +1159,14 @@ async function main() {
             return path;
         }
     });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
     initSkybox();
 
     groundMesh = createGroundMesh();

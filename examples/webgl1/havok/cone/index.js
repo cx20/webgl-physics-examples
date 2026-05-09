@@ -12,6 +12,7 @@ let canvas;
 let gl;
 let program;
 let lineProgram;
+let showWireframe = false;
 let attribs;
 let uniforms;
 let lineAttribs;
@@ -489,7 +490,7 @@ function drawDebugBox(position, rotation, size, color) {
     gl.enableVertexAttribArray(lineAttribs.position);
     gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugBoxMesh.indexBuffer);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 }
 
 function drawDebugCone(position, rotation, radius, height, color) {
@@ -505,7 +506,7 @@ function drawDebugCone(position, rotation, radius, height, color) {
     gl.enableVertexAttribArray(lineAttribs.position);
     gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugConeMesh.indexBuffer);
-    gl.drawElements(gl.LINES, debugConeMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugConeMesh.count, gl.UNSIGNED_SHORT, 0);
 }
 
 function drawPhysicsDebug() {
@@ -650,6 +651,14 @@ async function main() {
         color: gl.getUniformLocation(lineProgram, 'uColor')
     };
     gl.uniform1i(uniforms.texture, 0);
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
     coneMesh = createMeshBuffers(generateConeMesh(40));
     cubeMesh = createMeshBuffers(generateCubeMesh());

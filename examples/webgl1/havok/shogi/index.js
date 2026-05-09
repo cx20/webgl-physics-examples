@@ -1,7 +1,7 @@
 const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 let c = document.getElementById("c");
 let gl = c.getContext("experimental-webgl");
-const SHOW_DEBUG_WIREFRAME = true;
+let showWireframe = false;
 gl.clearColor(0.0, 0.0, 0.0, 1.0);
 gl.enable(gl.DEPTH_TEST);
 gl.depthFunc(gl.LEQUAL);
@@ -11,6 +11,14 @@ resizeCanvas();
 window.addEventListener("resize", function(){
     resizeCanvas();
 });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
 function resizeCanvas() {
     c.width = window.innerWidth;
@@ -336,7 +344,7 @@ function createDebugWireframeBoxMesh() {
 }
 
 function drawPhysicsWireframes() {
-    if (!SHOW_DEBUG_WIREFRAME || !debugBoxVBO || !debugBoxIBO) {
+    if (!showWireframe || !debugBoxVBO || !debugBoxIBO) {
         return;
     }
 
@@ -360,7 +368,7 @@ function drawPhysicsWireframes() {
         mat4.multiply(mvpMat, vMatrix, modelMat);
         mat4.multiply(mvpMat, perspMatrix, mvpMat);
         gl.uniformMatrix4fv(mvpLoc, false, mvpMat);
-        gl.drawElements(gl.LINES, debugBoxIndexCount, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugBoxIndexCount, gl.UNSIGNED_SHORT, 0);
     }
 }
 

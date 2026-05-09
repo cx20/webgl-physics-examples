@@ -21,6 +21,7 @@ let world;
 const marbles = [];
 
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let showWireframe = false;
 let boxWireVB, boxWireIB;
 let sphWireVB, sphWireIB, sphWireCount;
 const BOX_WIRE_VERTS = new Float32Array([
@@ -960,7 +961,7 @@ function render(timeMs) {
     mat4.fromRotationTranslationScale(lineModel, quat.create(), [0, -5, 0], [80, 4, 80]);
     gl.uniformMatrix4fv(lineModelLoc, false, lineModel);
     gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
-    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, sphWireVB);
     gl.vertexAttribPointer(linePosLoc, 3, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphWireIB);
@@ -971,7 +972,7 @@ function render(timeMs) {
         const r = marble.radius;
         mat4.fromRotationTranslationScale(lineModel, quat.fromValues(q.x, q.y, q.z, q.w), [p.x, p.y, p.z], [r, r, r]);
         gl.uniformMatrix4fv(lineModelLoc, false, lineModel);
-        gl.drawElements(gl.LINES, sphWireCount, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, sphWireCount, gl.UNSIGNED_SHORT, 0);
     }
 
     requestAnimationFrame(render);
@@ -1030,6 +1031,14 @@ async function main() {
 
     groundMesh = createGroundMesh();
     groundTexture = await loadTexture(GROUND_TEXTURE_FILE, { flipY: true });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
     try {
         const hdr = await loadHDRTexture(ENV_HDR_URL);
         envCubeTexture = createCubemapFromHDR(hdr, 256);

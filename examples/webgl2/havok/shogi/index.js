@@ -1,3 +1,4 @@
+let showWireframe = false;
 const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 let c = document.getElementById("c");
 let gl = c.getContext("webgl2");
@@ -9,6 +10,14 @@ resizeCanvas();
 window.addEventListener("resize", function(){
     resizeCanvas();
 });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
 function resizeCanvas() {
     c.width = window.innerWidth;
@@ -521,7 +530,7 @@ function drawPhysicsDebug() {
     mat4.scale(mMatrix, mMatrix, [13, 0.1, 13]);
     gl.uniformMatrix4fv(lineUniforms.model, false, mMatrix);
     gl.uniform4f(lineUniforms.color, 0, 1, 0, 1);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 
     gl.uniform4f(lineUniforms.color, 1, 1, 0, 1);
     for (let i = 0; i < max; i++) {
@@ -530,7 +539,7 @@ function drawPhysicsDebug() {
         mat4.fromRotationTranslation(mMatrix, qResult[1], pResult[1]);
         mat4.scale(mMatrix, mMatrix, SHOGI_PHYSICS_SIZE);
         gl.uniformMatrix4fv(lineUniforms.model, false, mMatrix);
-        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     }
 
     gl.bindVertexArray(null);
