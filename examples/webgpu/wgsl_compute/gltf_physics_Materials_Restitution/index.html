@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGPU + WGSL Compute Shader glTF Physics Materials Restitution Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<!-- ================================================================
+  Compute Shader  (one workgroup per dynamic object)
+  State layout (16 floats = 4 × vec4<f32>):
+    [0..3]  position xyz + pad
+    [4..7]  velocity xyz + pad
+    [8..11] rotation quaternion xyzw
+    [12..15] angularVel xyz + pad
+================================================================ -->
+<script id="cs" type="x-shader/x-compute">
+struct ObjState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    restitution : f32,
+    friction    : f32,
+    radius      : f32,
+    floorTopY   : f32,
+    resetY      : f32,
+    pad         : f32,
+    initialPos  : vec4<f32>,
+}
+
+@group(0) @binding(0) var<storage, read_write> obj    : ObjState;
+@group(0) @binding(1) var<uniform>             params : SimParams;
+
+fn quatMul(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn rotByQuat(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+fn normalizeQ(q: vec4<f32>) -> vec4<f32> {
+    let l = length(q);
+    return select(vec4<f32>(0,0,0,1), q/l, l > 0.0001);
+}
+
+@compute @workgroup_size(1)
+fn main() {
+    var pos    = obj.position.xyz;
+    var vel    = obj.velocity.xyz;
+    var rot    = obj.rotation;
+    var angVel = obj.angularVel.xyz;
+
+    let radius = params.radius;
+    let mu = params.friction;
+
+    // Gravity
+    vel.y -= params.gravity * params.dt;
+
+    // Integrate position
+    pos += vel * params.dt;
+
+    let floorContactY = params.floorTopY + radius;
+    if (pos.y < floorContactY) {
+        pos.y = floorContactY;
+        if (vel.y < 0.0) {
+            vel.y = -vel.y * params.restitution;
+            vel.x *= max(0.0, 1.0 - mu * 0.035);
+            vel.z *= max(0.0, 1.0 - mu * 0.035);
+        }
+    }
+
+    if (pos.y < params.resetY) {
+        pos = params.initialPos.xyz;
+        vel = vec3<f32>(0.0, 0.0, 0.0);
+        rot = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        angVel = vec3<f32>(0.0, 0.0, 0.0);
+    } else {
+        let horizontalSpeed = vec3<f32>(vel.z, 0.0, -vel.x) / max(radius, 0.0001);
+        angVel = horizontalSpeed;
+        let hw = angVel * 0.5 * params.dt;
+        let dq = quatMul(vec4<f32>(hw, 0.0), rot);
+        rot = normalizeQ(rot + dq);
+        vel *= 0.9995;
+    }
+
+    obj.position   = vec4<f32>(pos, 0.0);
+    obj.velocity   = vec4<f32>(vel, 0.0);
+    obj.rotation   = rot;
+    obj.angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<!-- ================================================================
+  Vertex shader: renders a single OBB mesh instance
+  Uniforms: VP matrix + Model matrix (TRS from physics state)
+================================================================ -->
+<script id="vs" type="x-shader/x-vertex">
+struct ObjState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+};
+
+struct Uniforms {
+    viewProj  : mat4x4<f32>,
+    model     : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    mode      : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(3) var<storage, read> state : ObjState;
+
+fn rotByQuatRender(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv     : vec2<f32>,
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal   : vec3<f32>,
+    @location(2) uv       : vec2<f32>,
+) -> VSOut {
+    var out : VSOut;
+    let localPosition = uniforms.model * vec4<f32>(position, 1.0);
+    let localNormal   = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    var worldPosition = localPosition;
+    var worldNormal   = localNormal;
+    if (uniforms.mode.x > 0.5) {
+        worldPosition = vec4<f32>(
+            rotByQuatRender(localPosition.xyz, state.rotation) + state.position.xyz,
+            1.0
+        );
+        worldNormal = normalize(rotByQuatRender(localNormal, state.rotation));
+    }
+    out.Position = uniforms.viewProj * worldPosition;
+    out.normal   = worldNormal;
+    out.uv       = uv;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Uniforms {
+    viewProj  : mat4x4<f32>,
+    model     : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    mode      : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var          samp     : sampler;
+@group(0) @binding(2) var          tex      : texture_2d<f32>;
+
+@fragment
+fn main(
+    @location(0) normal : vec3<f32>,
+    @location(1) uv     : vec2<f32>,
+) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
+    let diffuse  = max(dot(normalize(normal), lightDir), 0.45);
+    let texColor = textureSample(tex, samp, uv);
+    let base     = uniforms.baseColor * texColor;
+    return vec4<f32>(min(base.rgb * diffuse * 1.18, vec3<f32>(1.0)), base.a);
+}
+</script>
+
+<!-- Wireframe collider debug (W key toggle) -->
+<script id="wvs" type="x-shader/x-vertex">
+struct ObjState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+};
+
+struct WireUni {
+    vpMatrix    : mat4x4<f32>,
+    modelMatrix : mat4x4<f32>,
+    color       : vec4<f32>,
+    mode        : vec4<f32>,
+}
+@binding(0) @group(0) var<uniform> uni : WireUni;
+@binding(1) @group(0) var<storage, read> state : ObjState;
+
+fn rotByQuatWire(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+    let localPosition = uni.modelMatrix * vec4<f32>(position, 1.0);
+    var worldPosition = localPosition;
+    if (uni.mode.x > 0.5) {
+        worldPosition = vec4<f32>(
+            rotByQuatWire(localPosition.xyz, state.rotation) + state.position.xyz,
+            1.0
+        );
+    }
+    return uni.vpMatrix * worldPosition;
+}
+</script>
+<script id="wfs" type="x-shader/x-fragment">
+struct WireUni {
+    vpMatrix    : mat4x4<f32>,
+    modelMatrix : mat4x4<f32>,
+    color       : vec4<f32>,
+    mode        : vec4<f32>,
+}
+@binding(0) @group(0) var<uniform> uni : WireUni;
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return uni.color;
+}
+</script>
+
+<canvas id="c"></canvas>
+<div id="hint" style="position:fixed;top:8px;left:8px;color:#ddd;background:rgba(0,0,0,0.45);padding:4px 8px;border-radius:4px;font:13px monospace;pointer-events:none">
+    W: debug OBB OFF
+</div>
+<script src="index.js"></script>
+</body>
+</html>
