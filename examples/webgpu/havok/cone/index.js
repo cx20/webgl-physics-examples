@@ -28,6 +28,7 @@ let coneMesh;
 let cubeMesh;
 
 let linePipeline;
+let showWireframe = true;
 let debugConeVertexBuffer;
 let debugConeIndexBuffer;
 let debugConeIndexCount = 0;
@@ -498,7 +499,8 @@ function render(timeMs) {
         drawMesh(pass, cubeMesh, renderItem.bindGroup);
     }
 
-    pass.setPipeline(linePipeline);
+    if (showWireframe) {
+pass.setPipeline(linePipeline);
     pass.setVertexBuffer(0, debugBoxVertexBuffer);
     pass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
     for (let i = 0; i <= NUM_WALLS; i++) {
@@ -510,6 +512,8 @@ function render(timeMs) {
     for (let i = 0; i < cones.length; i++) {
         pass.setBindGroup(0, lineBindGroup, [(NUM_WALLS + 1 + i) * LINE_ALIGN]);
         pass.drawIndexed(debugConeIndexCount);
+    }
+
     }
 
     pass.end();
@@ -644,6 +648,14 @@ async function main() {
 
     resize();
     window.addEventListener('resize', resize);
+
+    window.addEventListener('keydown', event => {
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
+
 
     HK = await HavokPhysics({
         locateFile: function (path) {
