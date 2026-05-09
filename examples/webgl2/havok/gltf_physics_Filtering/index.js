@@ -1320,7 +1320,7 @@ function resetDynamicBodiesIfNeeded() {
 }
 
 function drawPhysicsDebug() {
-    if (!SHOW_DEBUG_COLLIDERS) {
+    if (!showWireframe) {
         return;
     }
 
@@ -1439,7 +1439,8 @@ async function main() {
     });
 
 window.addEventListener('keydown', event => {
-    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+    if (!isWKey || event.repeat) return;
     showWireframe = !showWireframe;
     const hint = document.getElementById('hint');
     if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');

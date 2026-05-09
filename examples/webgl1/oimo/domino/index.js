@@ -1,4 +1,4 @@
-﻿// forked from gaziya's "Domino  (WebGL2 + Oimo.js)" http://jsdo.it/gaziya/46vq
+// forked from gaziya's "Domino  (WebGL2 + Oimo.js)" http://jsdo.it/gaziya/46vq
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -79,7 +79,8 @@ window.addEventListener("resize", function(){
 });
 
 window.addEventListener('keydown', event => {
-    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+    if (!isWKey || event.repeat) return;
     showWireframe = !showWireframe;
     const hint = document.getElementById('hint');
     if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');

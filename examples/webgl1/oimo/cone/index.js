@@ -434,7 +434,8 @@ async function main() {
     gl.uniform1i(uniforms.texture, 0);
 
 window.addEventListener('keydown', event => {
-    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+    if (!isWKey || event.repeat) return;
     showWireframe = !showWireframe;
     const hint = document.getElementById('hint');
     if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
