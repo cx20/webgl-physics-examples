@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGPU + WGSL Compute Shader glTF Physics Materials Friction Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+
+<!-- ================================================================
+  Compute Shader  (one workgroup per dynamic object)
+  State layout (16 floats = 4 × vec4<f32>):
+    [0..3]  position xyz + pad
+    [4..7]  velocity xyz + pad
+    [8..11] rotation quaternion xyzw
+    [12..15] angularVel xyz + pad
+================================================================ -->
+<script id="cs" type="x-shader/x-compute">
+struct ObjState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+struct SimParams {
+    dt         : f32,
+    gravity    : f32,
+    restitution: f32,
+    friction   : f32,   // per-object friction, passed per-dispatch via push constant
+    // OBB half-extents for this object
+    hx         : f32,
+    hy         : f32,
+    hz         : f32,
+    pad        : f32,
+    // Sloped floor OBB: world-space axes and position (packed as 4×vec4)
+    floorPos   : vec4<f32>,
+    floorAx0   : vec4<f32>, // floor local X (world)
+    floorAx1   : vec4<f32>, // floor local Y (world) = face normal
+    floorAx2   : vec4<f32>, // floor local Z (world)
+    floorHx    : f32,
+    floorHy    : f32,
+    floorHz    : f32,
+    pad2       : f32,
+}
+
+@group(0) @binding(0) var<storage, read_write> obj    : ObjState;
+@group(0) @binding(1) var<uniform>             params : SimParams;
+
+fn quatMul(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn rotByQuat(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+fn normalizeQ(q: vec4<f32>) -> vec4<f32> {
+    let l = length(q);
+    return select(vec4<f32>(0,0,0,1), q/l, l > 0.0001);
+}
+
+// OBB half-projection: sum |dot(axis_k, L)| * h_k
+fn projOBB_A(q: vec4<f32>, hx: f32, hy: f32, hz: f32, L: vec3<f32>) -> f32 {
+    let ax = rotByQuat(vec3<f32>(1,0,0), q);
+    let ay = rotByQuat(vec3<f32>(0,1,0), q);
+    let az = rotByQuat(vec3<f32>(0,0,1), q);
+    return abs(dot(ax, L))*hx + abs(dot(ay, L))*hy + abs(dot(az, L))*hz;
+}
+
+fn projOBB_B(ax0: vec3<f32>, ax1: vec3<f32>, ax2: vec3<f32>,
+             hx: f32, hy: f32, hz: f32, L: vec3<f32>) -> f32 {
+    return abs(dot(ax0, L))*hx + abs(dot(ax1, L))*hy + abs(dot(ax2, L))*hz;
+}
+
+@compute @workgroup_size(1)
+fn main() {
+    var pos    = obj.position.xyz;
+    var vel    = obj.velocity.xyz;
+    var rot    = obj.rotation;
+    var angVel = obj.angularVel.xyz;
+
+    let hx = params.hx;
+    let hy = params.hy;
+    let hz = params.hz;
+    let mu = params.friction;
+
+    // Gravity
+    vel.y -= params.gravity * params.dt;
+
+    // Integrate position
+    pos += vel * params.dt;
+
+    // Integrate rotation
+    let hw = angVel * 0.5 * params.dt;
+    let dq = quatMul(vec4<f32>(hw, 0.0), rot);
+    rot = normalizeQ(rot + dq);
+
+    // Damping
+    vel    *= 0.9995;
+    angVel *= 0.97;
+
+    // ── OBB A (dynamic) vs OBB B (sloped floor, static) ─────────────────
+    let fPos = params.floorPos.xyz;
+    let fAx0 = params.floorAx0.xyz;
+    let fAx1 = params.floorAx1.xyz; // floor face normal
+    let fAx2 = params.floorAx2.xyz;
+    let fHx  = params.floorHx;
+    let fHy  = params.floorHy;
+    let fHz  = params.floorHz;
+
+    // Dynamic OBB axes
+    let aAx0 = rotByQuat(vec3<f32>(1,0,0), rot);
+    let aAx1 = rotByQuat(vec3<f32>(0,1,0), rot);
+    let aAx2 = rotByQuat(vec3<f32>(0,0,1), rot);
+
+    let T = pos - fPos; // center offset
+
+    var minPen  = 1e9;
+    var minAxis = fAx1; // default: floor normal
+    var sep     = false;
+
+    // Test 15 SAT axes: 3 A-face + 3 B-face + 9 edge cross-products
+    let axes = array<vec3<f32>, 6>(aAx0, aAx1, aAx2, fAx0, fAx1, fAx2);
+    for (var k = 0; k < 6; k++) {
+        if (sep) { break; }
+        let L   = axes[k];
+        let rA  = projOBB_A(rot, hx, hy, hz, L);
+        let rB  = projOBB_B(fAx0, fAx1, fAx2, fHx, fHy, fHz, L);
+        let pen = rA + rB - abs(dot(T, L));
+        if (pen <= 0.0) { sep = true; break; }
+        if (pen < minPen) { minPen = pen; minAxis = L; }
+    }
+    // Edge cross products
+    let aAxes = array<vec3<f32>,3>(aAx0, aAx1, aAx2);
+    let bAxes = array<vec3<f32>,3>(fAx0, fAx1, fAx2);
+    for (var a = 0; a < 3; a++) {
+        if (sep) { break; }
+        for (var b = 0; b < 3; b++) {
+            if (sep) { break; }
+            let L   = cross(aAxes[a], bAxes[b]);
+            let lenSq = dot(L, L);
+            if (lenSq < 1e-8) { continue; }
+            let Ln  = L * inverseSqrt(lenSq);
+            let rA  = projOBB_A(rot, hx, hy, hz, Ln);
+            let rB  = projOBB_B(fAx0, fAx1, fAx2, fHx, fHy, fHz, Ln);
+            let pen = rA + rB - abs(dot(T, Ln));
+            if (pen <= 0.0) { sep = true; break; }
+            if (pen < minPen) { minPen = pen; minAxis = Ln; }
+        }
+    }
+
+    if (!sep && minPen > 0.0) {
+        // Orient normal to push A out of B
+        var n = minAxis;
+        if (dot(n, T) < 0.0) { n = -n; }
+
+        // Push out
+        pos += n * minPen;
+
+        // Compute contact point: center of A projected toward B surface
+        let r_world = -n * hy; // approximate contact arm
+        let vContact = vel + cross(angVel, r_world);
+        let vn = dot(vContact, n);
+
+        if (vn < 0.0) {
+            let e  = params.restitution;
+            let Jn = -(1.0 + e) * vn * 0.5; // equal mass approx
+
+            // Normal impulse
+            vel    += n * Jn;
+            angVel += cross(r_world, n * Jn) * 0.0;
+
+            // Friction (tangential)
+            let vt    = vContact - vn * n;
+            let vtLen = length(vt);
+            if (vtLen > 0.001) {
+                let Jt   = min(mu * abs(Jn), vtLen * 0.5);
+                let tDir = vt / vtLen;
+                vel    -= tDir * Jt;
+                angVel += cross(r_world, -tDir * Jt) * 0.0;
+            }
+        }
+    }
+
+    obj.position   = vec4<f32>(pos, 0.0);
+    obj.velocity   = vec4<f32>(vel, 0.0);
+    obj.rotation   = rot;
+    obj.angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<!-- ================================================================
+  Vertex shader: renders a single OBB mesh instance
+  Uniforms: VP matrix + Model matrix (TRS from physics state)
+================================================================ -->
+<script id="vs" type="x-shader/x-vertex">
+struct ObjState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+};
+
+struct Uniforms {
+    viewProj  : mat4x4<f32>,
+    model     : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    mode      : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(3) var<storage, read> state : ObjState;
+
+fn rotByQuatRender(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv     : vec2<f32>,
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal   : vec3<f32>,
+    @location(2) uv       : vec2<f32>,
+) -> VSOut {
+    var out : VSOut;
+    let localPosition = uniforms.model * vec4<f32>(position, 1.0);
+    let localNormal   = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    var worldPosition = localPosition;
+    var worldNormal   = localNormal;
+    if (uniforms.mode.x > 0.5) {
+        worldPosition = vec4<f32>(
+            rotByQuatRender(localPosition.xyz, state.rotation) + state.position.xyz,
+            1.0
+        );
+        worldNormal = normalize(rotByQuatRender(localNormal, state.rotation));
+    }
+    out.Position = uniforms.viewProj * worldPosition;
+    out.normal   = worldNormal;
+    out.uv       = uv;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Uniforms {
+    viewProj  : mat4x4<f32>,
+    model     : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    mode      : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var          samp     : sampler;
+@group(0) @binding(2) var          tex      : texture_2d<f32>;
+
+@fragment
+fn main(
+    @location(0) normal : vec3<f32>,
+    @location(1) uv     : vec2<f32>,
+) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
+    let diffuse  = max(dot(normalize(normal), lightDir), 0.45);
+    let texColor = textureSample(tex, samp, uv);
+    let base     = uniforms.baseColor * texColor;
+    return vec4<f32>(min(base.rgb * diffuse * 1.18, vec3<f32>(1.0)), base.a);
+}
+</script>
+
+<!-- Wireframe OBB debug (W key toggle) -->
+<script id="wvs" type="x-shader/x-vertex">
+struct ObjState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+};
+
+struct WireUni {
+    vpMatrix    : mat4x4<f32>,
+    modelMatrix : mat4x4<f32>,
+    color       : vec4<f32>,
+    mode        : vec4<f32>,
+}
+@binding(0) @group(0) var<uniform> uni : WireUni;
+@binding(1) @group(0) var<storage, read> state : ObjState;
+
+fn rotByQuatWire(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+    let localPosition = uni.modelMatrix * vec4<f32>(position, 1.0);
+    var worldPosition = localPosition;
+    if (uni.mode.x > 0.5) {
+        worldPosition = vec4<f32>(
+            rotByQuatWire(localPosition.xyz, state.rotation) + state.position.xyz,
+            1.0
+        );
+    }
+    return uni.vpMatrix * worldPosition;
+}
+</script>
+<script id="wfs" type="x-shader/x-fragment">
+struct WireUni {
+    vpMatrix    : mat4x4<f32>,
+    modelMatrix : mat4x4<f32>,
+    color       : vec4<f32>,
+    mode        : vec4<f32>,
+}
+@binding(0) @group(0) var<uniform> uni : WireUni;
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return uni.color;
+}
+</script>
+
+<canvas id="c"></canvas>
+<div id="hint" style="position:fixed;top:8px;left:8px;color:#ddd;background:rgba(0,0,0,0.45);padding:4px 8px;border-radius:4px;font:13px monospace;pointer-events:none">
+    W: debug OBB OFF
+</div>
+<script src="index.js"></script>
+</body>
+</html>
