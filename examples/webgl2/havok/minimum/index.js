@@ -20,6 +20,7 @@ let uniformModelView;
 let uniformTexture;
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;
@@ -167,7 +168,7 @@ function drawPhysicsDebug() {
     mat4.fromRotationTranslationScale(modelMatrix, IDENTITY_QUATERNION, [0, -2.5, 0], [20, 1, 20]);
     gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
     gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 
     const posResult = HK.HP_Body_GetPosition(cubeBodyId);
     checkResult(posResult[0], 'HP_Body_GetPosition debug');
@@ -176,7 +177,7 @@ function drawPhysicsDebug() {
     mat4.fromRotationTranslationScale(modelMatrix, rotResult[1], posResult[1], [5, 5, 5]);
     gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
     gl.uniform4fv(lineUniforms.color, [1.0, 1.0, 0.0, 1.0]);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 
     gl.bindVertexArray(null);
 }
@@ -430,6 +431,14 @@ async function init() {
         color: gl.getUniformLocation(lineProgram, 'uColor')
     };
     debugBoxMesh = createDebugWireframeBoxMesh();
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
     createBoxGeometry();
     texture = await loadTexture('../../../../assets/textures/frog.jpg');

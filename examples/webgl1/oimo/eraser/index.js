@@ -6,6 +6,7 @@ gl.clearColor(0.7, 0.7, 0.7, 1.0);
 gl.enable(gl.DEPTH_TEST);
 let eraserIBO, eraserPosVBO;
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let showWireframe = false;
 let boxWireVB, boxWireIB;
 let lineVP = mat4.create();
 const BOX_WIRE_VERTS = new Float32Array([
@@ -24,6 +25,14 @@ resizeCanvas();
 window.addEventListener("resize", function(){
     resizeCanvas();
 });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
 function resizeCanvas() {
     c.width = window.innerWidth;
@@ -325,14 +334,14 @@ animate();
     mat4.fromRotationTranslationScale(wm, [0,0,0,1], [gp.x, gp.y, gp.z], [13, 0.1, 13]);
     gl.uniformMatrix4fv(lineModelLoc, false, wm);
     gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
-    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
     for (let i = 0; i < max; i++) {
         let q = quat.fromValues(rotArray[i*4], rotArray[i*4+1], rotArray[i*4+2], rotArray[i*4+3]);
         mat4.fromRotationTranslationScale(wm, q,
             [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [2, 0.4, 1]);
         gl.uniformMatrix4fv(lineModelLoc, false, wm);
-        gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     }
     gl.useProgram(p1);
     gl.bindBuffer(gl.ARRAY_BUFFER, eraserPosVBO);

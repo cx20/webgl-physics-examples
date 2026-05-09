@@ -27,6 +27,7 @@ let textures = [];
 let whiteTexture;
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;
@@ -143,13 +144,13 @@ function drawPhysicsDebug() {
     mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -2, 0], [20, 2, 20]);
     gl.uniformMatrix4fv(lineUniforms.model, false, model);
     gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 
     gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
     for (const wall of basketWalls) {
         mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, wall.pos, wall.size);
         gl.uniformMatrix4fv(lineUniforms.model, false, model);
-        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, debugSphereMesh.vbo);
@@ -163,7 +164,7 @@ function drawPhysicsDebug() {
         const r = item.radius;
         mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, posResult[1], [r, r, r]);
         gl.uniformMatrix4fv(lineUniforms.model, false, model);
-        gl.drawElements(gl.LINES, debugSphereMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugSphereMesh.count, gl.UNSIGNED_SHORT, 0);
     }
 }
 
@@ -526,6 +527,14 @@ async function main() {
         alpha:    gl.getUniformLocation(program, 'uAlpha')
     };
     gl.uniform1i(uniforms.texture, 0);
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
     lineProgram = createProgram(
         gl,

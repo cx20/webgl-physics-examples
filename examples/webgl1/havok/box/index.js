@@ -46,6 +46,7 @@ let groundTexture;
 let whiteTexture;
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;
@@ -236,7 +237,7 @@ function drawPhysicsDebug() {
     mat4.fromRotationTranslationScale(model, IDENTITY_QUATERNION, [0, -2, 0], [30, 0.4, 30]);
     gl.uniformMatrix4fv(lineUniforms.model, false, model);
     gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 
     gl.uniform4fv(lineUniforms.color, [1.0, 1.0, 0.0, 1.0]);
     for (let i = 0; i < BOX_COUNT; i++) {
@@ -246,7 +247,7 @@ function drawPhysicsDebug() {
         checkResult(rotResult[0], 'HP_Body_GetOrientation debug');
         mat4.fromRotationTranslationScale(model, rotResult[1], posResult[1], [BOX_SIZE, BOX_SIZE, BOX_SIZE]);
         gl.uniformMatrix4fv(lineUniforms.model, false, model);
-        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     }
 }
 
@@ -516,6 +517,14 @@ async function init() {
     };
 
     gl.useProgram(program);
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
     gl.uniform1i(uniforms.texture, 0);
 
     lineProgram = createProgram(

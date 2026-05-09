@@ -52,6 +52,7 @@ let uniformLightDir;
 let uniformAlpha;
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;
@@ -242,7 +243,7 @@ function drawPhysicsDebug() {
     mat4.fromRotationTranslationScale(modelMatrix, IDENTITY_QUATERNION, [0, -2, 0], [30, 2, 30]);
     gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
     gl.uniform4fv(lineUniforms.color, [0.0, 1.0, 0.0, 1.0]);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, debugSphereMesh.vbo);
     gl.vertexAttribPointer(lineAttribs.position, 3, gl.FLOAT, false, 0, 0);
@@ -255,7 +256,7 @@ function drawPhysicsDebug() {
         const rotResult = HK.HP_Body_GetOrientation(ballBodyIds[i]);
         mat4.fromRotationTranslationScale(modelMatrix, rotResult[1], posResult[1], [0.5, 0.5, 0.5]);
         gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
-        gl.drawElements(gl.LINES, debugSphereMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugSphereMesh.count, gl.UNSIGNED_SHORT, 0);
     }
 }
 
@@ -577,6 +578,14 @@ async function init() {
         color: gl.getUniformLocation(lineProgram, 'uColor')
     };
     debugBoxMesh = createDebugWireframeBoxMesh();
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
     debugSphereMesh = createDebugWireframeSphereMesh();
 
     sphereMesh = createSphereGeometry(0.5, 18, 24);

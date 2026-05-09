@@ -4,6 +4,7 @@ let attributeLocations = [];
 let uniformLocations = [];
 let mainProgram;
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
+let showWireframe = false;
 let boxWireVB, boxWireIB;
 const BOX_WIRE_VERTS = new Float32Array([
     -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5,
@@ -75,6 +76,14 @@ function initWorld() {
         info: false,
         gravity: [0, -9.8, 0]
     });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 }
 
 function createShader(type, source) {
@@ -265,13 +274,13 @@ function draw() {
     mat4.fromRotationTranslationScale(wm, quat.fromValues(gr.x, gr.y, gr.z, gr.w), [gp.x, gp.y, gp.z], [4, 0.1, 4]);
     gl.uniformMatrix4fv(lineModelLoc, false, wm);
     gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
-    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     const bp = boxBody.getPosition();
     const br = boxBody.getQuaternion();
     mat4.fromRotationTranslationScale(wm, quat.fromValues(br.x, br.y, br.z, br.w), [bp.x, bp.y, bp.z], [1, 1, 1]);
     gl.uniformMatrix4fv(lineModelLoc, false, wm);
     gl.uniform4fv(lineColorLoc, [1, 1, 0, 1]);
-    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     gl.useProgram(mainProgram);
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
     gl.vertexAttribPointer(attributeLocations[0], 3, gl.FLOAT, false, 0, 0);

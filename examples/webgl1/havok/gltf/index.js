@@ -15,6 +15,7 @@ let attribs;
 let uniforms;
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 
@@ -829,7 +830,7 @@ function drawPhysicsDebugBox() {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, debugBoxMesh.indexBuffer);
 
     gl.disable(gl.CULL_FACE);
-    gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+    if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     gl.enable(gl.CULL_FACE);
 }
 
@@ -919,6 +920,14 @@ async function main() {
             return path;
         }
     });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
     groundMesh = createGroundMesh();
     groundTexture = createSolidTexture(255, 255, 255, 255);

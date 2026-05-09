@@ -18,6 +18,7 @@ let attribs;
 let uniforms;
 
 let lineProgram;
+let showWireframe = false;
 let lineAttribs;
 let lineUniforms;
 
@@ -1528,7 +1529,7 @@ function drawPhysicsDebug() {
         mat4.scale(model, model, node.debugSize);
         gl.uniformMatrix4fv(lineUniforms.model, false, model);
         gl.uniform4fv(lineUniforms.color, node.physicsExt.motion ? [1.0, 0.35, 0.2, 1.0] : [0.2, 0.9, 0.35, 1.0]);
-        gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
+        if (showWireframe) gl.drawElements(gl.LINES, debugBoxMesh.count, gl.UNSIGNED_SHORT, 0);
     }
     gl.enable(gl.CULL_FACE);
 }
@@ -1627,6 +1628,14 @@ async function main() {
             return path;
         }
     });
+
+window.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
+
 
     whiteTexture = createSolidTexture(255, 255, 255, 255);
     debugBoxMesh = createDebugWireframeBoxMesh();
