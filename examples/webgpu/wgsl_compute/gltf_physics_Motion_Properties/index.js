@@ -36,7 +36,7 @@ let meshWireItems = [];
 let bodyRecords = [];
 let staticTriangleCount = 0;
 let staticCeilingY = 100000;
-let showWireframe = true;
+let showWireframe = false;
 let lastTime = -1;
 
 const projectionMatrix = new Float32Array(16);
@@ -837,10 +837,9 @@ async function init() {
     resize();
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', event => {
-        if (event.key === 'w' || event.key === 'W') {
-            showWireframe = !showWireframe;
-            document.getElementById('hint').textContent = 'W: debug colliders ' + (showWireframe ? 'ON' : 'OFF');
-        }
+        if (event.key.toLowerCase() !== 'w' || event.repeat) return;
+        showWireframe = !showWireframe;
+        document.getElementById('hint').textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
     requestAnimationFrame(frame);
 }
