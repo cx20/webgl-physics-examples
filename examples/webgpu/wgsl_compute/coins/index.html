@@ -7,6 +7,7 @@
 <body>
 
 <script id="cs" type="x-shader/x-compute">
+const COIN_CAPACITY : u32 = 4096u;
 struct CoinState {
     position   : vec4<f32>,
     velocity   : vec4<f32>,
@@ -31,7 +32,6 @@ struct SimParams {
     spawnRange  : f32,
 }
 
-const COIN_CAPACITY : u32 = 2048u;
 const GROUND_HALF : f32 = 13.0;
 const PHYSICS_THICKNESS_SCALE : f32 = 1.0;
 
@@ -115,11 +115,11 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     var angVel = srcStates[i].angularVel.xyz;
 
     let outsideGround = abs(pos.x) > GROUND_HALF + radius || abs(pos.z) > GROUND_HALF + radius;
-    if (pos.y < params.groundY - 8.0 || (outsideGround && pos.y < params.groundY - 1.5)) {
+    if (pos.y < params.groundY - 24.0 || (outsideGround && pos.y < params.groundY - 12.0)) {
         let s = seed + 1.37;
         pos = vec3<f32>(
             (rand(s) - 0.5) * params.spawnRange,
-            params.groundY + 18.0 + rand(s + 1.0) * 14.0,
+            params.groundY + 24.0 + rand(s + 1.0) * 18.0,
             (rand(s + 2.0) - 0.5) * params.spawnRange,
         );
         angVel = vec3<f32>(
@@ -290,7 +290,7 @@ struct VSOut {
     @location(6) worldPosition : vec3<f32>,
 }
 
-const COIN_CAPACITY : u32 = 2048u;
+const COIN_CAPACITY : u32 = 4096u;
 
 @group(0) @binding(0) var<uniform> camera : Camera;
 @group(0) @binding(1) var<storage, read> states : array<CoinState>;
