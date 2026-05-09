@@ -9,7 +9,7 @@ const wireFragmentShaderWGSL = document.getElementById('wfs').textContent;
 const canvas = document.getElementById('c');
 
 const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
-const MAX_COINS = 300;
+const MAX_COINS = 2048;
 const STATIC_COUNT = 1;
 const STATE_FLOATS = 16;
 const INFO_FLOATS = 12;
@@ -430,7 +430,7 @@ async function createInitialData() {
 function createStaticItems() {
     const items = new Float32Array(STATIC_COUNT * STATIC_FLOATS);
     const data = [
-        { pos: [0, -10.5, 0], scale: [13, 1, 13], color: [0.46, 0.47, 0.49, 1] },
+        { pos: [0, -10.5, 0], scale: [26, 1, 26], color: [0.46, 0.47, 0.49, 1] },
     ];
     for (let i = 0; i < data.length; i++) {
         const base = i * STATIC_FLOATS;
@@ -442,9 +442,17 @@ function createStaticItems() {
 }
 
 function writeCamera(timeMs) {
-    const eye = [0, 0, 40];
+    const alpha = -Math.PI / 6;
+    const beta = 76 * Math.PI / 180;
+    const radius = 24;
+    const target = [0, -8, 0];
+    const eye = [
+        target[0] + Math.cos(alpha) * Math.sin(beta) * radius,
+        target[1] + Math.cos(beta) * radius,
+        target[2] + Math.sin(alpha) * Math.sin(beta) * radius,
+    ];
     mat4Perspective(projectionMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 150);
-    mat4LookAt(viewMatrix, eye, [0, 0, 0], [0, 1, 0]);
+    mat4LookAt(viewMatrix, eye, target, [0, 1, 0]);
     mat4Multiply(viewProjectionMatrix, projectionMatrix, viewMatrix);
     const cameraData = new Float32Array(20);
     cameraData.set(viewProjectionMatrix, 0);
