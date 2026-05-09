@@ -565,7 +565,8 @@ async function init() {
 
     // Toggle wireframe with W key
     window.addEventListener('keydown', e => {
-        if (e.key.toLowerCase() !== 'w' || e.repeat) return;
+        const isWKey = e.code === 'KeyW' || e.key === 'w' || e.key === 'W';
+        if (!isWKey || e.repeat) return;
         showWireframe = !showWireframe;
         document.getElementById('hint').textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
