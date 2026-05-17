@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGPU + Havok Falling Coins Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/gl-matrix@3.4.4/gl-matrix-min.js"></script>
+    <script src="https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    cameraPos : vec4<f32>,
+    lightDir : vec4<f32>,
+    params0 : vec4<f32>,
+    params1 : vec4<f32>,
+    params2 : vec4<f32>,
+    flags : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) worldPos : vec3<f32>,
+};
+
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>
+) -> VSOut {
+    var out : VSOut;
+    let world = uniforms.model * vec4<f32>(position, 1.0);
+    out.Position = uniforms.viewProj * world;
+    out.normal = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
+    out.uv = uv;
+    out.worldPos = world.xyz;
+    return out;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    baseColor : vec4<f32>,
+    cameraPos : vec4<f32>,
+    lightDir : vec4<f32>,
+    params0 : vec4<f32>,
+    params1 : vec4<f32>,
+    params2 : vec4<f32>,
+    flags : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var samp : sampler;
+@group(0) @binding(2) var tex : texture_2d<f32>;
+@group(0) @binding(3) var envCubeTex : texture_cube<f32>;
+
+fn sq(x: f32) -> f32 {
+    return x * x;
+}
+
+fn saturate(x: f32) -> f32 {
+    return clamp(x, 0.0, 1.0);
+}
+
+fn fresnelSchlick(f0: vec3<f32>, cosTheta: f32) -> vec3<f32> {
+    let c = saturate(cosTheta);
+    return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - c, 5.0);
+}
+
+@fragment
+fn main(
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+    @location(2) worldPos : vec3<f32>
+) -> @location(0) vec4<f32> {
+    let lightDir = normalize(uniforms.lightDir.xyz);
+    let N = normalize(normal);
+    let V = normalize(uniforms.cameraPos.xyz - worldPos);
+    let H = normalize(lightDir + V);
+    let ndotv = max(dot(N, V), 0.0);
+    let ndotl = max(dot(N, lightDir), 0.0);
+    let ndoth = max(dot(N, H), 0.0);
+
+    let envIntensity = uniforms.params1.w;
+    let envExposure = uniforms.params2.x;
+    let envDiffuseStrength = uniforms.params2.y;
+    let metallic = clamp(uniforms.params2.z, 0.0, 1.0);
+    let roughness = clamp(uniforms.params2.w, 0.04, 1.0);
+    let hasEnvCube = uniforms.flags.x > 0.5;
+    let unlitTextureOnly = uniforms.flags.y > 0.5;
+    let bumpStrength = uniforms.flags.z;
+
+    let baseTex = textureSample(tex, samp, uv);
+    let base = uniforms.baseColor * vec4<f32>(mix(vec3<f32>(1.0), baseTex.rgb, bumpStrength), baseTex.a);
+    if (unlitTextureOnly) {
+        return vec4<f32>(base.rgb, base.a);
+    }
+
+    let ior = max(uniforms.params0.x, 1.0);
+    let f0s = sq((ior - 1.0) / (ior + 1.0));
+    let baseF0 = mix(vec3<f32>(f0s), base.rgb, metallic);
+    let specColor = fresnelSchlick(baseF0, ndotv);
+
+    let shininess = mix(256.0, 8.0, roughness * roughness);
+    let specLobe = pow(max(ndoth, 0.0), shininess);
+    let kd = (1.0 - metallic) * (1.0 - max(max(specColor.r, specColor.g), specColor.b));
+    let directDiffuse = base.rgb * (0.15 + 0.85 * ndotl) * kd;
+    let directSpec = specColor * specLobe * mix(0.3, 1.1, metallic);
+
+    var color = directDiffuse + directSpec;
+
+    if (hasEnvCube) {
+        let R = normalize(reflect(-V, N));
+        let blurredR = normalize(mix(R, N, roughness * roughness));
+        let envDiffuse = textureSample(envCubeTex, samp, N).rgb * envExposure;
+        let envSpec = textureSample(envCubeTex, samp, blurredR).rgb * envExposure;
+        color += base.rgb * envDiffuse * ((0.08 + 0.22 * (1.0 - roughness)) * kd * envIntensity * envDiffuseStrength);
+        color += specColor * envSpec * ((0.65 + 0.55 * metallic) * envIntensity);
+    }
+
+    color = color / (color + vec3<f32>(1.0));
+    color = pow(color, vec3<f32>(1.0 / 2.2));
+    return vec4<f32>(color, base.a);
+}
+</script>
+
+<script id="skybox-vs" type="x-shader/x-vertex">
+struct SkyboxUniforms {
+    projection : mat4x4<f32>,
+    viewNoTranslation : mat4x4<f32>,
+    exposure : f32,
+    _pad0 : vec3<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : SkyboxUniforms;
+
+struct VSOut {
+    @builtin(position) Position : vec4<f32>,
+    @location(0) dir : vec3<f32>,
+};
+
+@vertex
+fn main(@location(0) position : vec3<f32>) -> VSOut {
+    var out : VSOut;
+    out.dir = position;
+    let pos = uniforms.projection * uniforms.viewNoTranslation * vec4<f32>(position, 1.0);
+    out.Position = vec4<f32>(pos.xy, pos.w, pos.w);
+    return out;
+}
+</script>
+
+<script id="skybox-fs" type="x-shader/x-fragment">
+struct SkyboxUniforms {
+    projection : mat4x4<f32>,
+    viewNoTranslation : mat4x4<f32>,
+    exposure : f32,
+    _pad0 : vec3<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms : SkyboxUniforms;
+@group(0) @binding(1) var samp : sampler;
+@group(0) @binding(2) var envCubeTex : texture_cube<f32>;
+
+@fragment
+fn main(@location(0) dir : vec3<f32>) -> @location(0) vec4<f32> {
+    var env = textureSample(envCubeTex, samp, normalize(dir)).rgb * uniforms.exposure;
+    env = env / (env + vec3<f32>(1.0));
+    env = pow(env, vec3<f32>(1.0 / 2.2));
+    return vec4<f32>(env, 1.0);
+}
+</script>
+
+<script id="vs-line" type="x-shader/x-vertex">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>
+};
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@vertex
+fn main(@location(0) pos : vec3<f32>) -> @builtin(position) vec4<f32> {
+    return uniforms.viewProj * uniforms.model * vec4<f32>(pos, 1.0);
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">
+struct LineUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>
+};
+@group(0) @binding(0) var<uniform> uniforms : LineUniforms;
+
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return uniforms.color;
+}
+</script>
+
+<canvas id="c"></canvas>
+
+<div id="hint">W: wireframe ON</div>
+<script type="module" src="index.js"></script>
+</body>
+</html>
