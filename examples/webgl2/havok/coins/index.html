@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebGL 2.0 + Havok Falling Coins Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://unpkg.com/gl-matrix@3.4.4/gl-matrix-min.js"></script>
+  <script src="https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics_umd.js"></script>
+</head>
+<body>
+
+<script id="vs" type="x-shader/x-vertex">#version 300 es
+in vec3 aPosition;
+in vec3 aNormal;
+in vec2 aTexCoord;
+uniform mat4 uViewProj;
+uniform mat4 uModel;
+out vec3 vNormal;
+out vec2 vTexCoord;
+out vec3 vWorldPos;
+
+void main() {
+    mat3 normalMatrix = mat3(uModel);
+    vNormal = normalize(normalMatrix * aNormal);
+    vTexCoord = aTexCoord;
+    vec4 world = uModel * vec4(aPosition, 1.0);
+    vWorldPos = world.xyz;
+    gl_Position = uViewProj * world;
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+uniform sampler2D uTexture;
+uniform sampler2D uNormalMap;
+uniform samplerCube uEnvCube;
+uniform vec3 uTint;
+uniform vec3 uLightDir;
+uniform vec3 uCameraPos;
+uniform float uMetallic;
+uniform float uRoughness;
+uniform float uBumpStrength;
+uniform float uNormalMapStrength;
+uniform float uUnlit;
+uniform float uHasEnvCube;
+uniform float uEnvIntensity;
+uniform float uEnvExposure;
+uniform float uEnvDiffuseStrength;
+in vec3 vNormal;
+in vec2 vTexCoord;
+in vec3 vWorldPos;
+out vec4 fragColor;
+
+vec3 perturbNormal(vec3 geomN, vec3 worldPos, vec2 uv, vec3 mapN) {
+    vec3 dp1 = dFdx(worldPos);
+    vec3 dp2 = dFdy(worldPos);
+    vec2 duv1 = dFdx(uv);
+    vec2 duv2 = dFdy(uv);
+    vec3 dp2perp = cross(dp2, geomN);
+    vec3 dp1perp = cross(geomN, dp1);
+    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+    float denom = max(dot(T, T), dot(B, B));
+    if (denom <= 0.0) return geomN;
+    float invmax = inversesqrt(denom);
+    return normalize(T * (invmax * mapN.x) + B * (invmax * mapN.y) + geomN * mapN.z);
+}
+
+void main() {
+    vec4 baseTex = texture(uTexture, vTexCoord);
+    vec3 normalSample = texture(uNormalMap, vTexCoord).rgb;
+    vec3 baseRgb = uTint * mix(vec3(1.0), baseTex.rgb, uBumpStrength);
+
+    if (uUnlit > 0.5) {
+        fragColor = vec4(baseRgb, 1.0);
+        return;
+    }
+
+    vec3 geomN = normalize(vNormal);
+    vec3 mapN = normalize(normalSample * 2.0 - 1.0);
+    vec3 perturbedN = perturbNormal(geomN, vWorldPos, vTexCoord, mapN);
+    vec3 N = normalize(mix(geomN, perturbedN, uNormalMapStrength));
+    vec3 L = normalize(uLightDir);
+    vec3 V = normalize(uCameraPos - vWorldPos);
+    vec3 H = normalize(L + V);
+
+    float ndotl = max(dot(N, L), 0.0);
+    float ndoth = max(dot(N, H), 0.0);
+    float ndotv = max(dot(N, V), 0.0);
+
+    float shininess = mix(256.0, 8.0, uRoughness * uRoughness);
+    float specLobe = pow(ndoth, shininess);
+
+    vec3 f0 = mix(vec3(0.04), baseRgb, uMetallic);
+    float fresnel = pow(1.0 - ndotv, 5.0);
+    vec3 specColor = f0 + (vec3(1.0) - f0) * fresnel;
+    float kd = (1.0 - uMetallic);
+
+    vec3 directDiffuse = baseRgb * (0.15 + 0.85 * ndotl) * kd;
+    vec3 directSpec = specColor * specLobe * mix(0.3, 1.1, uMetallic);
+
+    vec3 color = directDiffuse + directSpec;
+
+    if (uHasEnvCube > 0.5) {
+        vec3 R = normalize(reflect(-V, N));
+        vec3 blurredR = normalize(mix(R, N, uRoughness * uRoughness));
+        vec3 envDiffuse = texture(uEnvCube, N).rgb * uEnvExposure;
+        vec3 envSpec = texture(uEnvCube, blurredR).rgb * uEnvExposure;
+        color += baseRgb * envDiffuse * ((0.08 + 0.22 * (1.0 - uRoughness)) * kd * uEnvIntensity * uEnvDiffuseStrength);
+        color += specColor * envSpec * ((0.65 + 0.55 * uMetallic) * uEnvIntensity);
+    } else {
+        vec3 sky = vec3(0.90, 0.95, 1.00);
+        vec3 ground = vec3(0.35, 0.32, 0.30);
+        vec3 ambientEnv = mix(ground, sky, 0.5 + 0.5 * N.y);
+        color += baseRgb * ambientEnv * (0.45 + 0.55 * fresnel) * uMetallic;
+        color += baseRgb * ambientEnv * kd * 0.35;
+    }
+
+    color = color / (color + vec3(1.0));
+    color = pow(color, vec3(1.0 / 2.2));
+    fragColor = vec4(color, 1.0);
+}
+</script>
+
+<script id="vs-sky" type="x-shader/x-vertex">#version 300 es
+in vec3 aPosition;
+uniform mat4 uProjection;
+uniform mat4 uViewNoTranslation;
+out vec3 vDir;
+void main() {
+    vDir = aPosition;
+    vec4 pos = uProjection * uViewNoTranslation * vec4(aPosition, 1.0);
+    gl_Position = vec4(pos.xy, pos.w, pos.w);
+}
+</script>
+
+<script id="fs-sky" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+uniform samplerCube uEnvCube;
+uniform float uExposure;
+in vec3 vDir;
+out vec4 fragColor;
+void main() {
+    vec3 env = texture(uEnvCube, normalize(vDir)).rgb * uExposure;
+    env = env / (env + vec3(1.0));
+    env = pow(env, vec3(1.0 / 2.2));
+    fragColor = vec4(env, 1.0);
+}
+</script>
+
+<script id="vs-line" type="x-shader/x-vertex">#version 300 es
+in vec3 aPosition;
+uniform mat4 uViewProj;
+uniform mat4 uModel;
+void main() {
+    gl_Position = uViewProj * uModel * vec4(aPosition, 1.0);
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">#version 300 es
+precision mediump float;
+uniform vec4 uColor;
+out vec4 outColor;
+void main() {
+    outColor = uColor;
+}
+</script>
+
+<canvas id="c"></canvas>
+
+<div id="hint">W: wireframe ON</div>
+<script type="module" src="index.js"></script>
+</body>
+</html>
