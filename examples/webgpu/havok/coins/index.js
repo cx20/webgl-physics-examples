@@ -3,20 +3,19 @@ const { mat4, vec3, quat } = glMatrix;
 
 const DUCK_GLTF_URL = 'https://cx20.github.io/gltf-test/sampleModels/Duck/glTF/Duck.gltf';
 const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
-const GROUND_TEXTURE_FILE = '../../../../assets/textures/floor_bump.png';
-const TEXTURE_FLOOR = '../../../../assets/textures/floor_bump.png';
-const TEXTURE_ROCK = '../../../../assets/textures/rockn.png';
+const GROUND_TEXTURE_FILE = '../../../../assets/textures/grass.jpg';
+const COIN_NORMAL_TEXTURE_FILE = '../../../../assets/textures/rockn.png';
 
 const PHYSICS_SCALE = 0.1;
 const COIN_INTERVAL = 6;
-const MAX_COINS = 600;
+const MAX_COINS = 6000;
 const GROUND_Y = -10;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 
 const COIN_TYPES = {
-    GOLD:   { color: [1.000, 0.766, 0.336, 1], texture: TEXTURE_FLOOR, height: 0.10,  diameter: 1.0, metallic: 1.0, roughness: 0.20 },
-    SILVER: { color: [0.972, 0.960, 0.915, 1], texture: TEXTURE_ROCK,  height: 0.075, diameter: 0.8, metallic: 1.0, roughness: 0.40 },
-    COPPER: { color: [0.955, 0.637, 0.538, 1], texture: TEXTURE_ROCK,  height: 0.05,  diameter: 0.6, metallic: 1.0, roughness: 0.20 },
+    GOLD:   { color: [1.000, 0.766, 0.336, 1], height: 0.10,  diameter: 1.0, metallic: 1.0, roughness: 0.20 },
+    SILVER: { color: [0.972, 0.960, 0.915, 1], height: 0.075, diameter: 0.8, metallic: 1.0, roughness: 0.40 },
+    COPPER: { color: [0.955, 0.637, 0.538, 1], height: 0.05,  diameter: 0.6, metallic: 1.0, roughness: 0.20 },
 };
 const COIN_TYPE_NAMES = ['GOLD', 'SILVER', 'COPPER'];
 
@@ -50,7 +49,9 @@ let groundTextureView;
 let cylinderMesh;
 let sphereWireMesh;
 let boxWireMesh;
-const coinTextureViews = {};
+let whiteTextureView;
+let flatNormalTextureView;
+let coinNormalTextureView;
 
 let linePipeline;
 let showWireframe = true;
@@ -427,7 +428,7 @@ async function loadHDRAsCubeTextureView(url, size = 192) {
     return texture.createView({ dimension: 'cube' });
 }
 
-function createRenderItem(textureView, envCubeView) {
+function createRenderItem(textureView, envCubeView, normalTextureView) {
     const uniformBuffer = device.createBuffer({
         size: UNIFORM_BUFFER_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -438,7 +439,8 @@ function createRenderItem(textureView, envCubeView) {
             { binding: 0, resource: { buffer: uniformBuffer } },
             { binding: 1, resource: sampler },
             { binding: 2, resource: textureView },
-            { binding: 3, resource: envCubeView }
+            { binding: 3, resource: envCubeView },
+            { binding: 4, resource: normalTextureView }
         ]
     });
     return { uniformBuffer, bindGroup };
@@ -460,7 +462,7 @@ function writeUniforms(renderItem, modelMatrix, baseColor, cameraPos, materialPa
     buf[56] = materialParams.hasEnvCube;
     buf[57] = materialParams.unlitTextureOnly;
     buf[58] = materialParams.bumpStrength;
-    buf[59] = 0.0;
+    buf[59] = materialParams.normalMapStrength;
     device.queue.writeBuffer(renderItem.uniformBuffer, 0, buf.buffer, buf.byteOffset, buf.byteLength);
 }
 
@@ -646,8 +648,9 @@ function initPhysics(coinPositions) {
         );
 
         const renderItem = createRenderItem(
-            coinTextureViews[typeName],
-            envCubeTextureView || blackCubeTextureView
+            whiteTextureView,
+            envCubeTextureView || blackCubeTextureView,
+            coinNormalTextureView
         );
 
         coins.push({
@@ -810,6 +813,7 @@ function render(timeMs) {
         hasEnvCube: 0.0,
         unlitTextureOnly: 1.0,
         bumpStrength: 1.0,
+        normalMapStrength: 0.0,
     });
     drawGround(pass, groundRenderItem.bindGroup);
 
@@ -832,7 +836,7 @@ function render(timeMs) {
 
         quat.set(tmpQuat, q[0], q[1], q[2], q[3]);
         mat4.fromRotationTranslation(tmpModel, tmpQuat, p);
-        mat4.scale(tmpModel, tmpModel, [coin.params.diameter, coin.params.height, coin.params.diameter]);
+        mat4.scale(tmpModel, tmpModel, [coin.radius, coin.params.height, coin.radius]);
 
         writeUniforms(coin.renderItem, tmpModel, coin.params.color, eye, {
             ior: 1.5,
@@ -843,7 +847,8 @@ function render(timeMs) {
             roughness: coin.params.roughness,
             hasEnvCube: envCubeTextureView ? 1.0 : 0.0,
             unlitTextureOnly: 0.0,
-            bumpStrength: 0.55,
+            bumpStrength: 0.0,
+            normalMapStrength: 1.0,
         });
         drawCylinder(pass, coin.renderItem.bindGroup);
 
@@ -921,6 +926,8 @@ async function main() {
     });
 
     blackCubeTextureView = createSolidCubeTextureView(0, 0, 0, 255);
+    whiteTextureView = createSolidTextureView(255, 255, 255, 255);
+    flatNormalTextureView = createSolidTextureView(128, 128, 255, 255);
     try {
         envCubeTextureView = await loadHDRAsCubeTextureView(ENV_HDR_URL, 192);
     } catch (e) {
@@ -928,9 +935,7 @@ async function main() {
         envCubeTextureView = null;
     }
     groundTextureView = await loadTextureView(GROUND_TEXTURE_FILE);
-    coinTextureViews.GOLD   = await loadTextureView(COIN_TYPES.GOLD.texture);
-    coinTextureViews.SILVER = await loadTextureView(COIN_TYPES.SILVER.texture);
-    coinTextureViews.COPPER = coinTextureViews.SILVER;
+    coinNormalTextureView = await loadTextureView(COIN_NORMAL_TEXTURE_FILE);
 
     const skyboxVs = device.createShaderModule({ code: document.getElementById('skybox-vs').textContent });
     const skyboxFs = device.createShaderModule({ code: document.getElementById('skybox-fs').textContent });
@@ -997,7 +1002,8 @@ async function main() {
     groundMesh = createGroundMesh();
     groundRenderItem = createRenderItem(
         groundTextureView,
-        envCubeTextureView || blackCubeTextureView
+        envCubeTextureView || blackCubeTextureView,
+        flatNormalTextureView
     );
 
     const coinPositions = await loadDuckCoinPositions();
