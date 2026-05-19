@@ -254,6 +254,14 @@ Havok versions (WebGL 1.0 / WebGL 2.0 / WebGPU) include tuned shogi collider siz
 |[PlayCanvas](https://github.com/playcanvas/engine)           |                                                                                        |                                                                                                                                                                                    |                                                                                              |                                                                                                                                                                                       |                                                                                          |
 |[three.js](https://github.com/mrdoob/three.js/)              |                                                                                        |                                                                                                                                                                                    |[Link](https://cx20.github.io/webgl-physics-examples/examples/threejs/havok/gltf_physics_JointTypes/) |                                                                                                                                                                                       |                                                                                          |
 
+## glTF Physics Exporter example
+
+Exports a Havok physics scene (floor + falling cube) as a `.glb` with [`KHR_physics_rigid_bodies`](https://github.com/eoineoineoin/glTF_Physics) and `KHR_implicit_shapes` extensions. The output round-trips through the loader used by the `gltf_physics_*` examples above.
+
+|Library                                                      |[Havok](https://doc.babylonjs.com/features/featuresDeepDive/physics)                                          |
+|:------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------|
+|[Babylon.js](https://github.com/BabylonJS/Babylon.js)        |[Link](https://cx20.github.io/webgl-physics-examples/examples/babylonjs/havok/gltf_physics_Exporter/)         |
+
 ## Physics Library Unit Systems
 
 All physics libraries used in this project adopt the **SI (International System of Units)**: meters (m), kilograms (kg), seconds (s), and newtons (N).  
