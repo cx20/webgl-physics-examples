@@ -1,0 +1,55 @@
+* {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  background: #fff;
+  font: 30px sans-serif;
+}
+
+#ui {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  font: 14px sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#exportBtn {
+  width: auto;
+  height: auto;
+  padding: 8px 14px;
+  border: 1px solid #888;
+  background: #f7f7f7;
+  color: #222;
+  font: 14px sans-serif;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: visible;
+}
+
+#exportBtn:hover {
+  background: #eaeaea;
+}
+
+#exportBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#status {
+  width: auto;
+  height: auto;
+  overflow: visible;
+  color: #444;
+}
