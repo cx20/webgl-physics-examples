@@ -14,6 +14,7 @@ let duckExpression, duckRenderPass;
 let groundEntity, wireEntity;
 let expression;
 let started = false;
+let showWireframe = true;
 
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
@@ -188,5 +189,26 @@ const load = async function() {
   };
   draw();
 };
+
+
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  if (wireEntity) {
+    wireEntity.getSceneGraph().isVisible = visible;
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) {
+    return;
+  }
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
 
 document.body.onload = load;
