@@ -14,6 +14,7 @@ let HK, worldId;
 let scene, camera, renderer, controls;
 let duck, wireframeCube;
 let duckBodyId;
+let showWireframe = true;
 
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
@@ -157,4 +158,26 @@ async function main() {
   loadDuck();
 }
 
-main().catch(console.error);
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  if (wireframeCube) {
+    wireframeCube.visible = visible;
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) {
+    return;
+  }
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
+
+main()
+  .then(() => setWireframeVisible(showWireframe))
+  .catch(console.error);
