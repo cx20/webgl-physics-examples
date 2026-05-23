@@ -491,6 +491,8 @@ function computeWorldBounds(root) {
     return { center, radius: Math.max(Math.sqrt(dx*dx+dy*dy+dz*dz)*0.5, 6) };
 }
 
+let showWireframe = true;
+
 function init() {
     const canvas = document.getElementById('c');
     const app = new pc.Application(canvas);
@@ -498,6 +500,13 @@ function init() {
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     window.addEventListener('resize', () => app.resizeCanvas(canvas.width, canvas.height));
+    window.addEventListener('keydown', event => {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
 
     app.scene.ambientLight = new pc.Color(0.68, 0.7, 0.76);
     const light = new pc.Entity('light');
@@ -547,8 +556,10 @@ function init() {
             );
             camera.lookAt(center);
 
-            drawPhysicsDebug(app, debugEntities);
-            drawMeshStaticDebug(app, meshStaticEntities);
+            if (showWireframe) {
+                drawPhysicsDebug(app, debugEntities);
+                drawMeshStaticDebug(app, meshStaticEntities);
+            }
 
             for (const body of dynamicBodies) {
                 if (body.entity.getPosition().y >= RESET_Y_THRESHOLD) continue;
