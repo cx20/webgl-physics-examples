@@ -3,12 +3,17 @@ let engine;
 let scene;
 let canvas;
 const PHYSICS_SCALE = 1/100;
+let showWireframe = true;
+let physicsViewer = null;
+const trackedBodies = [];
+const trackedImpostors = [];
+
 function setupPhysicsDebugWireframe(scene) {
     if (!BABYLON.Debug || !BABYLON.Debug.PhysicsViewer) {
         return;
     }
 
-    const physicsViewer = new BABYLON.Debug.PhysicsViewer(scene);
+    physicsViewer = new BABYLON.Debug.PhysicsViewer(scene);
     const seenImpostors = new WeakSet();
     const seenBodies = new WeakSet();
 
@@ -19,17 +24,60 @@ function setupPhysicsDebugWireframe(scene) {
             }
 
             if (mesh.physicsImpostor && !seenImpostors.has(mesh.physicsImpostor) && physicsViewer.showImpostor) {
-                physicsViewer.showImpostor(mesh.physicsImpostor, mesh);
                 seenImpostors.add(mesh.physicsImpostor);
+                trackedImpostors.push({ impostor: mesh.physicsImpostor, mesh: mesh });
+                if (showWireframe) {
+                    physicsViewer.showImpostor(mesh.physicsImpostor, mesh);
+                }
             }
 
             if (mesh.physicsBody && !seenBodies.has(mesh.physicsBody) && physicsViewer.showBody) {
-                physicsViewer.showBody(mesh.physicsBody);
                 seenBodies.add(mesh.physicsBody);
+                trackedBodies.push(mesh.physicsBody);
+                if (showWireframe) {
+                    physicsViewer.showBody(mesh.physicsBody);
+                }
             }
         });
     });
 }
+
+function setWireframeVisible(visible) {
+    if (showWireframe === visible) {
+        return;
+    }
+    showWireframe = visible;
+    if (physicsViewer) {
+        if (visible) {
+            for (const body of trackedBodies) {
+                physicsViewer.showBody(body);
+            }
+            for (const entry of trackedImpostors) {
+                physicsViewer.showImpostor(entry.impostor, entry.mesh);
+            }
+        } else {
+            for (const body of trackedBodies) {
+                physicsViewer.hideBody(body);
+            }
+            for (const entry of trackedImpostors) {
+                physicsViewer.hideImpostor(entry.impostor);
+            }
+        }
+    }
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', function (e) {
+    if (e.repeat) {
+        return;
+    }
+    if (e.code === 'KeyW' || e.key === 'w' || e.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
 async function init() {
 
     canvas = document.querySelector("#c");
