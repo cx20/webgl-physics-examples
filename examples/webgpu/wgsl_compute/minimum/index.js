@@ -1,4 +1,5 @@
 const computeShaderWGSL = document.getElementById('cs').textContent;
+let showWireframe = true;
 const vertexShaderWGSL  = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
 
@@ -189,6 +190,7 @@ function frame(timeMs) {
         pass.setBindGroup(0, cubeBindGroup);
         pass.drawIndexed(indexCount);
 
+        if (showWireframe) {
         pass.setPipeline(linePipeline);
         pass.setVertexBuffer(0, debugBoxVertexBuffer);
         pass.setIndexBuffer(debugBoxIndexBuffer, 'uint16');
@@ -197,6 +199,7 @@ function frame(timeMs) {
         pass.setBindGroup(0, lineBindGroup, [1 * LINE_ALIGN]);
         pass.drawIndexed(debugBoxIndexCount);
 
+        }
         pass.end();
     }
 
@@ -346,3 +349,12 @@ async function init() {
 }
 
 init().catch(err => console.error(err));
+
+
+window.addEventListener('keydown', event => {
+    const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+    if (!isWKey || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});

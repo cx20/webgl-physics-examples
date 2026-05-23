@@ -1,4 +1,5 @@
 // WebGPU + Oimo.js Domino Example
+let showWireframe = true;
 // forked from gaziya's "Domino (WebGL2 + Oimo.js)" http://jsdo.it/gaziya/46vq
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
@@ -396,6 +397,7 @@ function render() {
         lineUniformData[base+32]=1; lineUniformData[base+33]=1; lineUniformData[base+34]=0; lineUniformData[base+35]=1;
     }
     device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+    if (showWireframe) {
     passEncoder.setPipeline(linePipeline);
     passEncoder.setVertexBuffer(0, lineVtxBuf);
     passEncoder.setIndexBuffer(lineIdxBuf, 'uint16');
@@ -404,9 +406,19 @@ function render() {
         passEncoder.drawIndexed(24);
     }
 
+    }
     passEncoder.end();
     device.queue.submit([commandEncoder.finish()]);
     requestAnimationFrame(render);
 }
 
 init();
+
+
+window.addEventListener('keydown', event => {
+    const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+    if (!isWKey || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});

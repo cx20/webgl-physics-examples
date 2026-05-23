@@ -1,4 +1,5 @@
 const vertexShaderWGSL = document.getElementById('vs').textContent;
+let showWireframe = true;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
 
 let canvas;
@@ -465,6 +466,7 @@ async function render() {
         lineUniformData.set(lineVP, s1); lineUniformData.set(bm, s1 + 16);
         lineUniformData[s1+32] = 1; lineUniformData[s1+33] = 1; lineUniformData[s1+34] = 0; lineUniformData[s1+35] = 1;
         device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+        if (showWireframe) {
         passEncoder.setPipeline(linePipeline);
         passEncoder.setVertexBuffer(0, lineVtxBuf);
         passEncoder.setIndexBuffer(lineIdxBuf, 'uint16');
@@ -473,6 +475,7 @@ async function render() {
         passEncoder.setBindGroup(0, lineBG, [LINE_ALIGN]);
         passEncoder.drawIndexed(24);
 
+        }
         passEncoder.end();
         device.queue.submit([commandEncoder.finish()]);
     }
@@ -481,3 +484,11 @@ async function render() {
 }
 
 init();
+
+window.addEventListener('keydown', event => {
+    const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+    if (!isWKey || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+});
