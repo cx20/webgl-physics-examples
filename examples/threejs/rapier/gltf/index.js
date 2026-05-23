@@ -6,6 +6,7 @@ import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 let world, body;
 let camera, scene, renderer, duck, plane;
 let wireframeCube;
+let showWireframe = true;
 let controls;
 
 const cubeSizeX = 16 / 16 * 5;
@@ -134,3 +135,23 @@ init();
 document.addEventListener('click', function() {
     body.setLinvel({ x: 0, y: 5, z: 0 }, true);
 }, false);
+
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    if (wireframeCube) {
+        wireframeCube.visible = visible;
+    }
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', function (event) {
+    if (event.repeat) {
+        return;
+    }
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});

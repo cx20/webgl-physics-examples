@@ -8,6 +8,7 @@ let camera, scene, renderer, duck, plane,
     cubeSize = 1;
 
 let wireframeCube;
+let showWireframe = true;
 let controls;
 
 let cubeSizeX = 16/16*5;
@@ -187,3 +188,23 @@ initThree();
 document.addEventListener('click', function() {
     body.setLinearVelocity(new OIMO.Vec3(0, 5, 0));
 }, false);
+
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    if (wireframeCube) {
+        wireframeCube.visible = visible;
+    }
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', function (event) {
+    if (event.repeat) {
+        return;
+    }
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
