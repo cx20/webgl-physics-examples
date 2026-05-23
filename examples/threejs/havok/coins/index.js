@@ -31,7 +31,7 @@ const coinInstancedMeshes = {};
 const coinDebugInstancedMeshes = {};
 let groundDebugMesh;
 const coins = [];
-let showWireframe = false;
+let showWireframe = true;
 
 const tmpMatrix = new THREE.Matrix4();
 const tmpPosition = new THREE.Vector3();

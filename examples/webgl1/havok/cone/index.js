@@ -12,7 +12,7 @@ let canvas;
 let gl;
 let program;
 let lineProgram;
-let showWireframe = false;
+let showWireframe = true;
 let attribs;
 let uniforms;
 let lineAttribs;

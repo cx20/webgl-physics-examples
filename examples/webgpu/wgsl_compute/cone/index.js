@@ -30,7 +30,7 @@ let computeBindGroups = [];
 let wireBindGroups = [];
 let currentState = 0;
 let lastTime = -1;
-let showWireframe = false;
+let showWireframe = true;
 
 const projectionMatrix = new Float32Array(16);
 const viewMatrix = new Float32Array(16);

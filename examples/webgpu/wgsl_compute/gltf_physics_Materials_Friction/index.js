@@ -208,7 +208,7 @@ let floorRenderUBO, floorRenderBG;
 let floorWireUBO, floorWireBG;
 
 let computePipeline;
-let showWireframe = false;
+let showWireframe = true;
 let renderModel = null;
 
 // Camera: match the WebGPU + Havok sample framing.

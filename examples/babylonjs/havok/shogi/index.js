@@ -8,7 +8,7 @@ const PIECE_COUNT = 220;
 const BOX_HALF_EXTENT = 5 * PHYSICS_SCALE;
 const SPAWN_MARGIN = 0.6 * PHYSICS_SCALE;
 
-let showWireframe = false;
+let showWireframe = true;
 let physicsViewer = null;
 const trackedBodies = [];
 const trackedImpostors = [];

@@ -7,6 +7,7 @@ const CONE_COUNT = 200;
 const CONE_HALF_HEIGHT = 2;
 const CONE_RADIUS = 1;
 const SHOW_DEBUG_COLLIDERS = true;
+let showWireframe = true;
 
 let HK, worldId;
 let scene, camera, renderer, controls;
@@ -251,4 +252,28 @@ async function main() {
   loop();
 }
 
-main().catch(console.error);
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  scene.traverse((object) => {
+    if (object.isLineSegments) {
+      object.visible = visible;
+    }
+  });
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) {
+    return;
+  }
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
+
+main()
+  .then(() => setWireframeVisible(showWireframe))
+  .catch(console.error);

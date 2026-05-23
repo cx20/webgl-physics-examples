@@ -58,7 +58,7 @@ gl.clearColor(0.05, 0.05, 0.1, 1.0);
 gl.enable(gl.DEPTH_TEST);
 let dominoIBO, dominoPosVBO;
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
-let showWireframe = false;
+let showWireframe = true;
 let boxWireVB, boxWireIB;
 let lineVP = mat4.create();
 const BOX_WIRE_VERTS = new Float32Array([

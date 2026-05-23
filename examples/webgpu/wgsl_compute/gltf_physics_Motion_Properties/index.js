@@ -36,7 +36,7 @@ let meshWireItems = [];
 let bodyRecords = [];
 let staticTriangleCount = 0;
 let staticCeilingY = 100000;
-let showWireframe = false;
+let showWireframe = true;
 let lastTime = -1;
 
 const projectionMatrix = new Float32Array(16);
