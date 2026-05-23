@@ -1,4 +1,5 @@
 const { mat4, vec3, quat } = glMatrix;
+let showWireframe = true;
 
 const CONE_COUNT = 160;
 const BASKET_HALF = 3.0;
@@ -388,6 +389,7 @@ function render(timeMs) {
     }
 
     device.queue.writeBuffer(lineUniformBuf, 0, lineUniformData);
+    if (showWireframe) {
     pass.setPipeline(linePipeline);
     pass.setVertexBuffer(0, lineVtxBuf);
     pass.setIndexBuffer(lineIdxBuf, 'uint16');
@@ -402,6 +404,7 @@ function render(timeMs) {
         pass.drawIndexed(cylWireCount);
     }
 
+    }
     pass.end();
     device.queue.submit([encoder.finish()]);
 
@@ -508,4 +511,13 @@ async function main() {
 
 main().catch((err) => {
     console.error(err);
+});
+
+
+window.addEventListener('keydown', event => {
+    const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+    if (!isWKey || event.repeat) return;
+    showWireframe = !showWireframe;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
 });
