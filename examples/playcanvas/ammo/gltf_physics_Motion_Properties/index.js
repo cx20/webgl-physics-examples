@@ -533,6 +533,8 @@ function drawPhysicsDebug(app, entities) {
     }
 }
 
+let showWireframe = true;
+
 function init() {
     const canvas = document.getElementById('c');
     const app = new pc.Application(canvas, {
@@ -547,6 +549,13 @@ function init() {
     app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     window.addEventListener('resize', () => app.resizeCanvas(canvas.width, canvas.height));
+    window.addEventListener('keydown', event => {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
 
     app.scene.toneMapping   = pc.TONEMAP_ACES;
     app.scene.exposure      = 0.8;
@@ -615,8 +624,10 @@ function init() {
         let gravityApplied = false;
 
         app.on('update', dt => {
-            drawPhysicsDebug(app, debugEntities);
-            drawMeshStaticDebug(app, meshStaticEntities);
+            if (showWireframe) {
+                drawPhysicsDebug(app, debugEntities);
+                drawMeshStaticDebug(app, meshStaticEntities);
+            }
 
             // Sync manual Ammo dynamic bodies to PlayCanvas entities + draw debug AABB.
             for (const mb of manualDynamicBodies) {
