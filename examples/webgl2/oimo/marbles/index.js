@@ -21,7 +21,7 @@ let world;
 const marbles = [];
 
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
-let showWireframe = false;
+let showWireframe = true;
 let boxWireVB, boxWireIB;
 let sphWireVB, sphWireIB, sphWireCount;
 const BOX_WIRE_VERTS = new Float32Array([

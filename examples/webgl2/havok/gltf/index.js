@@ -14,7 +14,7 @@ let attribs;
 let uniforms;
 
 let lineProgram;
-let showWireframe = false;
+let showWireframe = true;
 let lineAttribs;
 let lineUniforms;
 

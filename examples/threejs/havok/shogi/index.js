@@ -11,7 +11,7 @@ const meshes = [];
 const bodyIds = [];
 const debugMeshes = [];
 const staticDebugMeshes = [];
-let showWireframe = false;
+let showWireframe = true;
 
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);

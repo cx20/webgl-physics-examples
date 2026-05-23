@@ -52,7 +52,7 @@ let uniformLightDir;
 let uniformAlpha;
 
 let lineProgram;
-let showWireframe = false;
+let showWireframe = true;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;

@@ -12,7 +12,7 @@ let format;
 
 let trianglePipeline;
 let linePipeline;
-let showWireframe = false;
+let showWireframe = true;
 let textureSampler;
 let depthTexture;
 let whiteTextureView;

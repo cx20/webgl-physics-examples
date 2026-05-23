@@ -90,7 +90,7 @@ const modelViewMatrix = mat4.create();
 const viewProjMatrix = mat4.create();
 
 let lineProgram;
-let showWireframe = false;
+let showWireframe = true;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;

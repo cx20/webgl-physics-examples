@@ -6,7 +6,7 @@ gl.clearColor(0.7, 0.7, 0.7, 1.0);
 gl.enable(gl.DEPTH_TEST);
 let eraserIBO, eraserPosVBO;
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
-let showWireframe = false;
+let showWireframe = true;
 let boxWireVB, boxWireIB;
 let lineVP = mat4.create();
 const BOX_WIRE_VERTS = new Float32Array([

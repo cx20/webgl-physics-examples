@@ -1,4 +1,4 @@
-let showWireframe = false;
+let showWireframe = true;
 const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/HavokPhysics.wasm';
 let c = document.getElementById("c");
 let gl = c.getContext("webgl2");

@@ -26,7 +26,7 @@ let view = mat4.create();
 let model = mat4.create();
 
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
-let showWireframe = false;
+let showWireframe = true;
 let boxWireVB, boxWireIB;
 let cylWireVB, cylWireIB, cylWireCount;
 const BOX_WIRE_VERTS = new Float32Array([

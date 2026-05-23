@@ -7,6 +7,7 @@ const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/m
 const FIXED_TIMESTEP = 1 / 60;
 const RESET_Y_THRESHOLD = -20;
 const SHOW_DEBUG_COLLIDERS = true;
+let showWireframe = true;
 // cannon-es approximates the friction force as (mu * gravity) instead of scaling it by the
 // actual contact normal force, so it grips far harder than real Coulomb friction on a slope
 // (anything above ~0.005 effective friction sticks here). Scale the glTF friction values down
@@ -342,6 +343,30 @@ async function main() {
   animate();
 }
 
-main().catch((error) => {
-  console.error(error);
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  scene.traverse((object) => {
+    if (object.isLineSegments) {
+      object.visible = visible;
+    }
+  });
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) {
+    return;
+  }
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
 });
+
+main()
+  .then(() => setWireframeVisible(showWireframe))
+  .catch((error) => {
+    console.error(error);
+  });

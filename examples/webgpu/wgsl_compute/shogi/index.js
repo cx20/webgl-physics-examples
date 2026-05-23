@@ -260,7 +260,7 @@ let uniformBuffer, renderBindGroupA, renderBindGroupB, pipeline;
 let groundPipeline, groundVBuffer, groundIBuffer, groundMVPBuffer, groundBindGroup, groundICount;
 let wirePipeline, wireVBuffer, wireIBuffer, wireICount;
 let wireBindGroupA, wireBindGroupB;
-let showWireframe = false;
+let showWireframe = true;
 let srcBuffer, dstBuffer;
 let computePipeline, computeBindGroupA, computeBindGroupB;
 let simParamsBuffer;

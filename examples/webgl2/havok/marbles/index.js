@@ -33,7 +33,7 @@ let groundTexture;
 let envCubeTexture = null;
 
 let lineProgram;
-let showWireframe = false;
+let showWireframe = true;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;

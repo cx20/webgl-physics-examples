@@ -58,7 +58,7 @@ gl.enable(gl.DEPTH_TEST);
 gl.depthFunc(gl.LEQUAL);
 
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
-let showWireframe = false;
+let showWireframe = true;
 let boxWireVB, boxWireIB;
 let dominoPosVBO;
 let lineVP = mat4.create();

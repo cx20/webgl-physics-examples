@@ -46,7 +46,7 @@ let groundTexture;
 let whiteTexture;
 
 let lineProgram;
-let showWireframe = false;
+let showWireframe = true;
 let lineAttribs;
 let lineUniforms;
 let debugBoxMesh;

@@ -25,7 +25,7 @@ function resizeCanvas() {
 }
 
 let lineProgram, linePosLoc, lineVPLoc, lineModelLoc, lineColorLoc;
-let showWireframe = false;
+let showWireframe = true;
 let boxWireVB, boxWireIB;
 let lineVP = mat4.create();
 const BOX_WIRE_VERTS = new Float32Array([

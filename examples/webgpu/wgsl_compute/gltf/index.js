@@ -26,7 +26,7 @@ let duckModel, groundMesh, wireMesh;
 let stateBuffer, simParamsBuffer, groundUniformBuffer, groundBindGroup, wireUniformBuffer, wireBindGroup;
 let computeBindGroup;
 let renderBindGroups = new Map();
-let showWireframe = false;
+let showWireframe = true;
 let lastTime = -1;
 let duckHalfExtents = [1, 1, 1];
 let duckCenter = [0, 0, 0];
