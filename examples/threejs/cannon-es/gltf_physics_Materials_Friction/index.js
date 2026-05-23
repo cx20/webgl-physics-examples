@@ -6,6 +6,13 @@ import * as CANNON from 'cannon';
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Friction/Materials_Friction.glb';
 const FIXED_TIMESTEP = 1 / 60;
 const RESET_Y_THRESHOLD = -20;
+const SHOW_DEBUG_COLLIDERS = true;
+// cannon-es approximates the friction force as (mu * gravity) instead of scaling it by the
+// actual contact normal force, so it grips far harder than real Coulomb friction on a slope
+// (anything above ~0.005 effective friction sticks here). Scale the glTF friction values down
+// so the relative difference still drives the motion like the Havok sample: low-friction soap
+// slides off, high-friction honey only creeps a little before settling.
+const FRICTION_SCALE = 0.005;
 
 let camera;
 let scene;
@@ -116,12 +123,24 @@ function setObjectWorldTransform(object, worldPosition, worldQuaternion) {
   object.quaternion.copy(tmpParentQuaternion.clone().invert().multiply(worldQuaternion));
 }
 
+function createDebugMesh(halfExtents, isDynamic) {
+  const color = isDynamic ? 0xff8844 : 0x44ee88;
+  const geometry = new THREE.EdgesGeometry(
+    new THREE.BoxGeometry(halfExtents[0] * 2, halfExtents[1] * 2, halfExtents[2] * 2)
+  );
+  const mesh = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color }));
+  scene.add(mesh);
+  return mesh;
+}
+
 function addContactMaterialForPair(dynamicEntry, staticEntry) {
+  // Mirror Havok's MAXIMUM friction combine (the slope's friction is 0, so the moving body's
+  // value wins), then apply FRICTION_SCALE to counter cannon-es over-gripping on the slope.
   world.addContactMaterial(new CANNON.ContactMaterial(
     dynamicEntry.material,
     staticEntry.material,
     {
-      friction: dynamicEntry.friction,
+      friction: Math.max(dynamicEntry.friction, staticEntry.friction) * FRICTION_SCALE,
       restitution: Math.max(dynamicEntry.restitution, staticEntry.restitution)
     }
   ));
@@ -212,11 +231,11 @@ async function loadModelAndBuildPhysics() {
 
     const friction = materialDef?.dynamicFriction !== undefined ? materialDef.dynamicFriction : 0.5;
     const restitution = materialDef?.restitution !== undefined ? materialDef.restitution : 0.0;
-    const effectiveFriction = !motion && friction === 0 ? 1 : friction;
 
+    // Leave the material's own friction/restitution unset (-1). If both contacting materials
+    // define a friction value, cannon-es ignores the per-pair ContactMaterial and multiplies
+    // the two material values instead, which is what kept these bodies stuck on the slope.
     const material = new CANNON.Material('node_' + nodeIndex);
-    material.friction = effectiveFriction;
-    material.restitution = restitution;
 
     const body = new CANNON.Body({
       mass: motion ? (motion.mass !== undefined ? motion.mass : 1) : 0,
@@ -230,7 +249,7 @@ async function loadModelAndBuildPhysics() {
 
     const materialEntry = {
       material,
-      friction: motion ? friction : effectiveFriction,
+      friction,
       restitution
     };
     registerBodyMaterialPair(materialEntry, !!motion);
@@ -239,7 +258,8 @@ async function loadModelAndBuildPhysics() {
       object,
       body,
       initialPosition: new CANNON.Vec3(tmpWorldPosition.x, tmpWorldPosition.y, tmpWorldPosition.z),
-      initialQuaternion: new CANNON.Quaternion(tmpWorldQuaternion.x, tmpWorldQuaternion.y, tmpWorldQuaternion.z, tmpWorldQuaternion.w)
+      initialQuaternion: new CANNON.Quaternion(tmpWorldQuaternion.x, tmpWorldQuaternion.y, tmpWorldQuaternion.z, tmpWorldQuaternion.w),
+      debugMesh: SHOW_DEBUG_COLLIDERS ? createDebugMesh(halfExtents, !!motion) : null
     };
 
     physicsNodes.push(node);
@@ -256,6 +276,16 @@ function updatePhysicsTransforms() {
     tmpWorldPosition.set(node.body.position.x, node.body.position.y, node.body.position.z);
     tmpWorldQuaternion.set(node.body.quaternion.x, node.body.quaternion.y, node.body.quaternion.z, node.body.quaternion.w);
     setObjectWorldTransform(node.object, tmpWorldPosition, tmpWorldQuaternion);
+  }
+}
+
+function updateDebugMeshes() {
+  for (const node of physicsNodes) {
+    if (!node.debugMesh) {
+      continue;
+    }
+    node.debugMesh.position.set(node.body.position.x, node.body.position.y, node.body.position.z);
+    node.debugMesh.quaternion.set(node.body.quaternion.x, node.body.quaternion.y, node.body.quaternion.z, node.body.quaternion.w);
   }
 }
 
@@ -298,6 +328,10 @@ async function main() {
       resetDynamicBodiesIfNeeded();
       updatePhysicsTransforms();
       accumulator -= FIXED_TIMESTEP;
+    }
+
+    if (SHOW_DEBUG_COLLIDERS) {
+      updateDebugMeshes();
     }
 
     controls.update();
