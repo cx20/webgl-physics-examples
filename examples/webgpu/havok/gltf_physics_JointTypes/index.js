@@ -1000,7 +1000,12 @@ function setupJoint(jointNodeIndex, parentBodyId, connectedBodyId, jointDef, ena
     if (typeof HK.HP_Constraint_Create !== 'function') return;
 
     const created = HK.HP_Constraint_Create();
-    if (!created || created[0] !== HK.Result.RESULT_OK) return;
+    if (!created) return;
+    // HK.Result.RESULT_OK is an enum object; compare numerically (a strict !== always fails and
+    // would wrongly abort every joint, leaving all bodies unconstrained).
+    const rc = enumToNumber(created[0]);
+    const ok = enumToNumber(HK.Result.RESULT_OK);
+    if (!Number.isNaN(rc) && !Number.isNaN(ok) && rc !== ok) return;
     const constraintId = created[1];
 
     HK.HP_Constraint_SetParentBody(constraintId, parentBodyId);
@@ -1442,9 +1447,17 @@ function initPhysics() {
             parentIdx = parentOf.get(parentIdx);
         }
 
-        const connectedBodyId = connectedNodeIndex !== undefined
-            ? nodeIndexToBodyId.get(connectedNodeIndex)
-            : null;
+        // Resolve the connected body by climbing ancestors: connectedNode points at an anchor
+        // child ("jointSpaceB") whose body lives on an ancestor, not on the node itself.
+        let connectedBodyId = null;
+        let connectedIdx = connectedNodeIndex;
+        while (connectedIdx !== undefined) {
+            if (nodeIndexToBodyId.has(connectedIdx)) {
+                connectedBodyId = nodeIndexToBodyId.get(connectedIdx);
+                break;
+            }
+            connectedIdx = parentOf.get(connectedIdx);
+        }
 
         if (parentBodyId && connectedBodyId) {
             const enableCollision = node.physicsExt.joint.enableCollision === true;

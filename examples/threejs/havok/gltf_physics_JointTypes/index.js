@@ -486,11 +486,16 @@ function configureConstraintAxes(constraintId, jointDef) {
 }
 
 function setupJoint(jointNodeIndex, jointNodeObject, connectedBodyId, parentBodyId, jointDef, enableCollision) {
-  if (!parentBodyId || !connectedBodyId) return;
-  if (typeof HK.HP_Constraint_Create !== 'function') return;
+  if (!parentBodyId || !connectedBodyId) return false;
+  if (typeof HK.HP_Constraint_Create !== 'function') return false;
 
   const created = HK.HP_Constraint_Create();
-  if (!created || created[0] !== HK.Result.RESULT_OK) return;
+  if (!created) return false;
+  // Compare numerically: HK.Result.RESULT_OK is an enum object, so a strict !== check always
+  // fails and would (wrongly) abort every joint.
+  const rc = enumToNumber(created[0]);
+  const ok = enumToNumber(HK.Result.RESULT_OK);
+  if (!Number.isNaN(rc) && !Number.isNaN(ok) && rc !== ok) return false;
   const constraintId = created[1];
 
   // Assign bodies: parent = body owning the joint node, child = connectedNode's body
@@ -554,6 +559,7 @@ function setupJoint(jointNodeIndex, jointNodeObject, connectedBodyId, parentBody
   if (typeof HK.HP_Constraint_SetEnabled === 'function') {
     HK.HP_Constraint_SetEnabled(constraintId, true);
   }
+  return true;
 }
 
 function setObjectWorldTransform(object, worldPosition, worldQuaternion) {
@@ -597,6 +603,18 @@ function resetDynamicBodiesIfNeeded() {
 // Find the nearest ancestor node that owns a physics body
 function findAncestorBodyId(nodeIndex) {
   let idx = parentOf.get(nodeIndex);
+  while (idx !== undefined) {
+    if (nodeIndexToBodyId.has(idx)) return nodeIndexToBodyId.get(idx);
+    idx = parentOf.get(idx);
+  }
+  return undefined;
+}
+
+// Resolve the body for a node, checking the node itself first then climbing ancestors. The joint's
+// connectedNode points at an anchor child ("jointSpaceB") that has no body of its own, so the body
+// lives on one of its ancestors.
+function resolveBodyId(nodeIndex) {
+  let idx = nodeIndex;
   while (idx !== undefined) {
     if (nodeIndexToBodyId.has(idx)) return nodeIndexToBodyId.get(idx);
     idx = parentOf.get(idx);
@@ -713,17 +731,19 @@ async function loadModelAndBuildPhysics() {
   });
 
   // Phase 2: Create joints
+  let jointsFound = 0, jointsCreated = 0;
   for (let i = 0; i < (json.nodes || []).length; i++) {
     const nodeDef = json.nodes[i];
     const physicsExt = nodeDef?.extensions?.KHR_physics_rigid_bodies;
     if (!physicsExt?.joint) continue;
+    jointsFound++;
 
     const jointExt = physicsExt.joint;
     const jointDef = physicsJoints[jointExt.joint];
     if (!jointDef) continue;
 
     const connectedNodeIndex = jointExt.connectedNode;
-    const connectedBodyId = nodeIndexToBodyId.get(connectedNodeIndex);
+    const connectedBodyId = resolveBodyId(connectedNodeIndex);
     if (connectedBodyId === undefined) {
       console.warn('[Havok] Joint connectedNode', connectedNodeIndex, 'has no body');
       continue;
@@ -739,10 +759,13 @@ async function loadModelAndBuildPhysics() {
     if (!jointNodeObject) continue;
 
     try {
-      setupJoint(i, jointNodeObject, connectedBodyId, parentBodyId, jointDef, jointExt.enableCollision);
+      if (setupJoint(i, jointNodeObject, connectedBodyId, parentBodyId, jointDef, jointExt.enableCollision)) jointsCreated++;
     } catch (e) {
       console.warn('[Havok] setupJoint failed for node', i, ':', e.message);
     }
+  }
+  if (jointsCreated < jointsFound) {
+    console.warn('[Havok] only', jointsCreated, 'of', jointsFound, 'joints created');
   }
 }
 
