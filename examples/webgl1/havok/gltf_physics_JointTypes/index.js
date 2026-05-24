@@ -932,6 +932,25 @@ function getHKMotorType(type) {
     return 0;
 }
 
+// HK.ConstraintAxis is an enum whose members are objects ({value:N}), not plain numbers. The
+// constraint setters require those enum members for the axis argument; passing the raw 0..5 index
+// silently fails to lock the axis (the joint then has no effect). Resolve to the enum member.
+function getHKAxis(isAngular, index) {
+    const A = HK.ConstraintAxis;
+    if (A) {
+        const v = isAngular
+            ? [A.ANGULAR_X, A.ANGULAR_Y, A.ANGULAR_Z][index]
+            : [A.LINEAR_X, A.LINEAR_Y, A.LINEAR_Z][index];
+        if (v !== undefined && v !== null) return v;
+    }
+    return (isAngular ? ANGULAR_AXIS_BASE : LINEAR_AXIS_BASE) + index;
+}
+function allHKAxes() {
+    const A = HK.ConstraintAxis;
+    if (A) return [A.LINEAR_X, A.LINEAR_Y, A.LINEAR_Z, A.ANGULAR_X, A.ANGULAR_Y, A.ANGULAR_Z];
+    return [0, 1, 2, 3, 4, 5];
+}
+
 function configureConstraintAxes(constraintId, jointDef) {
     if (!jointDef || typeof HK.HP_Constraint_SetAxisMode !== 'function') return;
 
@@ -939,14 +958,14 @@ function configureConstraintAxes(constraintId, jointDef) {
     const LIMITED = getHKAxisMode('LIMITED');
     const LOCKED = getHKAxisMode('LOCKED');
 
-    for (let axis = 0; axis < 6; axis++) {
+    for (const axis of allHKAxes()) {
         HK.HP_Constraint_SetAxisMode(constraintId, axis, FREE);
     }
 
     for (const limit of (jointDef.limits || [])) {
         const axisIndices = limit.linearAxes
-            ? limit.linearAxes.map(a => LINEAR_AXIS_BASE + a)
-            : limit.angularAxes.map(a => ANGULAR_AXIS_BASE + a);
+            ? limit.linearAxes.map(a => getHKAxis(false, a))
+            : limit.angularAxes.map(a => getHKAxis(true, a));
 
         const min = limit.min ?? 0;
         const max = limit.max ?? 0;
@@ -973,9 +992,7 @@ function configureConstraintAxes(constraintId, jointDef) {
     }
 
     for (const drive of (jointDef.drives || [])) {
-        const axis = drive.type === 'angular'
-            ? ANGULAR_AXIS_BASE + drive.axis
-            : LINEAR_AXIS_BASE + drive.axis;
+        const axis = getHKAxis(drive.type === 'angular', drive.axis);
 
         const hasSpring = drive.stiffness !== undefined && drive.stiffness > 0;
         const hasPosTarget = drive.positionTarget !== undefined && drive.positionTarget !== 0;
