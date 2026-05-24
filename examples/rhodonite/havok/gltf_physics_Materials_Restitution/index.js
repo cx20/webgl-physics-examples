@@ -124,7 +124,7 @@ function makeDebugMaterial(color) {
 
 // Draw the collider wireframe slightly larger than the visual mesh so it is not hidden
 // by the (same-sized) rendered surface.
-const DEBUG_SCALE = 1.01;
+const DEBUG_SCALE = 1.0;
 const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
 
