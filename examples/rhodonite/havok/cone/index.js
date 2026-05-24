@@ -10,6 +10,31 @@ let HK, worldId, engine;
 const entities = [];
 const bodyIds = [];
 
+let showWireframe = true;
+const debugEntities = [];        // all collider wireframes (for the W toggle)
+const coneDebugEntities = [];    // per-cone wireframes, parallel to bodyIds
+const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+
+// Mirror the other Rhodonite samples: PbrUber + RN_USE_WIREFRAME, with calcBaryCentricCoord()
+// on the mesh so the wireframe shader can draw the edges.
+function makeDebugMaterial(color) {
+  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: false, isSkinning: false, isMorphing: false });
+  try { mat.addShaderDefine('RN_USE_WIREFRAME'); } catch (e) {}
+  try { mat.setParameter('wireframe', Rn.Vector3.fromCopy3(1, 0, 1)); } catch (e) {}
+  try { mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4(color)); } catch (e) {}
+  return mat;
+}
+
+function createDebugBox(size, pos, color) {
+  const entity = Rn.MeshHelper.createCube(engine, { material: makeDebugMaterial(color) });
+  entity.getTransform().localScale = Rn.Vector3.fromCopyArray([size[0], size[1], size[2]]);
+  entity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
+  try { entity.getMesh().calcBaryCentricCoord(); } catch (e) {}
+  debugEntities.push(entity);
+  return entity;
+}
+
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
   if (!value || typeof value !== 'object') return NaN;
@@ -111,7 +136,7 @@ function buildConeGeometry(halfHeight, radius, segments = 20) {
   }
 
   for (let i = 0; i < segments; i++) {
-    idxArr.push(0, i + 1, i + 2);
+    idxArr.push(0, i + 2, i + 1);
   }
 
   const capCenter = posArr.length / 3;
@@ -127,7 +152,7 @@ function buildConeGeometry(halfHeight, radius, segments = 20) {
   }
 
   for (let i = 0; i < segments; i++) {
-    idxArr.push(capCenter, capCenter + i + 2, capCenter + i + 1);
+    idxArr.push(capCenter, capCenter + i + 1, capCenter + i + 2);
   }
 
   return {
@@ -136,6 +161,21 @@ function buildConeGeometry(halfHeight, radius, segments = 20) {
     texcoords: new Float32Array(uvArr),
     indices: new Uint16Array(idxArr),
   };
+}
+
+// Clean low-poly cone wireframe (apex + base ring, side faces only, no base-cap fan)
+// so the collider outline is readable rather than a dense fan of lines.
+function buildConeWireGeometry(halfHeight, radius, segments = 12) {
+  const pos = [0, halfHeight, 0];
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    pos.push(radius * Math.cos(a), -halfHeight, radius * Math.sin(a));
+  }
+  const idx = [];
+  for (let i = 0; i < segments; i++) {
+    idx.push(0, 1 + i, 1 + ((i + 1) % segments));
+  }
+  return { positions: new Float32Array(pos), indices: new Uint16Array(idx) };
 }
 
 const load = async function() {
@@ -175,6 +215,7 @@ const load = async function() {
   groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -2, 0]);
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([40, 4, 40]);
   entities.push(groundEntity);
+  createDebugBox([40, 4, 40], [0, -2, 0], DEBUG_COLOR_STATIC);
 
   // Walls
   const wallDefs = [
@@ -191,6 +232,7 @@ const load = async function() {
     wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
     wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
     entities.push(wallEntity);
+    createDebugBox(size, pos, DEBUG_COLOR_STATIC);
   }
 
   // Cone physics shape
@@ -202,6 +244,9 @@ const load = async function() {
   // Shared material, primitive, mesh — created ONCE for all cones
   const sharedMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
   sharedMat.setTextureParameter('baseColorTexture', carrotTex, sampler);
+  // Cull back faces so the cone's far (inner) wall doesn't z-fight with the near wall.
+  sharedMat.cullFace = true;
+  sharedMat.cullFaceBack = true;
 
   const coneGeo = buildConeGeometry(CONE_HALF_HEIGHT, CONE_RADIUS, 20);
   const sharedPrimitive = Rn.Primitive.createPrimitive(engine, {
@@ -217,6 +262,24 @@ const load = async function() {
   });
   const sharedMesh = new Rn.Mesh(engine);
   sharedMesh.addPrimitive(sharedPrimitive);
+
+  // Shared cone-shaped collider wireframe (one mesh reused by every cone, like the visual mesh,
+  // so the debug pass instances rather than issuing 200 separate draws). The wireframe shader
+  // needs un-indexed geometry + barycentric coords (what MeshComponent.calcBaryCentricCoord does).
+  const coneWireGeo = buildConeWireGeometry(CONE_HALF_HEIGHT, CONE_RADIUS, 12);
+  const coneWirePrimitive = Rn.Primitive.createPrimitive(engine, {
+    indices: coneWireGeo.indices,
+    attributeSemantics: [Rn.VertexAttribute.Position.XYZ],
+    attributes: [coneWireGeo.positions],
+    material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC),
+    primitiveMode: Rn.PrimitiveMode.Triangles,
+  });
+  const coneWireMesh = new Rn.Mesh(engine);
+  coneWireMesh.addPrimitive(coneWirePrimitive);
+  try {
+    for (const prim of coneWireMesh.primitives) prim.convertToUnindexedGeometry();
+    coneWireMesh._calcBaryCentricCoord();
+  } catch (e) { console.warn('[Cone] baryCentric failed:', e); }
 
   for (let i = 0; i < CONE_COUNT; i++) {
     const x = -3.5 + Math.random() * 7;
@@ -237,6 +300,11 @@ const load = async function() {
     const entity = Rn.createMeshEntity(engine);
     entity.getMesh().setMesh(sharedMesh);
     entities.push(entity);
+
+    const debugEntity = Rn.createMeshEntity(engine);
+    debugEntity.getMesh().setMesh(coneWireMesh);
+    debugEntities.push(debugEntity);
+    coneDebugEntities.push(debugEntity);
   }
 
   // Camera
@@ -244,8 +312,10 @@ const load = async function() {
   cameraEntity.localPosition = Rn.Vector3.fromCopyArray([18, 20, 30]);
   cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.55, 0.52, 0]);
   const cameraComponent = cameraEntity.getCamera();
-  cameraComponent.zNear = 0.01;
-  cameraComponent.zFar = 1000;
+  // Larger zNear (and tighter zFar) for better depth-buffer precision; the camera orbits far
+  // from the scene, so this avoids the cones z-fighting. (0.01 / 1000 was far too wide a range.)
+  cameraComponent.zNear = 1.0;
+  cameraComponent.zFar = 200;
   cameraComponent.setFovyAndChangeFocalLength(60);
   cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
@@ -268,8 +338,17 @@ const load = async function() {
   renderPass.clearColor = Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 1]);
   renderPass.addEntities(entities);
 
+  // Collider wireframes are drawn in a second pass on top of the model (no depth test).
+  const debugRenderPass = new Rn.RenderPass(engine);
+  debugRenderPass.cameraComponent = cameraComponent;
+  debugRenderPass.toClearColorBuffer = false;
+  try { debugRenderPass.isDepthTest = false; } catch (e) {}
+  debugRenderPass.addEntities(debugEntities);
+
   const expression = new Rn.Expression();
-  expression.addRenderPasses([renderPass]);
+  expression.addRenderPasses([renderPass, debugRenderPass]);
+
+  setWireframeVisible(showWireframe);
 
   // 1 ground + 4 walls = 5 static entities before cone entities
   const physicsEntityOffset = 5;
@@ -284,6 +363,10 @@ const load = async function() {
       const entity = entities[physicsEntityOffset + i];
       entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
       entity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
+
+      const debugEntity = coneDebugEntities[i];
+      debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
+      debugEntity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
 
       if (pos[1] < -10) {
         const nx = -5 + Math.random() * 10;
@@ -309,5 +392,23 @@ const load = async function() {
 
   draw();
 };
+
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  for (const entity of debugEntities) {
+    try { entity.getSceneGraph().isVisible = visible; } catch (e) {}
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
 
 document.body.onload = load;
