@@ -2,8 +2,10 @@
 //
 // Renders the Khronos glTF_Physics "ShapeTypes" model with Google Filament and simulates it with
 // Havok via the KHR_physics_rigid_bodies / KHR_implicit_shapes extensions. This scene shows the
-// implicit collider primitives the extension defines — box, sphere, capsule and cylinder — plus
-// convex-hull and triangle-mesh colliders, dropping onto a static ground.
+// implicit collider primitives the extension defines — box, sphere, capsule, cylinder, cone and
+// tapered capsule — plus convex-hull and triangle-mesh colliders, and a compound (container) body:
+// the car, whose wheels and chassis are child colliders of a single dynamic rigid body. Everything
+// drops onto a static triangle-mesh ground.
 //
 // Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
 // camera (Filament can't easily draw lines). Press W to toggle them.
@@ -75,6 +77,48 @@ function applyPhysicsMaterial(shapeId, materialDef) {
   const frictionCombine = combineMap[materialDef.frictionCombine] !== undefined ? combineMap[materialDef.frictionCombine] : HK.MaterialCombine.MINIMUM;
   const restitutionCombine = combineMap[materialDef.restitutionCombine] !== undefined ? combineMap[materialDef.restitutionCombine] : HK.MaterialCombine.MAXIMUM;
   HK.HP_Shape_SetMaterial(shapeId, [df, sf, re, frictionCombine, restitutionCombine]);
+}
+
+// ---- KHR_physics_rigid_bodies collision filters ----
+// Each filter maps to a [membership, collideMask] bit pair; collision systems get one bit each.
+let collisionFilterTable = [];
+function buildCollisionFilterTable(gltfJson) {
+  const filters = gltfJson.extensions?.KHR_physics_rigid_bodies?.collisionFilters || [];
+  const systemBit = new Map();
+  let nextBit = 0;
+  function bitFor(name) {
+    if (!systemBit.has(name)) {
+      if (nextBit >= 32) { console.warn('[physics] >32 collision systems, ignoring', name); systemBit.set(name, 0); }
+      else { systemBit.set(name, (1 << nextBit) >>> 0); nextBit++; }
+    }
+    return systemBit.get(name);
+  }
+  const ALL = 0xFFFFFFFF >>> 0;
+  collisionFilterTable = filters.map((f) => {
+    let membership = 0;
+    for (const n of (f.collisionSystems || [])) membership = (membership | bitFor(n)) >>> 0;
+    let collideMask;
+    if (Array.isArray(f.collideWithSystems)) {
+      collideMask = 0;
+      for (const n of f.collideWithSystems) collideMask = (collideMask | bitFor(n)) >>> 0;
+    } else if (Array.isArray(f.notCollideWithSystems)) {
+      let mask = 0;
+      for (const n of f.notCollideWithSystems) mask = (mask | bitFor(n)) >>> 0;
+      collideMask = (ALL & ~mask) >>> 0;
+    } else {
+      collideMask = ALL;
+    }
+    return [membership || ALL, collideMask];
+  });
+}
+
+function applyCollisionFilterToShape(shapeId, colliderDef) {
+  if (!colliderDef || typeof HK.HP_Shape_SetFilterInfo !== 'function') return;
+  const idx = colliderDef.collisionFilter;
+  if (typeof idx !== 'number') return;
+  const pair = collisionFilterTable[idx];
+  if (!pair) return;
+  HK.HP_Shape_SetFilterInfo(shapeId, [pair[0], pair[1]]);
 }
 
 // Rotation from a possibly non-uniformly-scaled matrix: normalize basis columns first
@@ -379,6 +423,38 @@ function boundRadiusFor(shape) {
   return 0.5 * Math.hypot(shape.size[0], shape.size[1], shape.size[2]);
 }
 
+// Gather descendant collider nodes (no own motion) for a compound parent.
+function collectDescendantColliders(nodes, nodeIndex, result, excluded) {
+  for (const childIdx of (nodes[nodeIndex].children || [])) {
+    const ext = nodes[childIdx].extensions?.KHR_physics_rigid_bodies;
+    if (ext?.motion) continue;
+    if (ext?.collider?.geometry) { result.push(childIdx); excluded.add(childIdx); }
+    collectDescendantColliders(nodes, childIdx, result, excluded);
+  }
+}
+
+// Create the Havok shape for one node's collider (implicit or mesh), applying its material and
+// collision filter. Returns the shape info object (or null).
+function buildColliderShape(nodeIndex, gltfJson, accessors, worldMats, shapeDefs, matDefs, motionDef) {
+  const node = gltfJson.nodes[nodeIndex];
+  const physExt = node.extensions?.KHR_physics_rigid_bodies;
+  const geom = physExt?.collider?.geometry;
+  if (!geom) return null;
+  const matDef = physExt.collider.physicsMaterial !== undefined ? matDefs[physExt.collider.physicsMaterial] : null;
+  const ws = vec3.create();
+  mat4.getScaling(ws, worldMats[nodeIndex]);
+  let shape;
+  if (geom.shape !== undefined) {
+    const sd = shapeDefs[geom.shape];
+    if (!sd) return null;
+    shape = createImplicitShape(sd, ws, motionDef, matDef);
+  } else {
+    shape = createMeshShape(gltfJson, accessors, worldMats[nodeIndex], geom, motionDef, matDef);
+  }
+  if (shape) applyCollisionFilterToShape(shape.shapeId, physExt.collider);
+  return shape;
+}
+
 async function initPhysicsFromUrl(meshUrl, filamentAsset, filamentEngine) {
   const ab = await (await fetch(meshUrl)).arrayBuffer();
   const head = new Uint8Array(ab, 0, 4);
@@ -412,52 +488,95 @@ async function initPhysicsFromUrl(meshUrl, filamentAsset, filamentEngine) {
   checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
 
+  buildCollisionFilterTable(gltfJson);
+  const excludedIndices = new Set();
+
+  function resolveEntity(i) {
+    const name = nodes[i].name;
+    const named = name ? filamentAsset.getEntitiesByName(name) : [];
+    return named.length > 0 ? named[0] : (nodeEntityMap.get(i) || null);
+  }
+  function disableCulling(entity) {
+    if (!entity) return;
+    const rm = filamentEngine.getRenderableManager();
+    const inst = rm.getInstance(entity);
+    if (inst) { rm.setCulling(inst, false); inst.delete(); }
+  }
+
+  // ---- First pass: compound bodies (a node with motion but no own collider; its descendant
+  // colliders become child shapes of a container, each keeping its own collision filter). ----
   for (let i = 0; i < nodes.length; i++) {
     const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
-    const geom = physExt?.collider?.geometry;
-    if (!geom) continue;
-    const motionDef = physExt.motion || null;
-    const matDef = physExt.collider.physicsMaterial !== undefined ? matDefs[physExt.collider.physicsMaterial] : null;
-    const worldScale = vec3.create();
-    mat4.getScaling(worldScale, worldMats[i]);
-
-    let shape;
-    if (geom.shape !== undefined) {
-      const shapeDef = shapeDefs[geom.shape];
-      if (!shapeDef) continue;
-      shape = createImplicitShape(shapeDef, worldScale, motionDef, matDef);
-    } else {
-      shape = createMeshShape(gltfJson, accessors, worldMats[i], geom, motionDef, matDef);
+    if (!physExt?.motion || physExt.collider) continue;
+    const childIndices = [];
+    collectDescendantColliders(nodes, i, childIndices, excludedIndices);
+    if (childIndices.length === 0) continue;
+    if (typeof HK.HP_Shape_CreateContainer !== 'function') {
+      console.warn('[physics] HP_Shape_CreateContainer unavailable, skipping compound', nodes[i].name || i);
+      continue;
     }
+    const cr = HK.HP_Shape_CreateContainer(); checkResult(cr[0], 'HP_Shape_CreateContainer');
+    const containerShapeId = cr[1];
+
+    const parentPos = vec3.create(); mat4.getTranslation(parentPos, worldMats[i]);
+    const parentRot = quat.create(); getRotationFromMat(parentRot, worldMats[i]);
+    const parentRotInv = quat.invert(quat.create(), parentRot);
+    const compoundChildren = [];
+
+    for (const ci of childIndices) {
+      const childShape = buildColliderShape(ci, gltfJson, accessors, worldMats, shapeDefs, matDefs, null);
+      if (!childShape) continue;
+      const cPos = vec3.create(); mat4.getTranslation(cPos, worldMats[ci]);
+      const cRot = quat.create(); getRotationFromMat(cRot, worldMats[ci]);
+      const relPos = vec3.subtract(vec3.create(), cPos, parentPos);
+      const localPos = vec3.transformQuat(vec3.create(), relPos, parentRotInv);
+      const localRot = quat.normalize(quat.create(), quat.multiply(quat.create(), parentRotInv, cRot));
+      HK.HP_Shape_AddChild(containerShapeId, childShape.shapeId,
+        [[localPos[0], localPos[1], localPos[2]], [localRot[0], localRot[1], localRot[2], localRot[3]], [1, 1, 1]]);
+      compoundChildren.push({ shape: childShape, localPos: [localPos[0], localPos[1], localPos[2]], localRot: [localRot[0], localRot[1], localRot[2], localRot[3]] });
+      expandSceneBounds([cPos[0], cPos[1], cPos[2]], boundRadiusFor(childShape));
+    }
+    if (compoundChildren.length === 0) continue;
+
+    const motionDef = physExt.motion;
+    const initPos = [parentPos[0], parentPos[1], parentPos[2]];
+    const initRot = [parentRot[0], parentRot[1], parentRot[2], parentRot[3]];
+    const bodyId = createBody(containerShapeId, HK.MotionType.DYNAMIC, initPos, initRot, true, motionDef);
+
+    const nodeScale = vec3.create(); mat4.getScaling(nodeScale, worldMats[i]);
+    const parentInvWorldMat = mat4.create();
+    const pIdx = parentMap.get(i);
+    if (pIdx !== undefined) mat4.invert(parentInvWorldMat, worldMats[pIdx]);
+    const entity = resolveEntity(i);
+    physicsNodes.push({ entity, bodyId, nodeScale: [nodeScale[0], nodeScale[1], nodeScale[2]], initPos, initRot, parentInvWorldMat, shape: null, compoundChildren });
+    disableCulling(entity);
+  }
+
+  // ---- Second pass: single-shape bodies ----
+  for (let i = 0; i < nodes.length; i++) {
+    if (excludedIndices.has(i)) continue;
+    const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
+    if (!physExt?.collider?.geometry) continue;
+    const motionDef = physExt.motion || null;
+    const shape = buildColliderShape(i, gltfJson, accessors, worldMats, shapeDefs, matDefs, motionDef);
     if (!shape) continue;
 
     const wPos = vec3.create(); mat4.getTranslation(wPos, worldMats[i]);
     const wRot = quat.create(); getRotationFromMat(wRot, worldMats[i]);
     const initPos = [wPos[0], wPos[1], wPos[2]];
     const initRot = [wRot[0], wRot[1], wRot[2], wRot[3]];
-
-    const bodyId = createBody(
-      shape.shapeId,
-      motionDef ? HK.MotionType.DYNAMIC : HK.MotionType.STATIC,
-      initPos, initRot, !!motionDef, motionDef,
-    );
+    const bodyId = createBody(shape.shapeId, motionDef ? HK.MotionType.DYNAMIC : HK.MotionType.STATIC, initPos, initRot, !!motionDef, motionDef);
     expandSceneBounds(initPos, boundRadiusFor(shape));
 
     if (motionDef) {
-      const nodeScale = [worldScale[0], worldScale[1], worldScale[2]];
+      const nodeScale = vec3.create(); mat4.getScaling(nodeScale, worldMats[i]);
       const parentInvWorldMat = mat4.create();
       const pIdx = parentMap.get(i);
       if (pIdx !== undefined) mat4.invert(parentInvWorldMat, worldMats[pIdx]);
-      const name = nodes[i].name;
-      const named = name ? filamentAsset.getEntitiesByName(name) : [];
-      const entity = named.length > 0 ? named[0] : (nodeEntityMap.get(i) || null);
-      if (!entity) console.warn('[physics] no Filament entity for node', i, name || '(unnamed)');
-      physicsNodes.push({ entity, bodyId, nodeScale, initPos, initRot, parentInvWorldMat, shape });
-      if (entity) {
-        const rm = filamentEngine.getRenderableManager();
-        const inst = rm.getInstance(entity);
-        if (inst) { rm.setCulling(inst, false); inst.delete(); }
-      }
+      const entity = resolveEntity(i);
+      if (!entity) console.warn('[physics] no Filament entity for node', i, nodes[i].name || '(unnamed)');
+      physicsNodes.push({ entity, bodyId, nodeScale: [nodeScale[0], nodeScale[1], nodeScale[2]], initPos, initRot, parentInvWorldMat, shape, compoundChildren: null });
+      disableCulling(entity);
     } else {
       staticBodies.push({ bodyId, shape });
     }
@@ -625,8 +744,7 @@ function drawDebug(eye, center, up, aspect) {
   gl.enableVertexAttribArray(aPos);
   gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
 
-  function draw(shape, color, p, r) {
-    const model = mat4.fromRotationTranslation(mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(p[0], p[1], p[2]));
+  function drawWithModel(shape, color, model) {
     const mvp = mat4.multiply(mat4.create(), vp, model);
     gl.uniformMatrix4fv(uMVP, false, mvp);
     gl.uniform4fv(uColor, color);
@@ -634,11 +752,25 @@ function drawDebug(eye, center, up, aspect) {
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
     gl.drawArrays(gl.LINES, 0, verts.length / 3);
   }
+  function draw(shape, color, p, r) {
+    drawWithModel(shape, color, mat4.fromRotationTranslation(mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(p[0], p[1], p[2])));
+  }
 
   for (const entry of physicsNodes) {
     const pr = HK.HP_Body_GetPosition(entry.bodyId);
     const qr = HK.HP_Body_GetOrientation(entry.bodyId);
-    draw(entry.shape, DEBUG_COLOR_DYNAMIC, pr[1], qr[1]);
+    if (entry.compoundChildren) {
+      const bodyMat = mat4.fromRotationTranslation(mat4.create(),
+        quat.fromValues(qr[1][0], qr[1][1], qr[1][2], qr[1][3]), vec3.fromValues(pr[1][0], pr[1][1], pr[1][2]));
+      for (const ch of entry.compoundChildren) {
+        const localMat = mat4.fromRotationTranslation(mat4.create(),
+          quat.fromValues(ch.localRot[0], ch.localRot[1], ch.localRot[2], ch.localRot[3]),
+          vec3.fromValues(ch.localPos[0], ch.localPos[1], ch.localPos[2]));
+        drawWithModel(ch.shape, DEBUG_COLOR_DYNAMIC, mat4.multiply(mat4.create(), bodyMat, localMat));
+      }
+    } else {
+      draw(entry.shape, DEBUG_COLOR_DYNAMIC, pr[1], qr[1]);
+    }
   }
   for (const sb of staticBodies) {
     const pr = HK.HP_Body_GetPosition(sb.bodyId);
