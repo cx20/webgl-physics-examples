@@ -22,9 +22,9 @@ const NORMAL_URL = '../../../../assets/textures/rockn.png';
 
 // sRGB hex base colours from the three.js sample. metallic=1 so baseColor is the metal's tint.
 const COIN_TYPES = [
-  { name: 'gold',   colorHex: 0xffc356, diameter: 1.0, height: 0.10,  metalness: 1.0, roughness: 0.20 },
-  { name: 'silver', colorHex: 0xf8f5ea, diameter: 0.8, height: 0.075, metalness: 1.0, roughness: 0.40 },
-  { name: 'copper', colorHex: 0xf3a28a, diameter: 0.6, height: 0.05,  metalness: 1.0, roughness: 0.20 },
+  { name: 'gold',   colorHex: 0xffc356, diameter: 2.0, height: 0.20, metalness: 1.0, roughness: 0.20 },
+  { name: 'silver', colorHex: 0xf8f5ea, diameter: 1.6, height: 0.16, metalness: 1.0, roughness: 0.40 },
+  { name: 'copper', colorHex: 0xf3a28a, diameter: 1.2, height: 0.12, metalness: 1.0, roughness: 0.20 },
 ];
 
 const COIN_COUNT = 500;
@@ -39,7 +39,7 @@ const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const RESET_Y_THRESHOLD = -8;   // fell off the ground edge -> recycle to the top
 // A coin that has come to rest near the ground is lifted back to the top so the stream never stops.
-const SETTLE_Y = 3.0;
+const SETTLE_Y = 4.0;
 const SETTLE_MOVE_SQ = 0.0025;  // squared per-frame movement below which a coin counts as "still"
 const SETTLE_FRAMES = 18;
 const GROUND = { size: [24, 2, 24], pos: [0, -1, 0] };  // top surface at y = 0
