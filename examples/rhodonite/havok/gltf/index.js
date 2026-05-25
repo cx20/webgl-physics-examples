@@ -16,6 +16,29 @@ let expression;
 let started = false;
 let showWireframe = true;
 
+const debugEntities = [];      // collider wireframes (W toggles visibility)
+const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+
+// PbrUber + RN_USE_WIREFRAME with calcBaryCentricCoord() so the wireframe shader can draw the
+// collider edges (mirrors the other Rhodonite + Havok samples).
+function makeDebugMaterial(color) {
+  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: false, isSkinning: false, isMorphing: false });
+  try { mat.addShaderDefine('RN_USE_WIREFRAME'); } catch (e) {}
+  try { mat.setParameter('wireframe', Rn.Vector3.fromCopy3(1, 0, 1)); } catch (e) {}
+  try { mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4(color)); } catch (e) {}
+  return mat;
+}
+
+function createDebugBox(size, pos, color) {
+  const entity = Rn.MeshHelper.createCube(engine, { material: makeDebugMaterial(color) });
+  entity.getTransform().localScale = Rn.Vector3.fromCopyArray([size[0], size[1], size[2]]);
+  entity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
+  try { entity.getMesh().calcBaryCentricCoord(); } catch (e) {}
+  debugEntities.push(entity);
+  return entity;
+}
+
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
   if (!value || typeof value !== 'object') return NaN;
@@ -106,11 +129,9 @@ const load = async function() {
   groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -5, 0]);
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([300, 8, 300]);
 
-  // Wireframe box (visual bounding box indicator)
-  const wireMat = Rn.MaterialHelper.createClassicUberMaterial(engine);
-  wireMat.setParameter('diffuseColorFactor', Rn.Vector4.fromCopyArray4([0, 1, 0, 1]));
-  wireEntity = Rn.MeshHelper.createCube(engine, { material: wireMat });
-  wireEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([cubeSizeX * 2, cubeSizeY * 2, cubeSizeZ * 2]);
+  // Collider wireframes: ground box (static, green) + duck box (dynamic, orange, follows the body).
+  createDebugBox([800, 8, 800], [0, -5, 0], DEBUG_COLOR_STATIC);
+  wireEntity = createDebugBox([cubeSizeX * 2, cubeSizeY * 2, cubeSizeZ * 2], [0, 20, 0], DEBUG_COLOR_DYNAMIC);
 
   // Camera
   const cameraEntity = Rn.createCameraControllerEntity(engine);
@@ -134,7 +155,7 @@ const load = async function() {
   renderPass.cameraComponent = cameraComponent;
   renderPass.toClearColorBuffer = true;
   renderPass.clearColor = Rn.Vector4.fromCopyArray4([0, 0, 0, 1]);
-  renderPass.addEntities([groundEntity, wireEntity]);
+  renderPass.addEntities([groundEntity]);
 
   expression = new Rn.Expression();
   expression.addRenderPasses([renderPass]);
@@ -158,6 +179,17 @@ const load = async function() {
   });
 
   expression.addRenderPasses([duckRenderPassObj]);
+
+  // Collider wireframes drawn last, on top of everything, with no depth test
+  // so the whole collider shape is visible, not just its silhouette.
+  const debugRenderPass = new Rn.RenderPass(engine);
+  debugRenderPass.cameraComponent = cameraComponent;
+  debugRenderPass.toClearColorBuffer = false;
+  try { debugRenderPass.isDepthTest = false; } catch (e) {}
+  debugRenderPass.addEntities(debugEntities);
+  expression.addRenderPasses([debugRenderPass]);
+
+  setWireframeVisible(showWireframe);
 
   document.addEventListener('click', () => {
     if (duckBodyId !== undefined) {
@@ -193,8 +225,8 @@ const load = async function() {
 
 function setWireframeVisible(visible) {
   showWireframe = visible;
-  if (wireEntity) {
-    wireEntity.getSceneGraph().isVisible = visible;
+  for (const entity of debugEntities) {
+    try { entity.getSceneGraph().isVisible = visible; } catch (e) {}
   }
   const hint = document.getElementById('hint');
   if (hint) {
