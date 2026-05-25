@@ -411,6 +411,11 @@ async function main() {
   HK = await HavokPhysics();
   await initMarbles(GLTF_URL, asset, engine);
 
+  // Only the marble spheres are shown; the model's annotation meshes (the "Thin Film Thickness"
+  // scale bar, axis line, and backing planes) are kept out of the scene.
+  const marbleIds = new Set();
+  for (const m of marbles) if (m.entity) marbleIds.add(m.entity.getId());
+
   // Camera: auto-orbit around the walled box the marbles fall into.
   const center = [0, 3, 0];
   const orbitDist = 26;
@@ -438,7 +443,10 @@ async function main() {
 
     if (asset) {
       let e = asset.popRenderable();
-      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
+      while (e.getId() !== 0) {
+        if (marbleIds.has(e.getId())) scene.addEntity(e); // skip non-marble (annotation) meshes
+        e = asset.popRenderable();
+      }
     }
 
     try { physicsStep(); } catch (e) { console.error('[physics] step error:', e); HK = null; }
