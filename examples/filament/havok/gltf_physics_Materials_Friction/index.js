@@ -422,6 +422,7 @@ Filament.init([IBL_URL, SKY_URL], () => {
   window.gltfio = Filament.gltfio;
   window.Fov = Filament.Camera$Fov;
   window.LightType = Filament.LightManager$Type;
+  window.ToneMapping = Filament.ColorGrading$ToneMapping;
   main().catch(e => console.error(e));
 });
 
@@ -453,6 +454,10 @@ async function main() {
   const view = engine.createView();
   view.setCamera(camera);
   view.setScene(scene);
+  // Use an explicit LINEAR color grading (matches the reference viewer); relying on Filament's
+  // default color grading triggers a "uniform buffer too small" GL error at feature level 1.
+  const colorGrading = Filament.ColorGrading.Builder().toneMapping(ToneMapping.LINEAR).build(engine);
+  view.setColorGrading(colorGrading);
   renderer.setClearOptions({ clearColor: [0.6, 0.6, 0.6, 1.0], clear: true });
 
   initDebugCanvas(canvas);
