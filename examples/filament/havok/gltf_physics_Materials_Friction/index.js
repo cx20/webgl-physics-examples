@@ -476,7 +476,11 @@ async function main() {
       }
       // Renderables are added to the scene incrementally in render() via popRenderable()
       // (the canonical Filament gltfio pattern — addEntities() does not make them draw).
-      for (const l of asset.getLightEntities()) scene.addEntity(l);
+      //
+      // NOTE: this model carries KHR_lights_punctual lights. Adding them makes Filament use
+      // froxelized punctual lighting, which trips "glDrawElementsInstanced: uniform buffer too
+      // small" on base_lit_opaque at feature level 1. We light the scene with IBL + a directional
+      // SUN (neither is froxelized) instead and skip the model's punctual lights.
       resolve();
     }, () => {}, '');
   });
