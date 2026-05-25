@@ -44,6 +44,44 @@ let HK, worldId, engine;
 const entities = [];
 const bodyIds = [];
 
+let showWireframe = true;
+const debugEntities = [];          // all collider wireframes (W toggles visibility)
+const physicsDebugEntities = [];   // per-body wireframes, parallel to bodyIds
+const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+
+// PbrUber + RN_USE_WIREFRAME with calcBaryCentricCoord() so the wireframe shader can draw the
+// collider edges (mirrors the other Rhodonite + Havok samples).
+function makeDebugMaterial(color) {
+  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: false, isSkinning: false, isMorphing: false });
+  try { mat.addShaderDefine('RN_USE_WIREFRAME'); } catch (e) {}
+  try { mat.setParameter('wireframe', Rn.Vector3.fromCopy3(1, 0, 1)); } catch (e) {}
+  try { mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4(color)); } catch (e) {}
+  return mat;
+}
+
+function createDebugBox(size, pos, color) {
+  const entity = Rn.MeshHelper.createCube(engine, { material: makeDebugMaterial(color) });
+  entity.getTransform().localScale = Rn.Vector3.fromCopyArray([size[0], size[1], size[2]]);
+  entity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
+  try { entity.getMesh().calcBaryCentricCoord(); } catch (e) {}
+  debugEntities.push(entity);
+  return entity;
+}
+
+// One un-indexed mesh with barycentric coords, reused by every body of the same shape so the
+// debug pass stays instanced instead of issuing one draw per collider.
+function makeSharedWireMesh(helper, label) {
+  // MeshHelper.create* leaves a drawable entity at the origin; we only want its mesh, so hide it.
+  try { helper.getSceneGraph().isVisible = false; } catch (e) {}
+  const mesh = helper.getMesh().mesh;
+  try {
+    for (const prim of mesh.primitives) prim.convertToUnindexedGeometry();
+    mesh._calcBaryCentricCoord();
+  } catch (e) { console.warn('[Domino] baryCentric failed for ' + label + ':', e); }
+  return mesh;
+}
+
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
   if (!value || typeof value !== 'object') return NaN;
@@ -110,6 +148,7 @@ const load = async function() {
   groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, 0, 0]);
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([100, 0.2, 100]);
   entities.push(groundEntity);
+  createDebugBox([100, 0.2, 100], [0, 0, 0], DEBUG_COLOR_STATIC);
 
   // Shared domino physics shape
   const dsRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [DOMINO_W, DOMINO_H, DOMINO_D]);
@@ -135,6 +174,7 @@ const load = async function() {
     const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
     mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
     const helper = Rn.MeshHelper.createCube(engine, { material: mat });
+    try { helper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
     cubeMeshByKey[key] = helper.getMesh().mesh;
   }
 
@@ -147,7 +187,23 @@ const load = async function() {
     heightSegments: 16,
     material: ballMat,
   });
+  try { ballHelper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
   const sharedBallMesh = ballHelper.getMesh().mesh;
+
+  // Shared collider wireframes: one unit-cube mesh scaled per domino, one sphere mesh per ball.
+  const dominoWireMesh = makeSharedWireMesh(
+    Rn.MeshHelper.createCube(engine, { material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC) }),
+    'domino',
+  );
+  const ballWireMesh = makeSharedWireMesh(
+    Rn.MeshHelper.createSphere(engine, {
+      radius: BALL_RADIUS,
+      widthSegments: 12,
+      heightSegments: 8,
+      material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC),
+    }),
+    'ball',
+  );
 
   // 16x16 dominos
   for (let row = 0; row < 16; row++) {
@@ -172,6 +228,12 @@ const load = async function() {
       entity.getMesh().setMesh(cubeMeshByKey[colorKey]);
       entity.getTransform().localScale = Rn.Vector3.fromCopyArray([DOMINO_W, DOMINO_H, DOMINO_D]);
       entities.push(entity);
+
+      const debugEntity = Rn.createMeshEntity(engine);
+      debugEntity.getMesh().setMesh(dominoWireMesh);
+      debugEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([DOMINO_W, DOMINO_H, DOMINO_D]);
+      debugEntities.push(debugEntity);
+      physicsDebugEntities.push(debugEntity);
     }
   }
 
@@ -195,6 +257,11 @@ const load = async function() {
     const entity = Rn.createMeshEntity(engine);
     entity.getMesh().setMesh(sharedBallMesh);
     entities.push(entity);
+
+    const debugEntity = Rn.createMeshEntity(engine);
+    debugEntity.getMesh().setMesh(ballWireMesh);
+    debugEntities.push(debugEntity);
+    physicsDebugEntities.push(debugEntity);
   }
 
   // Camera
@@ -221,8 +288,18 @@ const load = async function() {
   renderPass.clearColor = Rn.Vector4.fromCopyArray4([0.1, 0.1, 0.15, 1]);
   renderPass.addEntities(entities);
 
+  // Collider wireframes are drawn in a second pass on top of the model (no depth test)
+  // so the whole collider shape is visible, not just its silhouette.
+  const debugRenderPass = new Rn.RenderPass(engine);
+  debugRenderPass.cameraComponent = cameraComponent;
+  debugRenderPass.toClearColorBuffer = false;
+  try { debugRenderPass.isDepthTest = false; } catch (e) {}
+  debugRenderPass.addEntities(debugEntities);
+
   const expression = new Rn.Expression();
-  expression.addRenderPasses([renderPass]);
+  expression.addRenderPasses([renderPass, debugRenderPass]);
+
+  setWireframeVisible(showWireframe);
 
   // Physics entities start at index 1 (after ground)
   const physicsEntityOffset = 1;
@@ -237,6 +314,10 @@ const load = async function() {
       const entity = entities[physicsEntityOffset + i];
       entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
       entity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
+
+      const debugEntity = physicsDebugEntities[i];
+      debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
+      debugEntity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
     }
 
     angle += 0.005;
@@ -253,5 +334,23 @@ const load = async function() {
 
   draw();
 };
+
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  for (const entity of debugEntities) {
+    try { entity.getSceneGraph().isVisible = visible; } catch (e) {}
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
 
 document.body.onload = load;
