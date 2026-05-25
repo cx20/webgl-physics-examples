@@ -8,6 +8,31 @@ let HK, worldId, engine;
 const entities = [];
 const bodyIds = [];
 
+let showWireframe = true;
+const debugEntities = [];        // all collider wireframes (W toggles visibility)
+const marbleDebugEntities = [];  // per-marble wireframes, parallel to bodyIds
+const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+
+// PbrUber + RN_USE_WIREFRAME with calcBaryCentricCoord() so the wireframe shader can draw the
+// collider edges (mirrors the other Rhodonite + Havok samples).
+function makeDebugMaterial(color) {
+  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: false, isSkinning: false, isMorphing: false });
+  try { mat.addShaderDefine('RN_USE_WIREFRAME'); } catch (e) {}
+  try { mat.setParameter('wireframe', Rn.Vector3.fromCopy3(1, 0, 1)); } catch (e) {}
+  try { mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4(color)); } catch (e) {}
+  return mat;
+}
+
+function createDebugBox(size, pos, color) {
+  const entity = Rn.MeshHelper.createCube(engine, { material: makeDebugMaterial(color) });
+  entity.getTransform().localScale = Rn.Vector3.fromCopyArray([size[0], size[1], size[2]]);
+  entity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
+  try { entity.getMesh().calcBaryCentricCoord(); } catch (e) {}
+  debugEntities.push(entity);
+  return entity;
+}
+
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
   if (!value || typeof value !== 'object') return NaN;
@@ -66,6 +91,7 @@ const load = async function() {
   groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -2, 0]);
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([40, 4, 40]);
   entities.push(groundEntity);
+  createDebugBox([40, 4, 40], [0, -2, 0], DEBUG_COLOR_STATIC);
 
   // Walls
   const wallDefs = [
@@ -82,6 +108,7 @@ const load = async function() {
     wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
     wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
     entities.push(wallEntity);
+    createDebugBox(size, pos, DEBUG_COLOR_STATIC);
   }
 
   // Camera
@@ -128,6 +155,21 @@ const load = async function() {
   const sphereEntities = [];
   const physicsRadius = 0.5;
 
+  // Shared marble collider wireframe (one sphere mesh reused by every marble, instanced so the
+  // debug pass doesn't add hundreds of extra unique meshes). Needs un-indexed geometry + barycentric.
+  const marbleWireHelper = Rn.MeshHelper.createSphere(engine, {
+    radius: physicsRadius,
+    widthSegments: 12,
+    heightSegments: 8,
+    material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC),
+  });
+  try { marbleWireHelper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
+  const marbleWireMesh = marbleWireHelper.getMesh().mesh;
+  try {
+    for (const prim of marbleWireMesh.primitives) prim.convertToUnindexedGeometry();
+    marbleWireMesh._calcBaryCentricCoord();
+  } catch (e) { console.warn('[Marbles] baryCentric failed:', e); }
+
   gltfRenderPass.entities.forEach(entity => {
     const name = entity.uniqueName || '';
     if (name.includes('Plane')) {
@@ -156,10 +198,27 @@ const load = async function() {
 
       bodyIds.push(bodyId);
       sphereEntities.push(entity);
+
+      const debugEntity = Rn.createMeshEntity(engine);
+      debugEntity.getMesh().setMesh(marbleWireMesh);
+      debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([dropX, dropY, dropZ]);
+      debugEntities.push(debugEntity);
+      marbleDebugEntities.push(debugEntity);
     }
   });
 
   expression.addRenderPasses([gltfRenderPass]);
+
+  // Collider wireframes drawn last, on top of everything, with no depth test
+  // so the whole collider shape is visible, not just its silhouette.
+  const debugRenderPass = new Rn.RenderPass(engine);
+  debugRenderPass.cameraComponent = cameraComponent;
+  debugRenderPass.toClearColorBuffer = false;
+  try { debugRenderPass.isDepthTest = false; } catch (e) {}
+  debugRenderPass.addEntities(debugEntities);
+  expression.addRenderPasses([debugRenderPass]);
+
+  setWireframeVisible(showWireframe);
 
   setInterval(() => {
     HK.HP_World_Step(worldId, FIXED_TIMESTEP);
@@ -168,6 +227,10 @@ const load = async function() {
       const [, ori] = HK.HP_Body_GetOrientation(bodyIds[i]);
       sphereEntities[i].getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
       sphereEntities[i].getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
+
+      const debugEntity = marbleDebugEntities[i];
+      debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
+      debugEntity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
 
       if (pos[1] < -10) {
         const x = (Math.random() - 0.5) * 8;
@@ -195,5 +258,23 @@ const load = async function() {
   };
   draw();
 };
+
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  for (const entity of debugEntities) {
+    try { entity.getSceneGraph().isVisible = visible; } catch (e) {}
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
 
 document.body.onload = load;
