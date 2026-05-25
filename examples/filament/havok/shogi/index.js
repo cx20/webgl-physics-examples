@@ -86,6 +86,9 @@ function createShogiGeometry(w, h, d) {
     0.75, 0.0, 1.0, 0.0, 1.0, 0.5, 0.75, 0.5,
     0.75, 0.0, 1.0, 0.0, 1.0, 0.5, 0.75, 0.5,
   ]);
+  // The atlas UVs were authored for a top-left texture origin; Filament samples with the opposite
+  // V direction, so flip V to keep the kanji on the piece faces (not the sides).
+  for (let i = 1; i < texcoords.length; i += 2) texcoords[i] = 1 - texcoords[i];
   const indices = new Uint16Array([
     0, 1, 2, 0, 2, 3,
     4, 6, 5, 4, 7, 6,
