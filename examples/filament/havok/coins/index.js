@@ -1,10 +1,11 @@
 // Filament + Havok — Falling Coins sample (PBR).
 //
-// Gold / silver / copper coins drop into a walled box, simulated by Havok and rendered by Google
+// Gold / silver / copper coins drop onto a ground plane, simulated by Havok and rendered by Google
 // Filament with real physically-based metals. There is no PBR .filamat we can load, so the scene is
-// emitted as an in-code glTF (GLB): three metallic-roughness cylinder meshes (one per metal) plus a
-// flat ground slab, referenced by N coin nodes. The GLB is loaded through Filament's gltfio, whose
-// ubershader provides the metallic-roughness PBR; the papermill IBL supplies the reflections that
+// emitted as an in-code glTF (GLB): three metallic-roughness cylinder meshes (one per metal, sharing
+// a normal map for the minted relief) plus a flat ground slab, referenced by N coin nodes. The GLB
+// is loaded through Filament's gltfio, whose ubershader provides the metallic-roughness PBR (and
+// computes tangents from the meshes' UVs + normals); the papermill IBL supplies the reflections that
 // make the metals read. Each coin node is matched to a Havok cylinder body and synced every frame.
 //
 // Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
@@ -15,6 +16,7 @@
 
 const IBL_URL = 'https://cx20.github.io/gltf-test/textures/ktx/papermill/papermill_ibl.ktx';
 const SKY_URL = 'https://cx20.github.io/gltf-test/textures/ktx/papermill/papermill_skybox.ktx';
+const NORMAL_URL = '../../../../assets/textures/rockn.png';
 
 // sRGB hex base colours from the three.js sample. metallic=1 so baseColor is the metal's tint.
 const COIN_TYPES = [
@@ -31,12 +33,6 @@ const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const RESET_Y_THRESHOLD = -12;
 const GROUND = { size: [20, 2, 20], pos: [0, -1, 0] };  // top surface at y = 0
-const WALLS = [
-  { size: [14, 8, 1], pos: [0, 4, -7] },
-  { size: [14, 8, 1], pos: [0, 4, 7] },
-  { size: [1, 8, 14], pos: [-7, 4, 0] },
-  { size: [1, 8, 14], pos: [7, 4, 0] },
-];
 
 const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
@@ -85,44 +81,46 @@ function checkResult(result, label) {
 // ---- Geometry ----
 // Y-aligned cylinder of the given radius and half-height. Caps get their own flat-shaded vertices.
 function buildCylinderGeometry(radius, halfHeight, segments) {
-  const positions = [], normals = [], indices = [];
+  const positions = [], normals = [], uvs = [], indices = [];
 
-  // Side: a ring of top/bottom pairs sharing the radial normal.
-  for (let i = 0; i < segments; i++) {
+  // Side: seam-duplicated ring of top/bottom pairs so the rim UV runs cleanly 0..1.
+  for (let i = 0; i <= segments; i++) {
     const a = (i / segments) * Math.PI * 2;
-    const cx = Math.cos(a), sz = Math.sin(a);
-    positions.push(radius * cx, halfHeight, radius * sz); normals.push(cx, 0, sz);
-    positions.push(radius * cx, -halfHeight, radius * sz); normals.push(cx, 0, sz);
+    const cx = Math.cos(a), sz = Math.sin(a), u = i / segments;
+    positions.push(radius * cx, halfHeight, radius * sz); normals.push(cx, 0, sz); uvs.push(u, 0);
+    positions.push(radius * cx, -halfHeight, radius * sz); normals.push(cx, 0, sz); uvs.push(u, 1);
   }
   for (let i = 0; i < segments; i++) {
-    const j = (i + 1) % segments;
-    const t0 = i * 2, b0 = i * 2 + 1, t1 = j * 2, b1 = j * 2 + 1;
+    const t0 = i * 2, b0 = i * 2 + 1, t1 = (i + 1) * 2, b1 = (i + 1) * 2 + 1;
     indices.push(t0, b0, b1, t0, b1, t1);
   }
 
-  // Top cap (fan around a centre vertex).
+  // Top cap (fan around a centre vertex; planar radial UV maps the relief onto the face).
   const topCenter = positions.length / 3;
-  positions.push(0, halfHeight, 0); normals.push(0, 1, 0);
+  positions.push(0, halfHeight, 0); normals.push(0, 1, 0); uvs.push(0.5, 0.5);
   const topRing = positions.length / 3;
   for (let i = 0; i < segments; i++) {
     const a = (i / segments) * Math.PI * 2;
     positions.push(radius * Math.cos(a), halfHeight, radius * Math.sin(a)); normals.push(0, 1, 0);
+    uvs.push(0.5 + 0.5 * Math.cos(a), 0.5 + 0.5 * Math.sin(a));
   }
   for (let i = 0; i < segments; i++) indices.push(topCenter, topRing + i, topRing + ((i + 1) % segments));
 
   // Bottom cap (reversed winding).
   const botCenter = positions.length / 3;
-  positions.push(0, -halfHeight, 0); normals.push(0, -1, 0);
+  positions.push(0, -halfHeight, 0); normals.push(0, -1, 0); uvs.push(0.5, 0.5);
   const botRing = positions.length / 3;
   for (let i = 0; i < segments; i++) {
     const a = (i / segments) * Math.PI * 2;
     positions.push(radius * Math.cos(a), -halfHeight, radius * Math.sin(a)); normals.push(0, -1, 0);
+    uvs.push(0.5 + 0.5 * Math.cos(a), 0.5 + 0.5 * Math.sin(a));
   }
   for (let i = 0; i < segments; i++) indices.push(botCenter, botRing + ((i + 1) % segments), botRing + i);
 
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
+    uvs: new Float32Array(uvs),
     indices: new Uint32Array(indices),
     min: [-radius, -halfHeight, -radius],
     max: [radius, halfHeight, radius],
@@ -133,6 +131,7 @@ function buildQuadGeometry(halfX, halfZ, y) {
   return {
     positions: new Float32Array([-halfX, y, -halfZ, halfX, y, -halfZ, halfX, y, halfZ, -halfX, y, halfZ]),
     normals: new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]),
+    uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
     indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
     min: [-halfX, y, -halfZ],
     max: [halfX, y, halfZ],
@@ -144,7 +143,7 @@ function buildQuadGeometry(halfX, halfZ, y) {
 // referencing a mesh by index). Produces a single self-contained GLB (JSON + embedded BIN).
 function alignTo4(n) { return (n + 3) & ~3; }
 
-function buildGlb(meshGeos, materials, nodes) {
+function buildGlb(meshGeos, materials, nodes, imageBytes) {
   const accessors = [];
   const bufferViews = [];
   const binChunks = [];
@@ -155,7 +154,9 @@ function buildGlb(meshGeos, materials, nodes) {
     if (padded > binOffset) { binChunks.push(new Uint8Array(padded - binOffset)); binOffset = padded; }
     const bytes = new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength);
     const index = bufferViews.length;
-    bufferViews.push({ buffer: 0, byteOffset: binOffset, byteLength: bytes.byteLength, target });
+    const bv = { buffer: 0, byteOffset: binOffset, byteLength: bytes.byteLength };
+    if (target !== undefined) bv.target = target;
+    bufferViews.push(bv);
     binChunks.push(bytes);
     binOffset += bytes.byteLength;
     return index;
@@ -168,17 +169,30 @@ function buildGlb(meshGeos, materials, nodes) {
     const nrmBV = addBufferView(g.normals, 34962);
     const nrmAcc = accessors.length;
     accessors.push({ bufferView: nrmBV, componentType: 5126, count: g.normals.length / 3, type: 'VEC3' });
+    const uvBV = addBufferView(g.uvs, 34962);
+    const uvAcc = accessors.length;
+    accessors.push({ bufferView: uvBV, componentType: 5126, count: g.uvs.length / 2, type: 'VEC2' });
     const idxBV = addBufferView(g.indices, 34963);
     const idxAcc = accessors.length;
     accessors.push({ bufferView: idxBV, componentType: 5125, count: g.indices.length, type: 'SCALAR' });
-    return { primitives: [{ attributes: { POSITION: posAcc, NORMAL: nrmAcc }, indices: idxAcc, material: g.material }] };
+    return { primitives: [{ attributes: { POSITION: posAcc, NORMAL: nrmAcc, TEXCOORD_0: uvAcc }, indices: idxAcc, material: g.material }] };
   });
+
+  // Embedded shared normal map (PNG bytes in a bufferView), if supplied.
+  const textureBlocks = {};
+  if (imageBytes) {
+    const imgBV = addBufferView(imageBytes, undefined);
+    textureBlocks.images = [{ bufferView: imgBV, mimeType: 'image/png' }];
+    textureBlocks.samplers = [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }];
+    textureBlocks.textures = [{ sampler: 0, source: 0 }];
+  }
 
   const gltf = {
     asset: { version: '2.0', generator: 'filament-havok-coins' },
     scene: 0,
     scenes: [{ nodes: nodes.map((_, i) => i) }],
     nodes, meshes, materials, accessors, bufferViews,
+    ...textureBlocks,
     buffers: [{ byteLength: binOffset }],
   };
 
@@ -214,7 +228,7 @@ function buildGlb(meshGeos, materials, nodes) {
 
 // Coins (mesh/material 0..2) + a flat ground slab (mesh/material 3). Coin nodes are named
 // "coin<i>" so they can be matched to Havok bodies after load.
-function buildSceneGlb(coinSpecs) {
+function buildSceneGlb(coinSpecs, normalImageBytes) {
   const meshGeos = COIN_TYPES.map((t, ti) => {
     const g = buildCylinderGeometry(t.diameter * 0.5, t.height * 0.5, COIN_SEGMENTS);
     g.material = ti;
@@ -228,7 +242,7 @@ function buildSceneGlb(coinSpecs) {
 
   const materials = COIN_TYPES.map((t) => {
     const lin = hexToLinear(t.colorHex);
-    return {
+    const mat = {
       name: t.name,
       pbrMetallicRoughness: {
         baseColorFactor: [lin[0], lin[1], lin[2], 1.0],
@@ -237,6 +251,8 @@ function buildSceneGlb(coinSpecs) {
       },
       doubleSided: true,
     };
+    if (normalImageBytes) mat.normalTexture = { index: 0, scale: 0.6 };
+    return mat;
   });
   materials.push({
     name: 'ground',
@@ -247,7 +263,7 @@ function buildSceneGlb(coinSpecs) {
   const nodes = coinSpecs.map((c, i) => ({ name: 'coin' + i, mesh: c.typeIndex, translation: c.position }));
   nodes.push({ name: 'ground', mesh: groundMeshIndex });
 
-  return buildGlb(meshGeos, materials, nodes);
+  return buildGlb(meshGeos, materials, nodes, normalImageBytes);
 }
 
 // ---- Scene setup ----
@@ -501,14 +517,13 @@ async function main() {
 
   initDebugCanvas(canvas);
 
-  // Physics world + static ground / walls.
+  // Physics world + static ground.
   HK = await HavokPhysics();
   const w = HK.HP_World_Create();
   worldId = w[1];
   checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
   createStaticBox(GROUND.size, GROUND.pos);
-  for (const wd of WALLS) createStaticBox(wd.size, wd.pos);
 
   // Assign a coin type + spawn point to each coin, then build & load the GLB (coins + ground).
   const coinSpecs = [];
@@ -517,7 +532,8 @@ async function main() {
   }
   const coinShapes = COIN_TYPES.map((_, ti) => createCoinShape(ti));
 
-  const glb = buildSceneGlb(coinSpecs);
+  const normalBytes = new Uint8Array(await (await fetch(NORMAL_URL)).arrayBuffer());
+  const glb = buildSceneGlb(coinSpecs, normalBytes);
   const assetLoader = engine.createAssetLoader();
   asset = assetLoader.createAsset(glb);
   await new Promise((resolve) => {
