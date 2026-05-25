@@ -72,6 +72,8 @@ function createDebugBox(size, pos, color) {
 // One un-indexed mesh with barycentric coords, reused by every body of the same shape so the
 // debug pass stays instanced instead of issuing one draw per collider.
 function makeSharedWireMesh(helper, label) {
+  // MeshHelper.create* leaves a drawable entity at the origin; we only want its mesh, so hide it.
+  try { helper.getSceneGraph().isVisible = false; } catch (e) {}
   const mesh = helper.getMesh().mesh;
   try {
     for (const prim of mesh.primitives) prim.convertToUnindexedGeometry();
@@ -172,6 +174,7 @@ const load = async function() {
     const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
     mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([color[0], color[1], color[2], 1]));
     const helper = Rn.MeshHelper.createCube(engine, { material: mat });
+    try { helper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
     cubeMeshByKey[key] = helper.getMesh().mesh;
   }
 
@@ -184,6 +187,7 @@ const load = async function() {
     heightSegments: 16,
     material: ballMat,
   });
+  try { ballHelper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
   const sharedBallMesh = ballHelper.getMesh().mesh;
 
   // Shared collider wireframes: one unit-cube mesh scaled per domino, one sphere mesh per ball.
