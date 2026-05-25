@@ -6,8 +6,8 @@
 // There is no lit .filamat we can load, so the scene is emitted as an in-code glTF (GLB): the piece
 // mesh (the shogi image as baseColorTexture, with flat per-face normals) plus a grass ground slab,
 // loaded through Filament's gltfio. The papermill IBL and a directional sun light the scene, so the
-// pieces are shaded instead of looking flat. Each piece node is matched to a Havok box body and
-// synced every frame.
+// pieces are shaded instead of looking flat. Each piece collides as a convex hull of its own mesh
+// (HP_Shape_CreateConvexHull) and its node is synced every frame.
 //
 // Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
 // camera (Filament can't easily draw lines); the four walls are shown only as wireframes. Press W to
@@ -24,7 +24,7 @@ const PIECE_COUNT = 220;
 const PIECE_W = 1.6;
 const PIECE_H = 1.6;
 const PIECE_D = 0.45;
-const COLLIDER_SIZE = [PIECE_W, PIECE_H, PIECE_D * 1.4];
+const COLLIDER_SIZE = [PIECE_W, PIECE_H, PIECE_D * 1.4]; // box fallback only
 const PIECE_ROUGHNESS = 0.65; // lacquered-wood look
 
 const FIXED_TIMESTEP = 1 / 60;
@@ -51,7 +51,7 @@ const pieces = [];      // { entity, bodyId, curPos, curRot }
 const staticBoxes = []; // ground + walls, for the debug overlay
 
 let debugCanvas = null, debugGl = null, debugProg = null, debugVbo = null, showWireframe = true;
-let unitCubeLines = null;
+let unitCubeLines = null, pieceLines = null;
 
 // ---- Havok helpers ----
 function enumToNumber(value) {
@@ -249,8 +249,7 @@ function buildGlb(meshGeos, materials, nodes, images) {
 // Piece mesh/material (0, shogi texture) + grass ground slab (1). Piece nodes are named "piece<i>"
 // so they can be matched to Havok bodies; physics drives their orientation, so node rotation is left
 // at identity.
-function buildSceneGlb(pieceSpecs, shogiImage, grassImage) {
-  const pieceGeo = createShogiGeometry(PIECE_W, PIECE_H, PIECE_D);
+function buildSceneGlb(pieceSpecs, pieceGeo, shogiImage, grassImage) {
   pieceGeo.material = 0;
   const groundGeo = buildQuadGeometry(GROUND.size[0] / 2, GROUND.size[2] / 2, GROUND.pos[1] + GROUND.size[1] / 2, GROUND_TILES);
   groundGeo.material = 1;
@@ -284,6 +283,30 @@ function createStaticBox(size, pos) {
   HK.HP_Body_SetOrientation(b[1], IDENTITY_QUATERNION);
   HK.HP_World_AddBody(worldId, b[1], false);
   staticBoxes.push({ size, pos });
+}
+
+// Convex-hull collider from the piece's own mesh vertices (a shogi piece is convex). Dynamic bodies
+// need a convex shape in Havok, so a hull — not a triangle mesh — is used. Falls back to a box.
+function createPieceShape(positions) {
+  if (typeof HK.HP_Shape_CreateConvexHull === 'function') {
+    const nPoints = positions.length / 3;
+    let shapeId = null;
+    if (typeof HK._malloc === 'function' && HK.HEAPU8) {
+      const ptr = HK._malloc(positions.byteLength);
+      new Float32Array(HK.HEAPU8.buffer, ptr, positions.length).set(positions);
+      const res = HK.HP_Shape_CreateConvexHull(ptr, nPoints);
+      HK._free(ptr);
+      if (enumToNumber(res[0]) === enumToNumber(HK.Result.RESULT_OK) && res[1]) shapeId = res[1];
+    }
+    if (!shapeId) {
+      const res = HK.HP_Shape_CreateConvexHull(positions, nPoints);
+      if (enumToNumber(res[0]) === enumToNumber(HK.Result.RESULT_OK) && res[1]) shapeId = res[1];
+    }
+    if (shapeId) return shapeId;
+  }
+  const res = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, COLLIDER_SIZE);
+  checkResult(res[0], 'HP_Shape_CreateBox piece fallback');
+  return res[1];
 }
 
 function randomQuat() {
@@ -345,6 +368,18 @@ function makeBoxLineVerts(sx, sy, sz) {
   return new Float32Array(v);
 }
 
+// Triangle-edge line list from the piece geometry — a faithful outline of the convex-hull collider.
+function makePieceLineVerts(geo) {
+  const pos = geo.positions, idx = geo.indices, v = [];
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+    v.push(pos[a], pos[a + 1], pos[a + 2], pos[b], pos[b + 1], pos[b + 2]);
+    v.push(pos[b], pos[b + 1], pos[b + 2], pos[c], pos[c + 1], pos[c + 2]);
+    v.push(pos[c], pos[c + 1], pos[c + 2], pos[a], pos[a + 1], pos[a + 2]);
+  }
+  return new Float32Array(v);
+}
+
 function initDebugCanvas(mainCanvas) {
   debugCanvas = document.createElement('canvas');
   debugCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none';
@@ -389,8 +424,6 @@ function drawDebug(eye, center, up, aspect) {
   gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
   gl.enableVertexAttribArray(aPos);
   gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-  gl.bufferData(gl.ARRAY_BUFFER, unitCubeLines, gl.DYNAMIC_DRAW);
-  const count = unitCubeLines.length / 3;
 
   const model = mat4.create(), mvp = mat4.create(), sq = quat.create(), sp = vec3.create(), ss = vec3.create();
   function drawScaled(p, r, scale) {
@@ -404,16 +437,23 @@ function drawDebug(eye, center, up, aspect) {
 
   // Ground + walls (static, green)
   gl.uniform4fv(uColor, DEBUG_COLOR_STATIC);
+  gl.bufferData(gl.ARRAY_BUFFER, unitCubeLines, gl.DYNAMIC_DRAW);
+  const cubeCount = unitCubeLines.length / 3;
   for (const sb of staticBoxes) {
     drawScaled(sb.pos, IDENTITY_QUATERNION, sb.size);
-    gl.drawArrays(gl.LINES, 0, count);
+    gl.drawArrays(gl.LINES, 0, cubeCount);
   }
 
-  // Pieces (orange box colliders)
-  gl.uniform4fv(uColor, DEBUG_COLOR_DYNAMIC);
-  for (const p of pieces) {
-    drawScaled(p.curPos, p.curRot, COLLIDER_SIZE);
-    gl.drawArrays(gl.LINES, 0, count);
+  // Pieces (orange convex-hull / mesh outline at the body transform)
+  if (pieceLines) {
+    gl.uniform4fv(uColor, DEBUG_COLOR_DYNAMIC);
+    gl.bufferData(gl.ARRAY_BUFFER, pieceLines, gl.DYNAMIC_DRAW);
+    const pieceCount = pieceLines.length / 3;
+    const one = [1, 1, 1];
+    for (const p of pieces) {
+      drawScaled(p.curPos, p.curRot, one);
+      gl.drawArrays(gl.LINES, 0, pieceCount);
+    }
   }
   gl.disableVertexAttribArray(aPos);
 }
@@ -492,10 +532,13 @@ async function main() {
   const pieceSpecs = [];
   for (let i = 0; i < PIECE_COUNT; i++) pieceSpecs.push({ position: randomDrop() });
 
+  const pieceGeo = createShogiGeometry(PIECE_W, PIECE_H, PIECE_D);
+  pieceLines = makePieceLineVerts(pieceGeo);
+
   const shogiImage = { bytes: await fetchBytes(SHOGI_URL), mimeType: 'image/png' };
   const grassImage = { bytes: await fetchBytes(GRASS_URL), mimeType: 'image/jpeg' };
 
-  const glb = buildSceneGlb(pieceSpecs, shogiImage, grassImage);
+  const glb = buildSceneGlb(pieceSpecs, pieceGeo, shogiImage, grassImage);
   const assetLoader = engine.createAssetLoader();
   asset = assetLoader.createAsset(glb);
   await new Promise((resolve) => {
@@ -510,8 +553,8 @@ async function main() {
     }, () => {}, '');
   });
 
-  // One shared box collider; match each piece node to its Filament entity and create its body.
-  const pieceShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, COLLIDER_SIZE)[1];
+  // One shared convex-hull collider; match each piece node to its Filament entity and create its body.
+  const pieceShape = createPieceShape(pieceGeo.positions);
   for (let i = 0; i < pieceSpecs.length; i++) {
     const named = asset.getEntitiesByName('piece' + i);
     const entity = named.length > 0 ? named[0] : null;
