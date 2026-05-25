@@ -1,12 +1,14 @@
 // Filament + Havok — Falling Coins sample (PBR).
 //
-// Gold / silver / copper coins drop onto a ground plane, simulated by Havok and rendered by Google
+// Gold / silver / copper coins pour down like a waterfall, simulated by Havok and rendered by Google
 // Filament with real physically-based metals. There is no PBR .filamat we can load, so the scene is
 // emitted as an in-code glTF (GLB): three metallic-roughness cylinder meshes (one per metal, sharing
 // a normal map for the minted relief) plus a flat ground slab, referenced by N coin nodes. The GLB
 // is loaded through Filament's gltfio, whose ubershader provides the metallic-roughness PBR (and
 // computes tangents from the meshes' UVs + normals); the papermill IBL supplies the reflections that
-// make the metals read. Each coin node is matched to a Havok cylinder body and synced every frame.
+// make the metals read. Each coin is simulated as a Havok sphere (so it rolls and cascades) and the
+// matching node is synced every frame; coins that settle or fall off the edge recycle to the top to
+// keep the stream flowing.
 //
 // Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
 // camera (Filament can't easily draw lines). Press W to toggle them.
@@ -25,14 +27,22 @@ const COIN_TYPES = [
   { name: 'copper', colorHex: 0xf3a28a, diameter: 0.6, height: 0.05,  metalness: 1.0, roughness: 0.20 },
 ];
 
-const COIN_COUNT = 200;
+const COIN_COUNT = 500;
 const COIN_SEGMENTS = 32;       // radial segments of each cylinder
-const DROP_HALF = 4.5;          // horizontal spread of the spawn region
+const DROP_HALF = 3.0;          // horizontal spread of the spawn column
+const SPAWN_Y_MIN = 24;         // recycled coins re-enter at the top of this band
+const SPAWN_Y_MAX = 32;
+const COLUMN_Y_MIN = 2;         // initial fill spans the whole column for an instant waterfall
+const COLUMN_Y_MAX = 32;
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
-const RESET_Y_THRESHOLD = -12;
-const GROUND = { size: [20, 2, 20], pos: [0, -1, 0] };  // top surface at y = 0
+const RESET_Y_THRESHOLD = -8;   // fell off the ground edge -> recycle to the top
+// A coin that has come to rest near the ground is lifted back to the top so the stream never stops.
+const SETTLE_Y = 3.0;
+const SETTLE_MOVE_SQ = 0.0025;  // squared per-frame movement below which a coin counts as "still"
+const SETTLE_FRAMES = 18;
+const GROUND = { size: [24, 2, 24], pos: [0, -1, 0] };  // top surface at y = 0
 
 const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
@@ -42,12 +52,12 @@ let worldId = null;
 
 let engine = null;
 let asset = null;
-const coins = [];       // { entity, bodyId, typeIndex, curPos, curRot }
-const staticBoxes = []; // ground + walls, for the debug overlay
+const coins = [];       // { entity, bodyId, typeIndex, curPos, curRot, restFrames }
+const staticBoxes = []; // ground, for the debug overlay
 
 let debugCanvas = null, debugGl = null, debugProg = null, debugVbo = null, showWireframe = true;
 let unitCubeLines = null;
-const coinLinesByType = [];  // cylinder outline verts, per coin type
+const coinLinesByType = [];  // sphere outline verts, per coin type
 
 // ---- Colour helper ----
 function srgbToLinear(c) {
@@ -267,12 +277,20 @@ function buildSceneGlb(coinSpecs, normalImageBytes) {
 }
 
 // ---- Scene setup ----
-function randomDrop() {
-  return [
-    -DROP_HALF + Math.random() * (2 * DROP_HALF),
-    12 + Math.random() * 14,
-    -DROP_HALF + Math.random() * (2 * DROP_HALF),
-  ];
+function randomXZ() {
+  return [-DROP_HALF + Math.random() * (2 * DROP_HALF), -DROP_HALF + Math.random() * (2 * DROP_HALF)];
+}
+
+// Spawn point at the top of the falling column (used when recycling).
+function randomDropTop() {
+  const [x, z] = randomXZ();
+  return [x, SPAWN_Y_MIN + Math.random() * (SPAWN_Y_MAX - SPAWN_Y_MIN), z];
+}
+
+// Initial fill spread over the whole column so the waterfall is full from the first frame.
+function randomDropColumn() {
+  const [x, z] = randomXZ();
+  return [x, COLUMN_Y_MIN + Math.random() * (COLUMN_Y_MAX - COLUMN_Y_MIN), z];
 }
 
 // Uniform random orientation so coins land at varied angles.
@@ -298,16 +316,12 @@ function createStaticBox(size, pos) {
   staticBoxes.push({ size, pos });
 }
 
+// Coins collide as spheres (radius = coin radius), like the three.js sample, so they roll and
+// cascade rather than stacking flat.
 function createCoinShape(typeIndex) {
-  const t = COIN_TYPES[typeIndex];
-  const r = t.diameter * 0.5, hh = t.height * 0.5;
-  if (typeof HK.HP_Shape_CreateCylinder === 'function') {
-    const res = HK.HP_Shape_CreateCylinder([0, -hh, 0], [0, hh, 0], r);
-    checkResult(res[0], 'HP_Shape_CreateCylinder coin');
-    return res[1];
-  }
-  const res = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [r * 2, hh * 2, r * 2]);
-  checkResult(res[0], 'HP_Shape_CreateBox coin fallback');
+  const r = COIN_TYPES[typeIndex].diameter * 0.5;
+  const res = HK.HP_Shape_CreateSphere([0, 0, 0], r);
+  checkResult(res[0], 'HP_Shape_CreateSphere coin');
   return res[1];
 }
 
@@ -321,7 +335,15 @@ function addCoinBody(shapeId, typeIndex, entity, pos, rot) {
   HK.HP_Body_SetPosition(bodyId, pos);
   HK.HP_Body_SetOrientation(bodyId, rot);
   HK.HP_World_AddBody(worldId, bodyId, false);
-  coins.push({ entity, bodyId, typeIndex, curPos: pos.slice(), curRot: rot.slice() });
+  coins.push({ entity, bodyId, typeIndex, curPos: pos.slice(), curRot: rot.slice(), restFrames: 0 });
+}
+
+function recycleCoin(c) {
+  HK.HP_Body_SetPosition(c.bodyId, randomDropTop());
+  HK.HP_Body_SetOrientation(c.bodyId, randomQuat());
+  HK.HP_Body_SetLinearVelocity(c.bodyId, [0, 0, 0]);
+  HK.HP_Body_SetAngularVelocity(c.bodyId, [0, 0, 0]);
+  c.restFrames = 0;
 }
 
 function stepAndSync() {
@@ -330,11 +352,11 @@ function stepAndSync() {
   tcm.openLocalTransformTransaction();
   for (const c of coins) {
     let pos = HK.HP_Body_GetPosition(c.bodyId)[1];
-    if (pos[1] < RESET_Y_THRESHOLD) {
-      HK.HP_Body_SetPosition(c.bodyId, randomDrop());
-      HK.HP_Body_SetOrientation(c.bodyId, randomQuat());
-      HK.HP_Body_SetLinearVelocity(c.bodyId, [0, 0, 0]);
-      HK.HP_Body_SetAngularVelocity(c.bodyId, [0, 0, 0]);
+    const dx = pos[0] - c.curPos[0], dy = pos[1] - c.curPos[1], dz = pos[2] - c.curPos[2];
+    const still = (dx * dx + dy * dy + dz * dz) < SETTLE_MOVE_SQ;
+    if (pos[1] < SETTLE_Y && still) c.restFrames++; else c.restFrames = 0;
+    if (pos[1] < RESET_Y_THRESHOLD || c.restFrames > SETTLE_FRAMES) {
+      recycleCoin(c);
       pos = HK.HP_Body_GetPosition(c.bodyId)[1];
     }
     const r = HK.HP_Body_GetOrientation(c.bodyId)[1];
@@ -360,18 +382,16 @@ function makeBoxLineVerts(sx, sy, sz) {
   return new Float32Array(v);
 }
 
-function makeCylinderLineVerts(radius, halfHeight, segments = 16) {
+function makeSphereLineVerts(radius, segments = 16) {
   const v = [];
-  for (let s = 0; s < 2; s++) {
-    const y = s === 0 ? -halfHeight : halfHeight;
+  for (let c = 0; c < 3; c++) {
     for (let i = 0; i < segments; i++) {
       const a0 = (i / segments) * Math.PI * 2, a1 = ((i + 1) / segments) * Math.PI * 2;
-      v.push(Math.cos(a0) * radius, y, Math.sin(a0) * radius, Math.cos(a1) * radius, y, Math.sin(a1) * radius);
+      const c0 = Math.cos(a0) * radius, s0 = Math.sin(a0) * radius, c1 = Math.cos(a1) * radius, s1 = Math.sin(a1) * radius;
+      if (c === 0) v.push(c0, s0, 0, c1, s1, 0);
+      else if (c === 1) v.push(c0, 0, s0, c1, 0, s1);
+      else v.push(0, c0, s0, 0, c1, s1);
     }
-  }
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    v.push(Math.cos(a) * radius, -halfHeight, Math.sin(a) * radius, Math.cos(a) * radius, halfHeight, Math.sin(a) * radius);
   }
   return new Float32Array(v);
 }
@@ -400,7 +420,7 @@ function initDebugCanvas(mainCanvas) {
   }
   debugVbo = gl.createBuffer();
   unitCubeLines = makeBoxLineVerts(1, 1, 1);
-  for (const t of COIN_TYPES) coinLinesByType.push(makeCylinderLineVerts(t.diameter * 0.5, t.height * 0.5));
+  for (const t of COIN_TYPES) coinLinesByType.push(makeSphereLineVerts(t.diameter * 0.5));
 }
 
 function drawDebug(eye, center, up, aspect) {
@@ -432,7 +452,7 @@ function drawDebug(eye, center, up, aspect) {
     gl.uniformMatrix4fv(uMVP, false, mvp);
   }
 
-  // Ground + walls (static, green).
+  // Ground (static, green).
   gl.uniform4fv(uColor, DEBUG_COLOR_STATIC);
   gl.bufferData(gl.ARRAY_BUFFER, unitCubeLines, gl.DYNAMIC_DRAW);
   const cubeCount = unitCubeLines.length / 3;
@@ -441,7 +461,7 @@ function drawDebug(eye, center, up, aspect) {
     gl.drawArrays(gl.LINES, 0, cubeCount);
   }
 
-  // Coins (orange cylinder outlines at the body transform), grouped by type.
+  // Coins (orange sphere outlines at the body position), grouped by type.
   gl.uniform4fv(uColor, DEBUG_COLOR_DYNAMIC);
   const one = [1, 1, 1];
   for (let ti = 0; ti < COIN_TYPES.length; ti++) {
@@ -451,7 +471,7 @@ function drawDebug(eye, center, up, aspect) {
     const count = lines.length / 3;
     for (const c of coins) {
       if (c.typeIndex !== ti) continue;
-      setMVP(c.curPos, c.curRot, one);
+      setMVP(c.curPos, IDENTITY_QUATERNION, one);
       gl.drawArrays(gl.LINES, 0, count);
     }
   }
@@ -528,7 +548,7 @@ async function main() {
   // Assign a coin type + spawn point to each coin, then build & load the GLB (coins + ground).
   const coinSpecs = [];
   for (let i = 0; i < COIN_COUNT; i++) {
-    coinSpecs.push({ typeIndex: Math.floor(Math.random() * COIN_TYPES.length), position: randomDrop() });
+    coinSpecs.push({ typeIndex: Math.floor(Math.random() * COIN_TYPES.length), position: randomDropColumn() });
   }
   const coinShapes = COIN_TYPES.map((_, ti) => createCoinShape(ti));
 
@@ -562,9 +582,9 @@ async function main() {
   }
   console.log('[Filament+Havok] coins ready:', coins.length);
 
-  const center = [0, 1, 0];
-  const orbitDist = 22;
-  const orbitHeight = 14;
+  const center = [0, 6, 0];
+  const orbitDist = 32;
+  const orbitHeight = 18;
 
   let aspect = 1;
   function resize() {
