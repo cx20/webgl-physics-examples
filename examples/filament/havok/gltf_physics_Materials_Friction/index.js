@@ -469,7 +469,8 @@ async function main() {
         const inst = rm.getInstance(e);
         if (inst) { rm.setCastShadows(inst, true); inst.delete(); }
       }
-      scene.addEntities(asset.getEntities());
+      // Renderables are added to the scene incrementally in render() via popRenderable()
+      // (the canonical Filament gltfio pattern — addEntities() does not make them draw).
       for (const l of asset.getLightEntities()) scene.addEntity(l);
       resolve();
     }, () => {}, '');
@@ -515,6 +516,15 @@ async function main() {
   let angle = 0.6;
   function render() {
     requestAnimationFrame(render);
+
+    // Move renderables into the scene as Filament finishes their GPU upload.
+    if (asset) {
+      let e = asset.popRenderable();
+      while (e.getId() !== 0) {
+        scene.addEntity(e);
+        e = asset.popRenderable();
+      }
+    }
 
     try { physicsStep(); } catch (e) { console.error('[physics] step error:', e); HK = null; }
 
