@@ -152,6 +152,7 @@ const load = async function() {
       heightSegments: 16,
       material: mat,
     });
+    try { helper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
     sphereMeshByKey[key] = helper.getMesh().mesh;
   }
 
@@ -164,6 +165,7 @@ const load = async function() {
     heightSegments: 8,
     material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC),
   });
+  try { ballWireHelper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
   const ballWireMesh = ballWireHelper.getMesh().mesh;
   try {
     for (const prim of ballWireMesh.primitives) prim.convertToUnindexedGeometry();
