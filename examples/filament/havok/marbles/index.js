@@ -201,30 +201,36 @@ async function initMarbles(meshUrl, filamentAsset, filamentEngine) {
       const inst = rm.getInstance(entity);
       if (inst) { rm.setCulling(inst, false); inst.delete(); }
     }
-    marbles.push({ entity, bodyId, nodeScale: [worldScale[0], worldScale[1], worldScale[2]], parentInvWorldMat, radius });
+    marbles.push({ entity, bodyId, nodeScale: [worldScale[0], worldScale[1], worldScale[2]], parentInvWorldMat, radius, curPos: drop.slice(), curRot: [0, 0, 0, 1] });
   }
 
   console.log('[Filament+Havok] marbles ready:', marbles.length);
 }
 
-function physicsStep() {
-  if (!HK || !worldId) return;
+// Advance the simulation one fixed step and respawn fallen marbles. No Filament work here, so it
+// can be called multiple times per render frame (accumulator) without touching the GPU.
+function stepPhysics() {
   checkResult(HK.HP_World_Step(worldId, FIXED_TIMESTEP), 'HP_World_Step');
+  for (const m of marbles) {
+    const p = HK.HP_Body_GetPosition(m.bodyId)[1];
+    if (p[1] < RESET_Y_THRESHOLD) {
+      HK.HP_Body_SetPosition(m.bodyId, randomDrop());
+      HK.HP_Body_SetLinearVelocity(m.bodyId, [0, 0, 0]);
+      HK.HP_Body_SetAngularVelocity(m.bodyId, [0, 0, 0]);
+    }
+  }
+}
 
+// Read each body's transform once, cache it (reused by the debug overlay), and push it to Filament.
+function syncTransforms() {
   const tcm = engine.getTransformManager();
   tcm.openLocalTransformTransaction();
   for (const m of marbles) {
-    let pr = HK.HP_Body_GetPosition(m.bodyId);
-    if (pr[1][1] < RESET_Y_THRESHOLD) {
-      const drop = randomDrop();
-      HK.HP_Body_SetPosition(m.bodyId, drop);
-      HK.HP_Body_SetLinearVelocity(m.bodyId, [0, 0, 0]);
-      HK.HP_Body_SetAngularVelocity(m.bodyId, [0, 0, 0]);
-      pr = HK.HP_Body_GetPosition(m.bodyId);
-    }
+    const p = HK.HP_Body_GetPosition(m.bodyId)[1];
+    const r = HK.HP_Body_GetOrientation(m.bodyId)[1];
+    m.curPos[0] = p[0]; m.curPos[1] = p[1]; m.curPos[2] = p[2];
+    m.curRot[0] = r[0]; m.curRot[1] = r[1]; m.curRot[2] = r[2]; m.curRot[3] = r[3];
     if (!m.entity) continue;
-    const qr = HK.HP_Body_GetOrientation(m.bodyId);
-    const p = pr[1], r = qr[1];
     const physWorld = mat4.fromRotationTranslationScale(
       mat4.create(),
       quat.fromValues(r[0], r[1], r[2], r[3]),
@@ -318,18 +324,18 @@ function drawDebug(eye, center, up, aspect) {
     gl.drawArrays(gl.LINES, 0, verts.length / 3);
   }
 
-  // Marbles: one shared unit-sphere buffer, scaled + placed per body.
+  // Marbles: one shared unit-sphere buffer, scaled + placed per body (cached transform).
   gl.uniform4fv(uColor, DEBUG_COLOR_DYNAMIC);
   gl.bufferData(gl.ARRAY_BUFFER, unitSphereVerts, gl.DYNAMIC_DRAW);
   const count = unitSphereVerts.length / 3;
+  const model = mat4.create(), mvp = mat4.create(), sq = quat.create(), sp = vec3.create(), ss = vec3.create();
   for (const m of marbles) {
-    const pr = HK.HP_Body_GetPosition(m.bodyId);
-    const qr = HK.HP_Body_GetOrientation(m.bodyId);
-    const p = pr[1], r = qr[1];
-    const model = mat4.fromRotationTranslationScale(
-      mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]),
-      vec3.fromValues(p[0], p[1], p[2]), vec3.fromValues(m.radius, m.radius, m.radius));
-    gl.uniformMatrix4fv(uMVP, false, mat4.multiply(mat4.create(), vp, model));
+    quat.set(sq, m.curRot[0], m.curRot[1], m.curRot[2], m.curRot[3]);
+    vec3.set(sp, m.curPos[0], m.curPos[1], m.curPos[2]);
+    vec3.set(ss, m.radius, m.radius, m.radius);
+    mat4.fromRotationTranslationScale(model, sq, sp, ss);
+    mat4.multiply(mvp, vp, model);
+    gl.uniformMatrix4fv(uMVP, false, mvp);
     gl.drawArrays(gl.LINES, 0, count);
   }
   gl.disableVertexAttribArray(aPos);
@@ -438,6 +444,8 @@ async function main() {
   setWireframeVisible(showWireframe);
 
   let angle = 0.4;
+  let lastTime = performance.now();
+  let accumulator = 0;
   function render() {
     requestAnimationFrame(render);
 
@@ -449,7 +457,25 @@ async function main() {
       }
     }
 
-    try { physicsStep(); } catch (e) { console.error('[physics] step error:', e); HK = null; }
+    // Fixed-timestep physics decoupled from the render rate: step to catch up to wall-clock time
+    // (capped) so the simulation runs at real speed even when the GPU-heavy render dips below 60fps.
+    if (HK && worldId) {
+      try {
+        const now = performance.now();
+        let dt = (now - lastTime) / 1000;
+        lastTime = now;
+        if (dt > 0.25) dt = 0.25;
+        accumulator += dt;
+        let steps = 0;
+        while (accumulator >= FIXED_TIMESTEP && steps < 5) {
+          stepPhysics();
+          accumulator -= FIXED_TIMESTEP;
+          steps++;
+        }
+        if (accumulator > FIXED_TIMESTEP) accumulator = 0; // drop backlog when we hit the cap
+        syncTransforms();
+      } catch (e) { console.error('[physics] step error:', e); HK = null; }
+    }
 
     angle += 0.0035;
     const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
