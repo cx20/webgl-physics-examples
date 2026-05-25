@@ -14,6 +14,7 @@
 const FILAMAT_CUBE_URL = 'https://cx20.github.io/webgl-test/examples/filament/cube/cube.filamat';
 const FILAMAT_TEX_URL = 'https://cx20.github.io/webgl-test/examples/filament/texture/texture.filamat';
 const FOOTBALL_URL = '../../../../assets/textures/football.png';
+const GRASS_URL = '../../../../assets/textures/grass.jpg';
 
 const dataSet = [
   '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '肌', '肌', '肌',
@@ -134,6 +135,16 @@ function buildColorCubeVB(eng, rgb) {
   for (let i = 0; i < 24; i++) { col[i * 4] = r; col[i * 4 + 1] = g; col[i * 4 + 2] = b; col[i * 4 + 3] = 255; }
   vb.setBufferAt(eng, 1, col);
   return vb;
+}
+
+// Flat ground quad (XZ plane) at y=0 with tiled UVs.
+function makePlaneGeometry(size, tiles) {
+  const h = size / 2;
+  return {
+    positions: new Float32Array([-h, 0, -h, h, 0, -h, h, 0, h, -h, 0, h]),
+    uvs: new Float32Array([0, 0, tiles, 0, tiles, tiles, 0, tiles]),
+    indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
+  };
 }
 
 // Vertex buffer with POSITION + UV0 (texture.filamat needs uv0) — used for the football sphere.
@@ -328,7 +339,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 // ---- Filament app ----
-Filament.init([FILAMAT_CUBE_URL, FILAMAT_TEX_URL, FOOTBALL_URL], () => {
+Filament.init([FILAMAT_CUBE_URL, FILAMAT_TEX_URL, FOOTBALL_URL, GRASS_URL], () => {
   window.Fov = Filament.Camera$Fov;
   main().catch(e => console.error(e));
 });
@@ -354,6 +365,30 @@ async function main() {
   const sphereGeo = makeSphereGeometry(20, 14);
   const sphereVB = buildVB(engine, sphereGeo.positions, sphereGeo.uvs, sphereGeo.positions.length / 3);
   const sphereIB = buildIB(engine, sphereGeo.indices);
+
+  // Ground: a grass-textured quad placed at the top of the ground collider.
+  const groundInst = texMat.createInstance();
+  groundInst.setTextureParameter('texture', engine.createTextureFromJpeg(GRASS_URL, { nomips: true }), sampler);
+  const planeGeo = makePlaneGeometry(GROUND.size[0], 20);
+  const groundVB = buildVB(engine, planeGeo.positions, planeGeo.uvs, 4);
+  const groundIB = buildIB(engine, planeGeo.indices);
+  const groundEntity = Filament.EntityManager.get().create();
+  Filament.RenderableManager.Builder(1)
+    .boundingBox({ center: [0, 0, 0], halfExtent: [GROUND.size[0] / 2, 0.1, GROUND.size[2] / 2] })
+    .material(0, groundInst)
+    .geometry(0, Filament.RenderableManager$PrimitiveType.TRIANGLES, groundVB, groundIB)
+    .build(engine, groundEntity);
+  scene.addEntity(groundEntity);
+  {
+    const tcm = engine.getTransformManager();
+    const inst = tcm.getInstance(groundEntity);
+    const groundTop = GROUND.pos[1] + GROUND.size[1] / 2;
+    tcm.setTransform(inst, mat4.fromTranslation(mat4.create(), vec3.fromValues(GROUND.pos[0], groundTop, GROUND.pos[2])));
+    inst.delete();
+    const rm = engine.getRenderableManager();
+    const rmInst = rm.getInstance(groundEntity);
+    if (rmInst) { rm.setCulling(rmInst, false); rmInst.delete(); }
+  }
 
   const swapChain = engine.createSwapChain();
   const renderer = engine.createRenderer();
