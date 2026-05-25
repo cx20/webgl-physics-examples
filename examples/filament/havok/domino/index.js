@@ -9,7 +9,11 @@
 // A compiled .filamat is tied to a Filament version, so this sample uses the matching `dev` build
 // (see index.html). Libraries are globals: Filament, HavokPhysics, gl-matrix.
 
-const FILAMAT_URL = 'https://cx20.github.io/webgl-test/examples/filament/texture/texture.filamat';
+// cube.filamat = vertex-colour unlit material (for dominoes); texture.filamat = textured unlit
+// material (for the football). Both target the dev Filament build (see index.html).
+const FILAMAT_CUBE_URL = 'https://cx20.github.io/webgl-test/examples/filament/cube/cube.filamat';
+const FILAMAT_TEX_URL = 'https://cx20.github.io/webgl-test/examples/filament/texture/texture.filamat';
+const FOOTBALL_URL = '../../../../assets/textures/football.png';
 
 const dataSet = [
   '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '無', '肌', '肌', '肌',
@@ -42,8 +46,6 @@ const colorHash = {
   '青': [0, 0, 1],
   '紫': [0x80 / 255, 0, 0x80 / 255],
 };
-const BALL_COLOR = [0.95, 0.95, 0.95];
-
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const BOX_SIZE = 2;
@@ -91,7 +93,6 @@ const CUBE_POSITIONS = new Float32Array([
   0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5,
   -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5,
 ]);
-const CUBE_UVS = new Float32Array(48).fill(0.5); // 1x1 colour textures: UVs are irrelevant
 const CUBE_INDICES = new Uint16Array([
   0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11,
   12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
@@ -116,20 +117,26 @@ function makeSphereGeometry(segments, rings) {
   return { positions: new Float32Array(pos), uvs: new Float32Array(uv), indices: new Uint16Array(idx) };
 }
 
-// ---- Filament texture/material helpers ----
-function colorTexture(eng, rgb) {
-  const cv = document.createElement('canvas');
-  cv.width = 1; cv.height = 1;
-  const ctx = cv.getContext('2d');
-  ctx.fillStyle = `rgb(${Math.round(rgb[0] * 255)},${Math.round(rgb[1] * 255)},${Math.round(rgb[2] * 255)})`;
-  ctx.fillRect(0, 0, 1, 1);
-  const b64 = cv.toDataURL('image/png').split(',')[1];
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return eng.createTextureFromPng(bytes, { nomips: true });
+// ---- Filament geometry helpers ----
+// Cube vertex buffer with a flat per-vertex COLOR (cube.filamat uses getColor() as baseColor).
+function buildColorCubeVB(eng, rgb) {
+  const VA = Filament.VertexAttribute, AT = Filament.VertexBuffer$AttributeType;
+  const vb = Filament.VertexBuffer.Builder()
+    .vertexCount(24)
+    .bufferCount(2)
+    .attribute(VA.POSITION, 0, AT.FLOAT3, 0, 0)
+    .attribute(VA.COLOR, 1, AT.UBYTE4, 0, 0)
+    .normalized(VA.COLOR)
+    .build(eng);
+  vb.setBufferAt(eng, 0, CUBE_POSITIONS);
+  const r = Math.round(rgb[0] * 255), g = Math.round(rgb[1] * 255), b = Math.round(rgb[2] * 255);
+  const col = new Uint8Array(24 * 4);
+  for (let i = 0; i < 24; i++) { col[i * 4] = r; col[i * 4 + 1] = g; col[i * 4 + 2] = b; col[i * 4 + 3] = 255; }
+  vb.setBufferAt(eng, 1, col);
+  return vb;
 }
 
+// Vertex buffer with POSITION + UV0 (texture.filamat needs uv0) — used for the football sphere.
 function buildVB(eng, positions, uvs, vertexCount) {
   const VA = Filament.VertexAttribute, AT = Filament.VertexBuffer$AttributeType;
   const vb = Filament.VertexBuffer.Builder()
@@ -321,7 +328,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 // ---- Filament app ----
-Filament.init([FILAMAT_URL], () => {
+Filament.init([FILAMAT_CUBE_URL, FILAMAT_TEX_URL, FOOTBALL_URL], () => {
   window.Fov = Filament.Camera$Fov;
   main().catch(e => console.error(e));
 });
@@ -331,20 +338,20 @@ async function main() {
   engine = Filament.Engine.create(canvas);
   const scene = engine.createScene();
 
-  const material = engine.createMaterial(FILAMAT_URL);
-  const sampler = new Filament.TextureSampler(Filament.MinFilter.NEAREST, Filament.MagFilter.NEAREST, Filament.WrapMode.CLAMP_TO_EDGE);
-  const matInstByKey = {};
-  for (const [key, rgb] of Object.entries(colorHash)) {
-    const inst = material.createInstance();
-    inst.setTextureParameter('texture', colorTexture(engine, rgb), sampler);
-    matInstByKey[key] = inst;
-  }
-  const ballInst = material.createInstance();
-  ballInst.setTextureParameter('texture', colorTexture(engine, BALL_COLOR), sampler);
-
-  const cubeVB = buildVB(engine, CUBE_POSITIONS, CUBE_UVS, 24);
+  // Dominoes: one vertex-colour material (cube.filamat) shared by all, with a per-colour cube
+  // vertex buffer carrying that colour.
+  const cubeMat = engine.createMaterial(FILAMAT_CUBE_URL);
+  const cubeInst = cubeMat.getDefaultInstance();
+  const cubeVBByKey = {};
+  for (const [key, rgb] of Object.entries(colorHash)) cubeVBByKey[key] = buildColorCubeVB(engine, rgb);
   const cubeIB = buildIB(engine, CUBE_INDICES);
-  const sphereGeo = makeSphereGeometry(16, 12);
+
+  // Balls: football-textured sphere (texture.filamat).
+  const texMat = engine.createMaterial(FILAMAT_TEX_URL);
+  const ballInst = texMat.createInstance();
+  const sampler = new Filament.TextureSampler(Filament.MinFilter.LINEAR, Filament.MagFilter.LINEAR, Filament.WrapMode.REPEAT);
+  ballInst.setTextureParameter('texture', engine.createTextureFromPng(FOOTBALL_URL, { nomips: true }), sampler);
+  const sphereGeo = makeSphereGeometry(20, 14);
   const sphereVB = buildVB(engine, sphereGeo.positions, sphereGeo.uvs, sphereGeo.positions.length / 3);
   const sphereIB = buildIB(engine, sphereGeo.indices);
 
@@ -386,7 +393,7 @@ async function main() {
       const x = -8 * BOX_SIZE + col * BOX_SIZE;
       const y = BOX_SIZE;
       const z = -8 * BOX_SIZE + row * BOX_SIZE * 1.2;
-      addBody(scene, cubeVB, cubeIB, [0.5, 0.5, 0.5], matInstByKey[colorKey] || matInstByKey['無'],
+      addBody(scene, cubeVBByKey[colorKey] || cubeVBByKey['無'], cubeIB, [0.5, 0.5, 0.5], cubeInst,
         dominoShape, HK.MotionType.DYNAMIC, dominoScale, [x, y, z], IDENTITY_QUATERNION, 'box');
     }
   }
