@@ -20,11 +20,10 @@
 const IBL_URL = 'https://cx20.github.io/gltf-test/textures/ktx/papermill/papermill_ibl.ktx';
 const GRASS_URL = '../../../../assets/textures/grass.jpg';
 
-// All non-metal; rubber/felt surfaces are rough (matte) so they don't read as shiny/metallic. The
-// beach ball is the one glossier (vinyl) kind.
+// All non-metal; rubber/felt/vinyl surfaces are rough (matte) so they don't read as shiny/metallic.
 const dataSet = [
   { imageFile: '../../../../assets/textures/Basketball.jpg', scale: 1.0, restitution: 0.6,  roughness: 0.95 },
-  { imageFile: '../../../../assets/textures/BeachBall.jpg',  scale: 0.9, restitution: 0.7,  roughness: 0.5 },
+  { imageFile: '../../../../assets/textures/BeachBall.jpg',  scale: 0.9, restitution: 0.7,  roughness: 0.85 },
   { imageFile: '../../../../assets/textures/Football.jpg',   scale: 1.0, restitution: 0.55, roughness: 0.8 },
   { imageFile: '../../../../assets/textures/Softball.jpg',   scale: 0.3, restitution: 0.4,  roughness: 0.9 },
   { imageFile: '../../../../assets/textures/TennisBall.jpg', scale: 0.3, restitution: 0.75, roughness: 1.0 },
