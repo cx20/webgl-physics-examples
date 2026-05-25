@@ -50,7 +50,9 @@ const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const BALL_SIZE = 1;
 const BALL_RADIUS = BALL_SIZE / 2;
 const RESET_Y_THRESHOLD = -10;
-const GROUND = { size: [20, 0.4, 20], pos: [0, 0, 0] };
+// The balls drop across x = -10..+12.5, so the ground is enlarged to catch all of them (matching
+// the Babylon.js sample, which uses a ground much larger than the ball spread).
+const GROUND = { size: [40, 0.4, 40], pos: [0, 0, 0] };
 
 const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
@@ -354,7 +356,7 @@ async function main() {
   // Grass ground
   const groundInst = texMat.createInstance();
   groundInst.setTextureParameter('texture', engine.createTextureFromJpeg(GRASS_URL, { nomips: true }), linear);
-  const planeGeo = makePlaneGeometry(GROUND.size[0], 8);
+  const planeGeo = makePlaneGeometry(GROUND.size[0], 16);
   const groundVB = buildVB(engine, planeGeo.positions, planeGeo.uvs, 4);
   const groundIB = buildIB(engine, planeGeo.indices);
 
