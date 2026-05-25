@@ -153,14 +153,16 @@ const load = async function() {
   gltfRenderPass.toClearColorBuffer = false;
 
   const sphereEntities = [];
-  const physicsRadius = 0.5;
+  // The glTF marble geometry is a radius-1 sphere (POSITION min/max = +/-1, no node scale),
+  // so the collider must use radius 1 to match the visible mesh.
+  const physicsRadius = 1.0;
 
   // Shared marble collider wireframe (one sphere mesh reused by every marble, instanced so the
   // debug pass doesn't add hundreds of extra unique meshes). Needs un-indexed geometry + barycentric.
   const marbleWireHelper = Rn.MeshHelper.createSphere(engine, {
     radius: physicsRadius,
-    widthSegments: 12,
-    heightSegments: 8,
+    widthSegments: 8,
+    heightSegments: 6,
     material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC),
   });
   try { marbleWireHelper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
