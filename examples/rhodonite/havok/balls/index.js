@@ -16,6 +16,31 @@ const entities = [];
 const bodyIds = [];
 const ballScales = [];
 
+let showWireframe = true;
+const debugEntities = [];      // all collider wireframes (W toggles visibility)
+const ballDebugEntities = [];  // per-ball wireframes, parallel to bodyIds
+const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+
+// PbrUber + RN_USE_WIREFRAME with calcBaryCentricCoord() so the wireframe shader can draw the
+// collider edges (mirrors the other Rhodonite + Havok samples).
+function makeDebugMaterial(color) {
+  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: false, isSkinning: false, isMorphing: false });
+  try { mat.addShaderDefine('RN_USE_WIREFRAME'); } catch (e) {}
+  try { mat.setParameter('wireframe', Rn.Vector3.fromCopy3(1, 0, 1)); } catch (e) {}
+  try { mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4(color)); } catch (e) {}
+  return mat;
+}
+
+function createDebugBox(size, pos, color) {
+  const entity = Rn.MeshHelper.createCube(engine, { material: makeDebugMaterial(color) });
+  entity.getTransform().localScale = Rn.Vector3.fromCopyArray([size[0], size[1], size[2]]);
+  entity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
+  try { entity.getMesh().calcBaryCentricCoord(); } catch (e) {}
+  debugEntities.push(entity);
+  return entity;
+}
+
 function enumToNumber(value) {
   if (typeof value === 'number' || typeof value === 'bigint') return Number(value);
   if (!value || typeof value !== 'object') return NaN;
@@ -86,6 +111,7 @@ const load = async function() {
   groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -2, 0]);
   groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([20, 2, 20]);
   entities.push(groundEntity);
+  createDebugBox([20, 2, 20], [0, -2, 0], DEBUG_COLOR_STATIC);
 
   // Walls (shared material)
   const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
@@ -102,6 +128,7 @@ const load = async function() {
     wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
     wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
     entities.push(wallEntity);
+    createDebugBox(size, pos, DEBUG_COLOR_STATIC);
   }
 
   // Pre-build 5 type-specific physics shapes and sphere meshes
@@ -123,9 +150,26 @@ const load = async function() {
       heightSegments: 10,
       material: mat,
     });
+    try { helper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
 
     return { shapeId: sRes[1], massProps: smRes[1], mesh: helper.getMesh().mesh, scale: d.scale };
   });
+
+  // Shared ball collider wireframe (radius-0.5 base sphere reused by every ball, scaled per entity
+  // by its type scale like the visual meshes). The wireframe shader needs un-indexed geometry +
+  // barycentric coords.
+  const ballWireHelper = Rn.MeshHelper.createSphere(engine, {
+    radius: 0.5,
+    widthSegments: 12,
+    heightSegments: 8,
+    material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC),
+  });
+  try { ballWireHelper.getSceneGraph().isVisible = false; } catch (e) {} // hide the origin helper entity
+  const ballWireMesh = ballWireHelper.getMesh().mesh;
+  try {
+    for (const prim of ballWireMesh.primitives) prim.convertToUnindexedGeometry();
+    ballWireMesh._calcBaryCentricCoord();
+  } catch (e) { console.warn('[Balls] baryCentric failed:', e); }
 
   // Balls
   for (let i = 0; i < 200; i++) {
@@ -151,6 +195,12 @@ const load = async function() {
     entity.getMesh().setMesh(td.mesh);
     entity.getTransform().localScale = Rn.Vector3.fromCopyArray([td.scale, td.scale, td.scale]);
     entities.push(entity);
+
+    const debugEntity = Rn.createMeshEntity(engine);
+    debugEntity.getMesh().setMesh(ballWireMesh);
+    debugEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([td.scale, td.scale, td.scale]);
+    debugEntities.push(debugEntity);
+    ballDebugEntities.push(debugEntity);
   }
 
   // Camera
@@ -182,8 +232,18 @@ const load = async function() {
   renderPass.clearColor = Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 1]);
   renderPass.addEntities(entities);
 
+  // Collider wireframes are drawn in a second pass on top of the model (no depth test)
+  // so the whole collider shape is visible, not just its silhouette.
+  const debugRenderPass = new Rn.RenderPass(engine);
+  debugRenderPass.cameraComponent = cameraComponent;
+  debugRenderPass.toClearColorBuffer = false;
+  try { debugRenderPass.isDepthTest = false; } catch (e) {}
+  debugRenderPass.addEntities(debugEntities);
+
   const expression = new Rn.Expression();
-  expression.addRenderPasses([renderPass]);
+  expression.addRenderPasses([renderPass, debugRenderPass]);
+
+  setWireframeVisible(showWireframe);
 
   // 1 ground + 4 walls = 5 static entities before ball entities
   const physicsEntityOffset = 5;
@@ -198,6 +258,10 @@ const load = async function() {
       const entity = entities[physicsEntityOffset + i];
       entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
       entity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
+
+      const debugEntity = ballDebugEntities[i];
+      debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
+      debugEntity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
 
       if (pos[1] < -10) {
         const nx = -5 + Math.random() * 10;
@@ -223,5 +287,23 @@ const load = async function() {
 
   draw();
 };
+
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  for (const entity of debugEntities) {
+    try { entity.getSceneGraph().isVisible = visible; } catch (e) {}
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
 
 document.body.onload = load;
