@@ -6,8 +6,11 @@
 // blue only collides with blue and green only with green. It uses box implicit shapes, mesh
 // colliders, and a compound (container) body whose children carry their own collision filters.
 //
-// Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
-// camera (Filament can't easily draw lines). Press W to toggle them.
+// Collider wireframes are loaded as a second gltfio asset built in-code (LINES primitives with
+// KHR_materials_unlit), so they render in the same Filament pass as the model — no second canvas,
+// no compositor stutter. For compound bodies, each child's local transform is baked into the line
+// vertices so the body still gets a single wireframe entity that follows its world transform.
+// Press W to toggle the wireframe entities in / out of the scene.
 //
 // Libraries are loaded as globals via <script> tags: Filament, HavokPhysics, gl-matrix
 // (vec3 / quat / mat4).
@@ -28,21 +31,17 @@ let worldId = null;
 
 // Filament objects
 let engine = null;
+let scene = null;
 let asset = null;
 
-// Physics <-> Filament bookkeeping
-const physicsNodes = [];   // dynamic bodies (transform-synced + Y-reset)
-const staticBodies = [];   // static bodies (debug only)
+// Physics <-> Filament bookkeeping; wireframeEntity is filled in by loadWireframeAsset().
+const physicsNodes = [];   // dynamic bodies (transform-synced + Y-reset, with wireframeEntity)
+const staticBodies = [];   // static bodies (wireframeEntity placed once)
 
 // Camera framing (computed from collider bounds)
 const sceneMin = [Infinity, Infinity, Infinity];
 const sceneMax = [-Infinity, -Infinity, -Infinity];
 
-// Debug overlay
-let debugCanvas = null;
-let debugGl = null;
-let debugProg = null;
-let debugVbo = null;
 let showWireframe = true;
 
 // ---- Havok helpers ----
@@ -602,20 +601,30 @@ function physicsStep() {
   const tcm = engine.getTransformManager();
   tcm.openLocalTransformTransaction();
   for (const entry of physicsNodes) {
-    if (!entry.entity) continue;
     const pr = HK.HP_Body_GetPosition(entry.bodyId);
     const qr = HK.HP_Body_GetOrientation(entry.bodyId);
     const p = pr[1], r = qr[1];
-    const physWorld = mat4.fromRotationTranslationScale(
-      mat4.create(),
-      quat.fromValues(r[0], r[1], r[2], r[3]),
-      vec3.fromValues(p[0], p[1], p[2]),
-      vec3.fromValues(entry.nodeScale[0], entry.nodeScale[1], entry.nodeScale[2]),
-    );
-    const localMat = mat4.multiply(mat4.create(), entry.parentInvWorldMat, physWorld);
-    const inst = tcm.getInstance(entry.entity);
-    tcm.setTransform(inst, localMat);
-    inst.delete();
+    if (entry.entity) {
+      const physWorld = mat4.fromRotationTranslationScale(
+        mat4.create(),
+        quat.fromValues(r[0], r[1], r[2], r[3]),
+        vec3.fromValues(p[0], p[1], p[2]),
+        vec3.fromValues(entry.nodeScale[0], entry.nodeScale[1], entry.nodeScale[2]),
+      );
+      const localMat = mat4.multiply(mat4.create(), entry.parentInvWorldMat, physWorld);
+      const inst = tcm.getInstance(entry.entity);
+      tcm.setTransform(inst, localMat);
+      inst.delete();
+    }
+    if (entry.wireframeEntity) {
+      // Wireframe lives at the scene root, so no parentInv is needed; the vertices already encode
+      // the collider size (and, for compound bodies, the children's local transforms).
+      const wireMat = mat4.fromRotationTranslation(mat4.create(),
+        quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(p[0], p[1], p[2]));
+      const inst = tcm.getInstance(entry.wireframeEntity);
+      tcm.setTransform(inst, wireMat);
+      inst.delete();
+    }
   }
   tcm.commitLocalTransformTransaction();
 }
@@ -699,91 +708,174 @@ function debugVertsFor(shape) {
   return verts;
 }
 
-function initDebugCanvas(mainCanvas) {
-  debugCanvas = document.createElement('canvas');
-  debugCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none';
-  debugCanvas.width = mainCanvas.width;
-  debugCanvas.height = mainCanvas.height;
-  mainCanvas.parentElement.appendChild(debugCanvas);
-  const gl = debugGl = debugCanvas.getContext('webgl2');
-  if (!gl) { console.warn('[debug] WebGL2 unavailable for wireframe overlay'); return; }
-  const vs = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs, '#version 300 es\nin vec3 aPos; uniform mat4 uMVP;\nvoid main(){gl_Position=uMVP*vec4(aPos,1.0);}');
-  gl.compileShader(vs);
-  const fs = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fs, '#version 300 es\nprecision mediump float; uniform vec4 uColor; out vec4 o;\nvoid main(){o=uColor;}');
-  gl.compileShader(fs);
-  debugProg = gl.createProgram();
-  gl.attachShader(debugProg, vs); gl.attachShader(debugProg, fs);
-  gl.linkProgram(debugProg);
-  gl.deleteShader(vs); gl.deleteShader(fs);
-  if (!gl.getProgramParameter(debugProg, gl.LINK_STATUS)) {
-    console.warn('[debug] shader link error:', gl.getProgramInfoLog(debugProg));
-    debugProg = null; return;
+// ---- In-code wireframe GLB (LINES primitives + KHR_materials_unlit) ----
+function alignTo4(n) { return (n + 3) & ~3; }
+
+// Transform line vertices by a local pose; used to bake compound-child local transforms into the
+// parent body's wireframe so each body still gets one combined line mesh.
+function transformLineVerts(verts, localPos, localRot) {
+  const out = new Float32Array(verts.length);
+  const v = vec3.create();
+  const tq = quat.fromValues(localRot[0], localRot[1], localRot[2], localRot[3]);
+  for (let i = 0; i < verts.length; i += 3) {
+    vec3.set(v, verts[i], verts[i + 1], verts[i + 2]);
+    vec3.transformQuat(v, v, tq);
+    out[i] = v[0] + localPos[0]; out[i + 1] = v[1] + localPos[1]; out[i + 2] = v[2] + localPos[2];
   }
-  debugVbo = gl.createBuffer();
+  return out;
 }
 
-function drawDebug(eye, center, up, aspect) {
-  if (!debugGl || !debugProg) return;
-  const gl = debugGl;
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  if (!showWireframe || !HK || !worldId) return;
-  gl.enable(gl.DEPTH_TEST);
-  gl.useProgram(debugProg);
-  const aPos = gl.getAttribLocation(debugProg, 'aPos');
-  const uMVP = gl.getUniformLocation(debugProg, 'uMVP');
-  const uColor = gl.getUniformLocation(debugProg, 'uColor');
-  const view = mat4.lookAt(mat4.create(), eye, center, up);
-  const proj = mat4.perspective(mat4.create(), 75 * Math.PI / 180, aspect, 0.01, 10000.0);
-  const vp = mat4.multiply(mat4.create(), proj, view);
-  gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-
-  function drawWithModel(shape, color, model) {
-    const mvp = mat4.multiply(mat4.create(), vp, model);
-    gl.uniformMatrix4fv(uMVP, false, mvp);
-    gl.uniform4fv(uColor, color);
-    const verts = debugVertsFor(shape);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
-    gl.drawArrays(gl.LINES, 0, verts.length / 3);
-  }
-  function draw(shape, color, p, r) {
-    drawWithModel(shape, color, mat4.fromRotationTranslation(mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(p[0], p[1], p[2])));
-  }
-
-  for (const entry of physicsNodes) {
-    const pr = HK.HP_Body_GetPosition(entry.bodyId);
-    const qr = HK.HP_Body_GetOrientation(entry.bodyId);
-    if (entry.compoundChildren) {
-      const bodyMat = mat4.fromRotationTranslation(mat4.create(),
-        quat.fromValues(qr[1][0], qr[1][1], qr[1][2], qr[1][3]), vec3.fromValues(pr[1][0], pr[1][1], pr[1][2]));
-      for (const ch of entry.compoundChildren) {
-        const localMat = mat4.fromRotationTranslation(mat4.create(),
-          quat.fromValues(ch.localRot[0], ch.localRot[1], ch.localRot[2], ch.localRot[3]),
-          vec3.fromValues(ch.localPos[0], ch.localPos[1], ch.localPos[2]));
-        drawWithModel(ch.shape, DEBUG_COLOR_DYNAMIC, mat4.multiply(mat4.create(), bodyMat, localMat));
-      }
-    } else {
-      draw(entry.shape, DEBUG_COLOR_DYNAMIC, pr[1], qr[1]);
+// Line vertices for one physics body entry: single-shape -> debugVertsFor; compound -> concatenate
+// each child's vertices, with the child's local pose baked in.
+function vertsForEntry(entry) {
+  if (entry.compoundChildren) {
+    const parts = [];
+    let total = 0;
+    for (const ch of entry.compoundChildren) {
+      const v = debugVertsFor(ch.shape);
+      const transformed = transformLineVerts(v, ch.localPos, ch.localRot);
+      parts.push(transformed);
+      total += transformed.length;
     }
+    const out = new Float32Array(total);
+    let off = 0;
+    for (const p of parts) { out.set(p, off); off += p.length; }
+    return out;
   }
+  return debugVertsFor(entry.shape);
+}
+
+function buildWireframeGlb(meshes, nodes) {
+  const accessors = [];
+  const bufferViews = [];
+  const binChunks = [];
+  let binOffset = 0;
+  function addBufferView(typedArray, target) {
+    const padded = alignTo4(binOffset);
+    if (padded > binOffset) { binChunks.push(new Uint8Array(padded - binOffset)); binOffset = padded; }
+    const bytes = new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength);
+    const index = bufferViews.length;
+    const bv = { buffer: 0, byteOffset: binOffset, byteLength: bytes.byteLength };
+    if (target !== undefined) bv.target = target;
+    bufferViews.push(bv);
+    binChunks.push(bytes);
+    binOffset += bytes.byteLength;
+    return index;
+  }
+  const gltfMeshes = [], gltfMaterials = [];
+  for (const m of meshes) {
+    const posBV = addBufferView(m.positions, 34962);
+    const posAcc = accessors.length;
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < m.positions.length; i += 3) {
+      const x = m.positions[i], y = m.positions[i + 1], z = m.positions[i + 2];
+      if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+    }
+    if (minX > maxX) { minX = minY = minZ = 0; maxX = maxY = maxZ = 0; }
+    accessors.push({ bufferView: posBV, componentType: 5126, count: m.positions.length / 3, type: 'VEC3', min: [minX, minY, minZ], max: [maxX, maxY, maxZ] });
+    const idxBV = addBufferView(m.indices, 34963);
+    const idxAcc = accessors.length;
+    accessors.push({ bufferView: idxBV, componentType: 5125, count: m.indices.length, type: 'SCALAR' });
+    gltfMaterials.push({ extensions: { KHR_materials_unlit: {} }, pbrMetallicRoughness: { baseColorFactor: m.color } });
+    gltfMeshes.push({ primitives: [{ mode: 1, attributes: { POSITION: posAcc }, indices: idxAcc, material: gltfMaterials.length - 1 }] });
+  }
+  const gltfNodes = nodes.map((n) => ({ name: n.name, mesh: n.meshIndex }));
+  const gltf = {
+    asset: { version: '2.0', generator: 'filament-havok-wireframe' },
+    extensionsUsed: ['KHR_materials_unlit'],
+    scene: 0,
+    scenes: [{ nodes: gltfNodes.map((_, i) => i) }],
+    nodes: gltfNodes, meshes: gltfMeshes, materials: gltfMaterials, accessors, bufferViews,
+    buffers: [{ byteLength: binOffset }],
+  };
+  let jsonBytes = new TextEncoder().encode(JSON.stringify(gltf));
+  const jsonPad = alignTo4(jsonBytes.length) - jsonBytes.length;
+  if (jsonPad) { const t = new Uint8Array(jsonBytes.length + jsonPad); t.set(jsonBytes); t.fill(0x20, jsonBytes.length); jsonBytes = t; }
+  const binBuf = new Uint8Array(alignTo4(binOffset));
+  let o = 0; for (const ch of binChunks) { binBuf.set(ch, o); o += ch.byteLength; }
+  const totalLen = 12 + 8 + jsonBytes.length + 8 + binBuf.length;
+  const glb = new Uint8Array(totalLen);
+  const dv = new DataView(glb.buffer);
+  let p = 0;
+  dv.setUint32(p, 0x46546C67, true); p += 4;
+  dv.setUint32(p, 2, true); p += 4;
+  dv.setUint32(p, totalLen, true); p += 4;
+  dv.setUint32(p, jsonBytes.length, true); p += 4;
+  dv.setUint32(p, 0x4E4F534A, true); p += 4;
+  glb.set(jsonBytes, p); p += jsonBytes.length;
+  dv.setUint32(p, binBuf.length, true); p += 4;
+  dv.setUint32(p, 0x004E4942, true); p += 4;
+  glb.set(binBuf, p);
+  return glb;
+}
+
+async function loadWireframeAsset() {
+  const meshes = [];
+  const nodes = [];
+  function seqIndices(n) { const out = new Uint32Array(n); for (let i = 0; i < n; i++) out[i] = i; return out; }
+  for (let i = 0; i < physicsNodes.length; i++) {
+    const v = vertsForEntry(physicsNodes[i]);
+    if (v.length === 0) continue;
+    meshes.push({ positions: v, indices: seqIndices(v.length / 3), color: DEBUG_COLOR_DYNAMIC });
+    nodes.push({ name: 'dynWire' + i, meshIndex: meshes.length - 1 });
+  }
+  for (let i = 0; i < staticBodies.length; i++) {
+    const v = vertsForEntry(staticBodies[i]);
+    if (v.length === 0) continue;
+    meshes.push({ positions: v, indices: seqIndices(v.length / 3), color: DEBUG_COLOR_STATIC });
+    nodes.push({ name: 'staticWire' + i, meshIndex: meshes.length - 1 });
+  }
+  if (meshes.length === 0) return null;
+
+  const glb = buildWireframeGlb(meshes, nodes);
+  const loader = engine.createAssetLoader();
+  const a = loader.createAsset(glb);
+  await new Promise((resolve) => {
+    a.loadResources(() => {
+      loader.delete();
+      let e = a.popRenderable();
+      while (e.getId() !== 0) { scene.addEntity(e); e = a.popRenderable(); }
+      const rm = engine.getRenderableManager();
+      for (const ent of a.getEntities()) {
+        const inst = rm.getInstance(ent);
+        if (inst) { rm.setCulling(inst, false); inst.delete(); }
+      }
+      resolve();
+    }, () => {}, '');
+  });
+  for (let i = 0; i < physicsNodes.length; i++) physicsNodes[i].wireframeEntity = a.getEntitiesByName('dynWire' + i)[0] || null;
+  for (let i = 0; i < staticBodies.length; i++) staticBodies[i].wireframeEntity = a.getEntitiesByName('staticWire' + i)[0] || null;
+  const tcm = engine.getTransformManager();
+  tcm.openLocalTransformTransaction();
   for (const sb of staticBodies) {
+    if (!sb.wireframeEntity) continue;
     const pr = HK.HP_Body_GetPosition(sb.bodyId);
     const qr = HK.HP_Body_GetOrientation(sb.bodyId);
-    draw(sb.shape, DEBUG_COLOR_STATIC, pr[1], qr[1]);
+    const p = pr[1], r = qr[1];
+    const m = mat4.fromRotationTranslation(mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(p[0], p[1], p[2]));
+    const inst = tcm.getInstance(sb.wireframeEntity);
+    tcm.setTransform(inst, m);
+    inst.delete();
   }
-  gl.disableVertexAttribArray(aPos);
+  tcm.commitLocalTransformTransaction();
+  return a;
 }
 
-// ---- W-key wireframe toggle ----
+// ---- W-key wireframe toggle (adds / removes the wireframe entities from the scene) ----
 function setWireframeVisible(visible) {
   showWireframe = visible;
   const hint = document.getElementById('hint');
   if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  if (!scene) return;
+  for (const entry of physicsNodes) {
+    if (!entry.wireframeEntity) continue;
+    if (visible) scene.addEntity(entry.wireframeEntity); else scene.remove(entry.wireframeEntity);
+  }
+  for (const sb of staticBodies) {
+    if (!sb.wireframeEntity) continue;
+    if (visible) scene.addEntity(sb.wireframeEntity); else scene.remove(sb.wireframeEntity);
+  }
 }
 
 window.addEventListener('keydown', (event) => {
@@ -805,7 +897,7 @@ Filament.init([IBL_URL, SKY_URL], () => {
 async function main() {
   const canvas = document.getElementsByTagName('canvas')[0];
   engine = Filament.Engine.create(canvas);
-  const scene = engine.createScene();
+  scene = engine.createScene();
 
   const ibl = engine.createIblFromKtx1(IBL_URL);
   ibl.setIntensity(50000);
@@ -836,38 +928,37 @@ async function main() {
   view.setColorGrading(colorGrading);
   renderer.setClearOptions({ clearColor: [0.6, 0.6, 0.6, 1.0], clear: true });
 
-  initDebugCanvas(canvas);
-
-  // Load the model.
+  // Load the model — pop renderables only so the model's KHR_lights_punctual lights stay out
+  // (they trip "glDrawElementsInstanced: uniform buffer too small" at feature level 1). Lighting
+  // is IBL + a directional SUN.
   const bytes = new Uint8Array(await (await fetch(MODEL_URL)).arrayBuffer());
   const assetLoader = engine.createAssetLoader();
   asset = assetLoader.createAsset(bytes);
   await new Promise((resolve) => {
     asset.loadResources(() => {
       assetLoader.delete();
+      let e = asset.popRenderable();
+      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
       const rm = engine.getRenderableManager();
       for (const e of asset.getEntities()) {
         const inst = rm.getInstance(e);
         if (inst) { rm.setCastShadows(inst, true); inst.delete(); }
       }
-      // Renderables are added to the scene in render() via popRenderable(). The model carries
-      // KHR_lights_punctual lights; adding them makes Filament froxelize punctual lighting, which
-      // trips "glDrawElementsInstanced: uniform buffer too small" on base_lit_opaque at feature
-      // level 1. We light with IBL + a directional SUN (neither is froxelized) instead.
       resolve();
     }, () => {}, '');
   });
 
-  // Build physics from the GLB's KHR_physics extensions.
+  // Build physics from the GLB's KHR_physics extensions, then load the wireframe asset.
   HK = await HavokPhysics();
   await initPhysicsFromUrl(MODEL_URL, asset, engine);
+  await loadWireframeAsset();
 
   // Frame the camera on the collider bounds.
   const center = [(sceneMin[0] + sceneMax[0]) / 2, (sceneMin[1] + sceneMax[1]) / 2, (sceneMin[2] + sceneMax[2]) / 2];
   const span = Math.max(sceneMax[0] - sceneMin[0], sceneMax[1] - sceneMin[1], sceneMax[2] - sceneMin[2], 1);
   const radius = span * 0.5;
-  const orbitDist = radius * 2.4;
-  const orbitHeight = center[1] + radius * 0.5;
+  const orbitDist = radius * 1.5;
+  const orbitHeight = center[1] + radius * 0.35;
   const far = Math.max(2000, radius * 60);
 
   let aspect = 1;
@@ -875,7 +966,6 @@ async function main() {
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.width = Math.floor(window.innerWidth * dpr);
     const height = canvas.height = Math.floor(window.innerHeight * dpr);
-    if (debugCanvas) { debugCanvas.width = width; debugCanvas.height = height; }
     aspect = width / height;
     view.setViewport([0, 0, width, height]);
     const fovAxis = aspect < 1 ? Fov.HORIZONTAL : Fov.VERTICAL;
@@ -886,24 +976,16 @@ async function main() {
 
   setWireframeVisible(showWireframe);
 
-  let angle = 0.6;
-  function render() {
+  // Camera orbit driven directly by wall time.
+  const ORBIT_SPEED = 0.21, ORBIT_PHASE = 0.6;
+  function render(now) {
     requestAnimationFrame(render);
-
-    if (asset) {
-      let e = asset.popRenderable();
-      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
-    }
-
     try { physicsStep(); } catch (e) { console.error('[physics] step error:', e); HK = null; }
-
-    angle += 0.0035;
+    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
     const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
     const up = [0, 1, 0];
     camera.lookAt(eye, center, up);
-
     renderer.render(swapChain, view);
-    drawDebug(eye, center, up, aspect);
   }
   requestAnimationFrame(render);
 }
