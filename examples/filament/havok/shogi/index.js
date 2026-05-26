@@ -9,9 +9,9 @@
 // pieces are shaded instead of looking flat. Each piece collides as a convex hull of its own mesh
 // (HP_Shape_CreateConvexHull) and its node is synced every frame.
 //
-// Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
-// camera (Filament can't easily draw lines); the four walls are shown only as wireframes. Press W to
-// toggle them.
+// Collider wireframes are baked into the same GLB as LINES primitives with KHR_materials_unlit
+// (orange piece outline = convex-hull collider; green = ground + walls), so they render in the same
+// Filament pass — no second canvas. Press W to toggle the wireframe entities in / out of the scene.
 //
 // Libraries are loaded as globals via <script> tags: Filament, HavokPhysics, gl-matrix
 // (vec3 / quat / mat4).
@@ -26,6 +26,7 @@ const PIECE_H = 1.6;
 const PIECE_D = 0.45;
 const COLLIDER_SIZE = [PIECE_W, PIECE_H, PIECE_D * 1.4]; // box fallback only
 const PIECE_ROUGHNESS = 0.65; // lacquered-wood look
+const WIREFRAME_OUTSET = 1.005;
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
@@ -39,19 +40,18 @@ const WALLS = [
   { size: [1, 10, 10], pos: [5, 5, 0] },
 ];
 
-const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
-const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+const COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
 
 let HK = null;
 let worldId = null;
 
 let engine = null;
+let scene = null;
 let asset = null;
-const pieces = [];      // { entity, bodyId, curPos, curRot }
-const staticBoxes = []; // ground + walls, for the debug overlay
-
-let debugCanvas = null, debugGl = null, debugProg = null, debugVbo = null, showWireframe = true;
-let unitCubeLines = null, pieceLines = null;
+let showWireframe = true;
+const pieces = [];                   // { entity, wireframeEntity, bodyId }
+const staticWireframeEntities = [];  // ground + walls
 
 // ---- Havok helpers ----
 function enumToNumber(value) {
@@ -70,9 +70,7 @@ function checkResult(result, label) {
   console.warn('[Havok] ' + label + ' returned:', result);
 }
 
-// ---- Geometry ----
-// Flat per-face normals: each vertex belongs only to coplanar triangles (faces don't share
-// vertices), so accumulating triangle normals and normalising yields the face normal.
+// ---- Geometry (triangle meshes) ----
 function computeFlatNormals(positions, indices) {
   const normals = new Float32Array(positions.length);
   for (let i = 0; i < indices.length; i += 3) {
@@ -100,8 +98,6 @@ function minMax3(positions) {
   return { min, max };
 }
 
-// Faceted shogi-piece prism (positions + uv0 + flat normals). UVs follow the glTF top-left
-// convention the atlas was authored for, so gltfio maps the kanji onto the faces with no flip.
 function createShogiGeometry(w, h, d) {
   const positions = new Float32Array([
     -0.5 * w, -0.5 * h, 0.7 * d, 0.5 * w, -0.5 * h, 0.7 * d, 0.35 * w, 0.5 * h, 0.4 * d, -0.35 * w, 0.5 * h, 0.4 * d,
@@ -155,13 +151,45 @@ function buildQuadGeometry(halfX, halfZ, y, tiles) {
   };
 }
 
+// ---- Geometry (LINES wireframes) ----
+const LINE_BOX_INDICES = new Uint32Array([
+  0, 1, 1, 2, 2, 3, 3, 0,
+  4, 5, 5, 6, 6, 7, 7, 4,
+  0, 4, 1, 5, 2, 6, 3, 7,
+]);
+function buildLineBox(hx, hy, hz, cx = 0, cy = 0, cz = 0) {
+  const positions = new Float32Array([
+    cx - hx, cy - hy, cz - hz,  cx + hx, cy - hy, cz - hz,  cx + hx, cy + hy, cz - hz,  cx - hx, cy + hy, cz - hz,
+    cx - hx, cy - hy, cz + hz,  cx + hx, cy - hy, cz + hz,  cx + hx, cy + hy, cz + hz,  cx - hx, cy + hy, cz + hz,
+  ]);
+  return {
+    positions, indices: LINE_BOX_INDICES,
+    min: [cx - hx, cy - hy, cz - hz], max: [cx + hx, cy + hy, cz + hz],
+  };
+}
+
+// Triangle-edge line list from a triangle mesh — a faithful outline of the convex-hull collider.
+function buildPieceLineMesh(geo) {
+  const pos = geo.positions, idx = geo.indices, verts = [];
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+    verts.push(pos[a], pos[a + 1], pos[a + 2], pos[b], pos[b + 1], pos[b + 2]);
+    verts.push(pos[b], pos[b + 1], pos[b + 2], pos[c], pos[c + 1], pos[c + 2]);
+    verts.push(pos[c], pos[c + 1], pos[c + 2], pos[a], pos[a + 1], pos[a + 2]);
+  }
+  const positionArr = new Float32Array(verts);
+  const indicesArr = new Uint32Array(positionArr.length / 3);
+  for (let i = 0; i < indicesArr.length; i++) indicesArr[i] = i;
+  return {
+    positions: positionArr, indices: indicesArr,
+    min: geo.min.slice(), max: geo.max.slice(),
+  };
+}
+
 // ---- In-code GLB assembly ----
-// Generic builder: meshGeos (each carrying a `material` index), materials, nodes (each referencing a
-// mesh by index), and embedded images (each { bytes, mimeType }). Materials' baseColorTexture index
-// refers into the images array. Produces a single self-contained GLB (JSON + embedded BIN).
 function alignTo4(n) { return (n + 3) & ~3; }
 
-function buildGlb(meshGeos, materials, nodes, images) {
+function buildSceneGlb(pieceSpecs, pieceGeo, shogiImage, grassImage) {
   const accessors = [];
   const bufferViews = [];
   const binChunks = [];
@@ -180,7 +208,7 @@ function buildGlb(meshGeos, materials, nodes, images) {
     return index;
   }
 
-  const meshes = meshGeos.map((g) => {
+  function addTriMesh(g) {
     const posBV = addBufferView(g.positions, 34962);
     const posAcc = accessors.length;
     accessors.push({ bufferView: posBV, componentType: 5126, count: g.positions.length / 3, type: 'VEC3', min: g.min, max: g.max });
@@ -193,28 +221,85 @@ function buildGlb(meshGeos, materials, nodes, images) {
     const idxBV = addBufferView(g.indices, 34963);
     const idxAcc = accessors.length;
     accessors.push({ bufferView: idxBV, componentType: 5125, count: g.indices.length, type: 'SCALAR' });
-    return { primitives: [{ attributes: { POSITION: posAcc, NORMAL: nrmAcc, TEXCOORD_0: uvAcc }, indices: idxAcc, material: g.material }] };
+    return { POSITION: posAcc, NORMAL: nrmAcc, TEXCOORD_0: uvAcc, indices: idxAcc };
+  }
+  function addLineMesh(g) {
+    const posBV = addBufferView(g.positions, 34962);
+    const posAcc = accessors.length;
+    accessors.push({ bufferView: posBV, componentType: 5126, count: g.positions.length / 3, type: 'VEC3', min: g.min, max: g.max });
+    const idxBV = addBufferView(g.indices, 34963);
+    const idxAcc = accessors.length;
+    accessors.push({ bufferView: idxBV, componentType: 5125, count: g.indices.length, type: 'SCALAR' });
+    return { POSITION: posAcc, indices: idxAcc };
+  }
+
+  const meshes = [];
+  const materials = [];
+
+  // ---- PBR piece + ground ----
+  const pieceAccs = addTriMesh(pieceGeo);
+  materials.push({
+    name: 'piece',
+    pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.0, roughnessFactor: PIECE_ROUGHNESS },
+    doubleSided: true,
+  });
+  meshes.push({ primitives: [{ attributes: { POSITION: pieceAccs.POSITION, NORMAL: pieceAccs.NORMAL, TEXCOORD_0: pieceAccs.TEXCOORD_0 }, indices: pieceAccs.indices, material: materials.length - 1 }] });
+  const pieceMeshIndex = meshes.length - 1;
+
+  const groundAccs = addTriMesh(buildQuadGeometry(GROUND.size[0] / 2, GROUND.size[2] / 2, GROUND.pos[1] + GROUND.size[1] / 2, GROUND_TILES));
+  materials.push({
+    name: 'ground',
+    pbrMetallicRoughness: { baseColorTexture: { index: 1 }, metallicFactor: 0.0, roughnessFactor: 0.9 },
+    doubleSided: true,
+  });
+  meshes.push({ primitives: [{ attributes: { POSITION: groundAccs.POSITION, NORMAL: groundAccs.NORMAL, TEXCOORD_0: groundAccs.TEXCOORD_0 }, indices: groundAccs.indices, material: materials.length - 1 }] });
+  const groundMeshIndex = meshes.length - 1;
+
+  // ---- Unlit wireframe materials ----
+  const pieceWireMatIndex = materials.length;
+  materials.push({ name: 'pieceWireframe', extensions: { KHR_materials_unlit: {} }, pbrMetallicRoughness: { baseColorFactor: COLOR_DYNAMIC } });
+  const staticWireMatIndex = materials.length;
+  materials.push({ name: 'staticWireframe', extensions: { KHR_materials_unlit: {} }, pbrMetallicRoughness: { baseColorFactor: COLOR_STATIC } });
+
+  // ---- LINES piece wireframe (shared by all pieces) ----
+  const pieceLineAccs = addLineMesh(buildPieceLineMesh(pieceGeo));
+  meshes.push({ primitives: [{ mode: 1, attributes: { POSITION: pieceLineAccs.POSITION }, indices: pieceLineAccs.indices, material: pieceWireMatIndex }] });
+  const pieceWireMeshIndex = meshes.length - 1;
+
+  // ---- LINES static wireframes (ground + 4 walls, size + position baked) ----
+  const staticDefs = [{ size: GROUND.size, pos: GROUND.pos }, ...WALLS];
+  const staticWireMeshIndices = staticDefs.map((d) => {
+    const hx = d.size[0] / 2 * WIREFRAME_OUTSET, hy = d.size[1] / 2 * WIREFRAME_OUTSET, hz = d.size[2] / 2 * WIREFRAME_OUTSET;
+    const accs = addLineMesh(buildLineBox(hx, hy, hz, d.pos[0], d.pos[1], d.pos[2]));
+    meshes.push({ primitives: [{ mode: 1, attributes: { POSITION: accs.POSITION }, indices: accs.indices, material: staticWireMatIndex }] });
+    return meshes.length - 1;
   });
 
-  const textureBlocks = {};
-  if (images && images.length) {
-    const imgs = [], texs = [];
-    images.forEach((im, i) => {
-      const bv = addBufferView(im.bytes, undefined);
-      imgs.push({ bufferView: bv, mimeType: im.mimeType });
-      texs.push({ sampler: 0, source: i });
-    });
-    textureBlocks.images = imgs;
-    textureBlocks.samplers = [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }];
-    textureBlocks.textures = texs;
-  }
+  // ---- Nodes ----
+  const nodes = [];
+  pieceSpecs.forEach((s, i) => nodes.push({ name: 'piece' + i, mesh: pieceMeshIndex, translation: s.position }));
+  nodes.push({ name: 'ground', mesh: groundMeshIndex });
+  pieceSpecs.forEach((s, i) => nodes.push({ name: 'pieceWireframe' + i, mesh: pieceWireMeshIndex, translation: s.position }));
+  staticWireMeshIndices.forEach((mi, i) => nodes.push({ name: 'staticWireframe' + i, mesh: mi }));
+
+  // ---- Embedded textures (shogi + grass) ----
+  const images = [shogiImage, grassImage];
+  const imgs = [], texs = [];
+  images.forEach((im, i) => {
+    const bv = addBufferView(im.bytes, undefined);
+    imgs.push({ bufferView: bv, mimeType: im.mimeType });
+    texs.push({ sampler: 0, source: i });
+  });
 
   const gltf = {
     asset: { version: '2.0', generator: 'filament-havok-shogi' },
+    extensionsUsed: ['KHR_materials_unlit'],
     scene: 0,
     scenes: [{ nodes: nodes.map((_, i) => i) }],
     nodes, meshes, materials, accessors, bufferViews,
-    ...textureBlocks,
+    images: imgs,
+    samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
+    textures: texs,
     buffers: [{ byteLength: binOffset }],
   };
 
@@ -234,43 +319,16 @@ function buildGlb(meshGeos, materials, nodes, images) {
   const glb = new Uint8Array(totalLen);
   const dv = new DataView(glb.buffer);
   let p = 0;
-  dv.setUint32(p, 0x46546C67, true); p += 4; // 'glTF'
+  dv.setUint32(p, 0x46546C67, true); p += 4;
   dv.setUint32(p, 2, true); p += 4;
   dv.setUint32(p, totalLen, true); p += 4;
   dv.setUint32(p, jsonBytes.length, true); p += 4;
-  dv.setUint32(p, 0x4E4F534A, true); p += 4; // 'JSON'
+  dv.setUint32(p, 0x4E4F534A, true); p += 4;
   glb.set(jsonBytes, p); p += jsonBytes.length;
   dv.setUint32(p, binBuf.length, true); p += 4;
-  dv.setUint32(p, 0x004E4942, true); p += 4; // 'BIN\0'
+  dv.setUint32(p, 0x004E4942, true); p += 4;
   glb.set(binBuf, p);
   return glb;
-}
-
-// Piece mesh/material (0, shogi texture) + grass ground slab (1). Piece nodes are named "piece<i>"
-// so they can be matched to Havok bodies; physics drives their orientation, so node rotation is left
-// at identity.
-function buildSceneGlb(pieceSpecs, pieceGeo, shogiImage, grassImage) {
-  pieceGeo.material = 0;
-  const groundGeo = buildQuadGeometry(GROUND.size[0] / 2, GROUND.size[2] / 2, GROUND.pos[1] + GROUND.size[1] / 2, GROUND_TILES);
-  groundGeo.material = 1;
-
-  const materials = [
-    {
-      name: 'piece',
-      pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.0, roughnessFactor: PIECE_ROUGHNESS },
-      doubleSided: true,
-    },
-    {
-      name: 'ground',
-      pbrMetallicRoughness: { baseColorTexture: { index: 1 }, metallicFactor: 0.0, roughnessFactor: 0.9 },
-      doubleSided: true,
-    },
-  ];
-
-  const nodes = pieceSpecs.map((s, i) => ({ name: 'piece' + i, mesh: 0, translation: s.position }));
-  nodes.push({ name: 'ground', mesh: 1 });
-
-  return buildGlb([pieceGeo, groundGeo], materials, nodes, [shogiImage, grassImage]);
 }
 
 // ---- Scene setup ----
@@ -282,11 +340,8 @@ function createStaticBox(size, pos) {
   HK.HP_Body_SetPosition(b[1], pos);
   HK.HP_Body_SetOrientation(b[1], IDENTITY_QUATERNION);
   HK.HP_World_AddBody(worldId, b[1], false);
-  staticBoxes.push({ size, pos });
 }
 
-// Convex-hull collider from the piece's own mesh vertices (a shogi piece is convex). Dynamic bodies
-// need a convex shape in Havok, so a hull — not a triangle mesh — is used. Falls back to a box.
 function createPieceShape(positions) {
   if (typeof HK.HP_Shape_CreateConvexHull === 'function') {
     const nPoints = positions.length / 3;
@@ -319,7 +374,7 @@ function randomDrop() {
   return [(Math.random() - 0.5) * 8, 12 + Math.random() * 26, (Math.random() - 0.5) * 8];
 }
 
-function addPieceBody(shapeId, entity, pos, rot) {
+function addPieceBody(shapeId, entity, wireframeEntity, pos, rot) {
   const cb = HK.HP_Body_Create();
   const bodyId = cb[1];
   HK.HP_Body_SetShape(bodyId, shapeId);
@@ -329,8 +384,11 @@ function addPieceBody(shapeId, entity, pos, rot) {
   HK.HP_Body_SetPosition(bodyId, pos);
   HK.HP_Body_SetOrientation(bodyId, rot);
   HK.HP_World_AddBody(worldId, bodyId, false);
-  pieces.push({ entity, bodyId, curPos: pos.slice(), curRot: rot.slice() });
+  pieces.push({ entity, wireframeEntity, bodyId });
 }
+
+// Scratch buffers reused by stepAndSync; initialised in main() once gl-matrix is available.
+let tmpMat = null, tmpQuat = null, tmpVec = null;
 
 function stepAndSync() {
   checkResult(HK.HP_World_Step(worldId, FIXED_TIMESTEP), 'HP_World_Step');
@@ -346,123 +404,36 @@ function stepAndSync() {
       pos = HK.HP_Body_GetPosition(p.bodyId)[1];
     }
     const r = HK.HP_Body_GetOrientation(p.bodyId)[1];
-    p.curPos[0] = pos[0]; p.curPos[1] = pos[1]; p.curPos[2] = pos[2];
-    p.curRot[0] = r[0]; p.curRot[1] = r[1]; p.curRot[2] = r[2]; p.curRot[3] = r[3];
-    if (!p.entity) continue;
-    const m = mat4.fromRotationTranslation(
-      mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(pos[0], pos[1], pos[2]));
-    const inst = tcm.getInstance(p.entity);
-    tcm.setTransform(inst, m);
-    inst.delete();
+    quat.set(tmpQuat, r[0], r[1], r[2], r[3]);
+    vec3.set(tmpVec, pos[0], pos[1], pos[2]);
+    mat4.fromRotationTranslation(tmpMat, tmpQuat, tmpVec);
+    if (p.entity) {
+      const inst = tcm.getInstance(p.entity);
+      tcm.setTransform(inst, tmpMat);
+      inst.delete();
+    }
+    if (p.wireframeEntity) {
+      const inst = tcm.getInstance(p.wireframeEntity);
+      tcm.setTransform(inst, tmpMat);
+      inst.delete();
+    }
   }
   tcm.commitLocalTransformTransaction();
 }
 
-// ---- Debug wireframe overlay ----
-function makeBoxLineVerts(sx, sy, sz) {
-  const hx = sx / 2, hy = sy / 2, hz = sz / 2;
-  const c = [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz], [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]];
-  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-  const v = [];
-  for (const [a, b] of edges) v.push(...c[a], ...c[b]);
-  return new Float32Array(v);
-}
-
-// Triangle-edge line list from the piece geometry — a faithful outline of the convex-hull collider.
-function makePieceLineVerts(geo) {
-  const pos = geo.positions, idx = geo.indices, v = [];
-  for (let i = 0; i < idx.length; i += 3) {
-    const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
-    v.push(pos[a], pos[a + 1], pos[a + 2], pos[b], pos[b + 1], pos[b + 2]);
-    v.push(pos[b], pos[b + 1], pos[b + 2], pos[c], pos[c + 1], pos[c + 2]);
-    v.push(pos[c], pos[c + 1], pos[c + 2], pos[a], pos[a + 1], pos[a + 2]);
-  }
-  return new Float32Array(v);
-}
-
-function initDebugCanvas(mainCanvas) {
-  debugCanvas = document.createElement('canvas');
-  debugCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none';
-  debugCanvas.width = mainCanvas.width;
-  debugCanvas.height = mainCanvas.height;
-  mainCanvas.parentElement.appendChild(debugCanvas);
-  const gl = debugGl = debugCanvas.getContext('webgl2');
-  if (!gl) { console.warn('[debug] WebGL2 unavailable for wireframe overlay'); return; }
-  const vs = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs, '#version 300 es\nin vec3 aPos; uniform mat4 uMVP;\nvoid main(){gl_Position=uMVP*vec4(aPos,1.0);}');
-  gl.compileShader(vs);
-  const fs = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fs, '#version 300 es\nprecision mediump float; uniform vec4 uColor; out vec4 o;\nvoid main(){o=uColor;}');
-  gl.compileShader(fs);
-  debugProg = gl.createProgram();
-  gl.attachShader(debugProg, vs); gl.attachShader(debugProg, fs);
-  gl.linkProgram(debugProg);
-  gl.deleteShader(vs); gl.deleteShader(fs);
-  if (!gl.getProgramParameter(debugProg, gl.LINK_STATUS)) {
-    console.warn('[debug] shader link error:', gl.getProgramInfoLog(debugProg));
-    debugProg = null; return;
-  }
-  debugVbo = gl.createBuffer();
-  unitCubeLines = makeBoxLineVerts(1, 1, 1);
-}
-
-function drawDebug(eye, center, up, aspect) {
-  if (!debugGl || !debugProg) return;
-  const gl = debugGl;
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  if (!showWireframe || !HK || !worldId) return;
-  gl.enable(gl.DEPTH_TEST);
-  gl.useProgram(debugProg);
-  const aPos = gl.getAttribLocation(debugProg, 'aPos');
-  const uMVP = gl.getUniformLocation(debugProg, 'uMVP');
-  const uColor = gl.getUniformLocation(debugProg, 'uColor');
-  const viewM = mat4.lookAt(mat4.create(), eye, center, up);
-  const projM = mat4.perspective(mat4.create(), 75 * Math.PI / 180, aspect, 0.01, 10000.0);
-  const vp = mat4.multiply(mat4.create(), projM, viewM);
-  gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-
-  const model = mat4.create(), mvp = mat4.create(), sq = quat.create(), sp = vec3.create(), ss = vec3.create();
-  function drawScaled(p, r, scale) {
-    quat.set(sq, r[0], r[1], r[2], r[3]);
-    vec3.set(sp, p[0], p[1], p[2]);
-    vec3.set(ss, scale[0], scale[1], scale[2]);
-    mat4.fromRotationTranslationScale(model, sq, sp, ss);
-    mat4.multiply(mvp, vp, model);
-    gl.uniformMatrix4fv(uMVP, false, mvp);
-  }
-
-  // Ground + walls (static, green)
-  gl.uniform4fv(uColor, DEBUG_COLOR_STATIC);
-  gl.bufferData(gl.ARRAY_BUFFER, unitCubeLines, gl.DYNAMIC_DRAW);
-  const cubeCount = unitCubeLines.length / 3;
-  for (const sb of staticBoxes) {
-    drawScaled(sb.pos, IDENTITY_QUATERNION, sb.size);
-    gl.drawArrays(gl.LINES, 0, cubeCount);
-  }
-
-  // Pieces (orange convex-hull / mesh outline at the body transform)
-  if (pieceLines) {
-    gl.uniform4fv(uColor, DEBUG_COLOR_DYNAMIC);
-    gl.bufferData(gl.ARRAY_BUFFER, pieceLines, gl.DYNAMIC_DRAW);
-    const pieceCount = pieceLines.length / 3;
-    const one = [1, 1, 1];
-    for (const p of pieces) {
-      drawScaled(p.curPos, p.curRot, one);
-      gl.drawArrays(gl.LINES, 0, pieceCount);
-    }
-  }
-  gl.disableVertexAttribArray(aPos);
-}
-
-// ---- W-key wireframe toggle ----
+// ---- W-key wireframe toggle (adds / removes the wireframe entities from the scene) ----
 function setWireframeVisible(visible) {
   showWireframe = visible;
   const hint = document.getElementById('hint');
   if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  if (!scene) return;
+  for (const p of pieces) {
+    if (!p.wireframeEntity) continue;
+    if (visible) scene.addEntity(p.wireframeEntity); else scene.remove(p.wireframeEntity);
+  }
+  for (const e of staticWireframeEntities) {
+    if (visible) scene.addEntity(e); else scene.remove(e);
+  }
 }
 
 window.addEventListener('keydown', (event) => {
@@ -486,11 +457,14 @@ Filament.init([IBL_URL], () => {
 });
 
 async function main() {
+  tmpMat = mat4.create();
+  tmpQuat = quat.create();
+  tmpVec = vec3.create();
+
   const canvas = document.getElementsByTagName('canvas')[0];
   engine = Filament.Engine.create(canvas);
-  const scene = engine.createScene();
+  scene = engine.createScene();
 
-  // IBL for lighting + reflections; no skybox, so the background stays the dark clear colour.
   const ibl = engine.createIblFromKtx1(IBL_URL);
   ibl.setIntensity(50000);
   scene.setIndirectLight(ibl);
@@ -511,13 +485,9 @@ async function main() {
   const view = engine.createView();
   view.setCamera(camera);
   view.setScene(scene);
-  // Explicit LINEAR color grading; the default path trips a "uniform buffer too small" GL error
-  // at feature level 1.
   const colorGrading = Filament.ColorGrading.Builder().toneMapping(ToneMapping.LINEAR).build(engine);
   view.setColorGrading(colorGrading);
   renderer.setClearOptions({ clearColor: [0.13, 0.14, 0.16, 1.0], clear: true });
-
-  initDebugCanvas(canvas);
 
   // Physics world + static ground / walls (walls are wireframe-only).
   HK = await HavokPhysics();
@@ -528,12 +498,11 @@ async function main() {
   createStaticBox(GROUND.size, GROUND.pos);
   for (const wd of WALLS) createStaticBox(wd.size, wd.pos);
 
-  // Assign a spawn point to each piece, then build & load the GLB (pieces + ground).
+  // Assign a spawn point to each piece, then build & load the GLB (pieces + wires + ground).
   const pieceSpecs = [];
   for (let i = 0; i < PIECE_COUNT; i++) pieceSpecs.push({ position: randomDrop() });
 
   const pieceGeo = createShogiGeometry(PIECE_W, PIECE_H, PIECE_D);
-  pieceLines = makePieceLineVerts(pieceGeo);
 
   const shogiImage = { bytes: await fetchBytes(SHOGI_URL), mimeType: 'image/png' };
   const grassImage = { bytes: await fetchBytes(GRASS_URL), mimeType: 'image/jpeg' };
@@ -544,28 +513,36 @@ async function main() {
   await new Promise((resolve) => {
     asset.loadResources(() => {
       assetLoader.delete();
+      // Pop every renderable into the scene now so the W toggle can manage wireframes by name.
+      let e = asset.popRenderable();
+      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
       const rm = engine.getRenderableManager();
-      for (const e of asset.getEntities()) {
-        const inst = rm.getInstance(e);
-        if (inst) { rm.setCastShadows(inst, true); rm.setReceiveShadows(inst, true); inst.delete(); }
+      for (const ent of asset.getEntities()) {
+        const inst = rm.getInstance(ent);
+        if (inst) {
+          rm.setCastShadows(inst, true);
+          rm.setReceiveShadows(inst, true);
+          rm.setCulling(inst, false);
+          inst.delete();
+        }
       }
       resolve();
     }, () => {}, '');
   });
 
-  // One shared convex-hull collider; match each piece node to its Filament entity and create its body.
+  // One shared convex-hull collider; match each piece node to its Filament entities + wireframe.
   const pieceShape = createPieceShape(pieceGeo.positions);
   for (let i = 0; i < pieceSpecs.length; i++) {
-    const named = asset.getEntitiesByName('piece' + i);
-    const entity = named.length > 0 ? named[0] : null;
-    if (entity) {
-      const rm = engine.getRenderableManager();
-      const inst = rm.getInstance(entity);
-      if (inst) { rm.setCulling(inst, false); inst.delete(); }
-    }
-    addPieceBody(pieceShape, entity, pieceSpecs[i].position, randomQuat());
+    const entity = asset.getEntitiesByName('piece' + i)[0] || null;
+    const wireframeEntity = asset.getEntitiesByName('pieceWireframe' + i)[0] || null;
+    addPieceBody(pieceShape, entity, wireframeEntity, pieceSpecs[i].position, randomQuat());
   }
-  console.log('[Filament+Havok] pieces ready:', pieces.length);
+  // Ground + 4 wall wireframes.
+  for (let i = 0; i < 1 + WALLS.length; i++) {
+    const ent = asset.getEntitiesByName('staticWireframe' + i)[0];
+    if (ent) staticWireframeEntities.push(ent);
+  }
+  console.log('[Filament+Havok] pieces ready:', pieces.length, 'static wires:', staticWireframeEntities.length);
 
   const center = [0, 2, 0];
   const orbitDist = 30;
@@ -576,7 +553,6 @@ async function main() {
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.width = Math.floor(window.innerWidth * dpr);
     const height = canvas.height = Math.floor(window.innerHeight * dpr);
-    if (debugCanvas) { debugCanvas.width = width; debugCanvas.height = height; }
     aspect = width / height;
     view.setViewport([0, 0, width, height]);
     const fovAxis = aspect < 1 ? Fov.HORIZONTAL : Fov.VERTICAL;
@@ -587,26 +563,22 @@ async function main() {
 
   setWireframeVisible(showWireframe);
 
-  let angle = 0.5;
-  function render() {
+  // Camera orbit driven directly by wall time — pure function of `now`, no accumulator drift.
+  const ORBIT_SPEED = 0.24; // rad/s
+  const ORBIT_PHASE = 0.5;
+  function render(now) {
     requestAnimationFrame(render);
-
-    if (asset) {
-      let e = asset.popRenderable();
-      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
-    }
 
     if (HK && worldId) {
       try { stepAndSync(); } catch (e) { console.error('[physics] error:', e); HK = null; }
     }
 
-    angle += 0.004;
+    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
     const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
     const up = [0, 1, 0];
     camera.lookAt(eye, center, up);
 
     renderer.render(swapChain, view);
-    drawDebug(eye, center, up, aspect);
   }
   requestAnimationFrame(render);
 }
