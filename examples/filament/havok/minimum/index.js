@@ -433,9 +433,16 @@ async function main() {
   setWireframeVisible(showWireframe);
 
   const tcm = engine.getTransformManager();
+  // Camera orbit speed in radians per second (was 0.005 / fixed frame, equivalent to 0.3 rad/s
+  // at 60fps); driving it by wall time instead of frame count keeps the rotation smooth even when
+  // requestAnimationFrame's frame interval jitters between, say, 16ms and 32ms.
+  const ORBIT_SPEED = 0.3;
   let angle = 0.5;
-  function render() {
+  let prevTime = 0;
+  function render(now) {
     requestAnimationFrame(render);
+    const dt = prevTime ? Math.min((now - prevTime) / 1000, 0.1) : 1 / 60;
+    prevTime = now;
 
     if (asset) {
       let e = asset.popRenderable();
@@ -455,7 +462,7 @@ async function main() {
       }
     }
 
-    angle += 0.005;
+    angle += ORBIT_SPEED * dt;
     const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
     const up = [0, 1, 0];
     camera.lookAt(eye, center, up);
