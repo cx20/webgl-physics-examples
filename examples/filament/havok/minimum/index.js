@@ -71,6 +71,11 @@ let debugGl = null;
 let debugProg = null;
 let debugVbo = null;
 let showWireframe = true;
+// Cached debug shader locations + scratch matrices reused every frame (drops the per-frame
+// Float32Array / mat4.create() allocations that were churning the GC).
+let debugAPos = -1, debugUMVP = null, debugUColor = null;
+const dbgScratch = {};
+const UNIT_CUBE_LINE_COUNT = 24; // 12 edges × 2 vertices
 
 // ---- Havok helpers ----
 function enumToNumber(value) {
@@ -262,7 +267,22 @@ function initDebugCanvas(mainCanvas) {
     console.warn('[debug] shader link error:', gl.getProgramInfoLog(debugProg));
     debugProg = null; return;
   }
+  // Cache shader locations + scratch matrices once; upload the unit cube lines once. Per-frame
+  // drawDebug then only does matrix math + one drawArrays per body — no allocations, no rebuffering.
+  debugAPos = gl.getAttribLocation(debugProg, 'aPos');
+  debugUMVP = gl.getUniformLocation(debugProg, 'uMVP');
+  debugUColor = gl.getUniformLocation(debugProg, 'uColor');
+  dbgScratch.view = mat4.create();
+  dbgScratch.proj = mat4.create();
+  dbgScratch.vp = mat4.create();
+  dbgScratch.model = mat4.create();
+  dbgScratch.mvp = mat4.create();
+  dbgScratch.q = quat.create();
+  dbgScratch.p = vec3.create();
+  dbgScratch.s = vec3.create();
   debugVbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
+  gl.bufferData(gl.ARRAY_BUFFER, makeBoxLineVerts(1, 1, 1), gl.STATIC_DRAW);
 }
 
 function drawDebug(eye, center, up, aspect) {
@@ -274,23 +294,23 @@ function drawDebug(eye, center, up, aspect) {
   if (!showWireframe || !HK || !worldId) return;
   gl.enable(gl.DEPTH_TEST);
   gl.useProgram(debugProg);
-  const aPos = gl.getAttribLocation(debugProg, 'aPos');
-  const uMVP = gl.getUniformLocation(debugProg, 'uMVP');
-  const uColor = gl.getUniformLocation(debugProg, 'uColor');
-  const viewM = mat4.lookAt(mat4.create(), eye, center, up);
-  const projM = mat4.perspective(mat4.create(), 75 * Math.PI / 180, aspect, 0.01, 10000.0);
-  const vp = mat4.multiply(mat4.create(), projM, viewM);
+  const S = dbgScratch;
+  mat4.lookAt(S.view, eye, center, up);
+  mat4.perspective(S.proj, 75 * Math.PI / 180, aspect, 0.01, 10000.0);
+  mat4.multiply(S.vp, S.proj, S.view);
   gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(debugAPos);
+  gl.vertexAttribPointer(debugAPos, 3, gl.FLOAT, false, 0, 0);
 
   function drawBox(size, color, p, r) {
-    const model = mat4.fromRotationTranslation(mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(p[0], p[1], p[2]));
-    gl.uniformMatrix4fv(uMVP, false, mat4.multiply(mat4.create(), vp, model));
-    gl.uniform4fv(uColor, color);
-    const verts = makeBoxLineVerts(size[0], size[1], size[2]);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
-    gl.drawArrays(gl.LINES, 0, verts.length / 3);
+    quat.set(S.q, r[0], r[1], r[2], r[3]);
+    vec3.set(S.p, p[0], p[1], p[2]);
+    vec3.set(S.s, size[0], size[1], size[2]);
+    mat4.fromRotationTranslationScale(S.model, S.q, S.p, S.s);
+    mat4.multiply(S.mvp, S.vp, S.model);
+    gl.uniformMatrix4fv(debugUMVP, false, S.mvp);
+    gl.uniform4fv(debugUColor, color);
+    gl.drawArrays(gl.LINES, 0, UNIT_CUBE_LINE_COUNT);
   }
 
   drawBox(GROUND.size, DEBUG_COLOR_STATIC, GROUND.pos, IDENTITY_QUATERNION);
@@ -299,7 +319,7 @@ function drawDebug(eye, center, up, aspect) {
     const qr = HK.HP_Body_GetOrientation(cubeBodyId);
     drawBox(CUBE_SIZE, DEBUG_COLOR_DYNAMIC, pr[1], qr[1]);
   }
-  gl.disableVertexAttribArray(aPos);
+  gl.disableVertexAttribArray(debugAPos);
 }
 
 // ---- W-key wireframe toggle ----
