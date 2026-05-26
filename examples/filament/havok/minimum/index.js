@@ -8,9 +8,10 @@
 // cube is shaded instead of looking flat. The cube node is matched to its Havok box body and synced
 // every frame.
 //
-// Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
-// camera (Filament can't easily draw lines); the ground collider's wireframe is the green box.
-// Press W to toggle them.
+// Collider wireframes are baked into the same GLB as LINES primitives with KHR_materials_unlit, so
+// they render in the same Filament pass (no second canvas) — that single-canvas setup matches the
+// raw WebGL2 sample and avoids the compositor stutter the previous overlay approach had. Press W to
+// toggle the wireframe entities in / out of the scene.
 //
 // Libraries are loaded as globals via <script> tags: Filament, HavokPhysics, gl-matrix
 // (vec3 / quat / mat4).
@@ -23,9 +24,6 @@ const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const GROUND = { size: [4, 0.1, 4], pos: [0, 0, 0] };
 const CUBE_SIZE = [1, 1, 1];
 const CUBE_ROUGHNESS = 0.7;
-
-const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0]; // orange = cube
-const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];  // green  = ground
 
 // Unit cube geometry (24 verts so each face has its own UVs + flat normal).
 const CUBE_POSITIONS = new Float32Array([
@@ -63,19 +61,12 @@ let groundBodyId = null;
 let cubeBodyId = null;
 
 let engine = null;
+let scene = null;
 let asset = null;
 let cubeEntity = null;
-
-let debugCanvas = null;
-let debugGl = null;
-let debugProg = null;
-let debugVbo = null;
+let cubeWireframeEntity = null;
+let groundWireframeEntity = null;
 let showWireframe = true;
-// Cached debug shader locations + scratch matrices reused every frame (drops the per-frame
-// Float32Array / mat4.create() allocations that were churning the GC).
-let debugAPos = -1, debugUMVP = null, debugUColor = null;
-const dbgScratch = {};
-const UNIT_CUBE_LINE_COUNT = 24; // 12 edges × 2 vertices
 
 // ---- Havok helpers ----
 function enumToNumber(value) {
@@ -150,7 +141,7 @@ function buildSceneGlb(textureBytes) {
     return index;
   }
 
-  function addMeshAccessors(positions, normals, uvs, indices, min, max) {
+  function addTriMeshAccessors(positions, normals, uvs, indices, min, max) {
     const posBV = addBufferView(positions, 34962);
     const posAcc = accessors.length;
     accessors.push({ bufferView: posBV, componentType: 5126, count: positions.length / 3, type: 'VEC3', min, max });
@@ -166,8 +157,32 @@ function buildSceneGlb(textureBytes) {
     return { POSITION: posAcc, NORMAL: nrmAcc, TEXCOORD_0: uvAcc, indices: idxAcc };
   }
 
+  // For LINES primitives we only need POSITION + indices (no normals / UVs).
+  function addLineMeshAccessors(positions, indices, min, max) {
+    const posBV = addBufferView(positions, 34962);
+    const posAcc = accessors.length;
+    accessors.push({ bufferView: posBV, componentType: 5126, count: positions.length / 3, type: 'VEC3', min, max });
+    const idxBV = addBufferView(indices, 34963);
+    const idxAcc = accessors.length;
+    accessors.push({ bufferView: idxBV, componentType: 5125, count: indices.length, type: 'SCALAR' });
+    return { POSITION: posAcc, indices: idxAcc };
+  }
+
+  // The 12 edges of an axis-aligned box, as line-segment index pairs.
+  const LINE_BOX_INDICES = new Uint32Array([
+    0, 1, 1, 2, 2, 3, 3, 0,    // bottom square
+    4, 5, 5, 6, 6, 7, 7, 4,    // top square
+    0, 4, 1, 5, 2, 6, 3, 7,    // verticals
+  ]);
+  function lineBoxPositions(hx, hy, hz) {
+    return new Float32Array([
+      -hx, -hy, -hz,  hx, -hy, -hz,  hx, hy, -hz,  -hx, hy, -hz,
+      -hx, -hy,  hz,  hx, -hy,  hz,  hx, hy,  hz,  -hx, hy,  hz,
+    ]);
+  }
+
   // Cube mesh.
-  const cube = addMeshAccessors(CUBE_POSITIONS, CUBE_NORMALS, CUBE_UVS, CUBE_INDICES, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
+  const cube = addTriMeshAccessors(CUBE_POSITIONS, CUBE_NORMALS, CUBE_UVS, CUBE_INDICES, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
 
   // Ground quad at the collider's top surface, with a single frog stretched across it.
   const halfX = GROUND.size[0] / 2, halfZ = GROUND.size[2] / 2;
@@ -176,22 +191,48 @@ function buildSceneGlb(textureBytes) {
   const groundNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
   const groundUVs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
   const groundIndices = new Uint32Array([0, 1, 2, 0, 2, 3]);
-  const ground = addMeshAccessors(groundPositions, groundNormals, groundUVs, groundIndices, [-halfX, gy, -halfZ], [halfX, gy, halfZ]);
+  const ground = addTriMeshAccessors(groundPositions, groundNormals, groundUVs, groundIndices, [-halfX, gy, -halfZ], [halfX, gy, halfZ]);
 
-  // Single embedded image shared by both materials.
+  // Wireframe boxes. Slightly outset (~0.5%) so the lines sit just outside the textured geometry
+  // and don't z-fight with the cube / ground triangle surfaces.
+  const cubeWireHX = CUBE_SIZE[0] / 2 * 1.005, cubeWireHY = CUBE_SIZE[1] / 2 * 1.005, cubeWireHZ = CUBE_SIZE[2] / 2 * 1.005;
+  const cubeWire = addLineMeshAccessors(
+    lineBoxPositions(cubeWireHX, cubeWireHY, cubeWireHZ),
+    LINE_BOX_INDICES,
+    [-cubeWireHX, -cubeWireHY, -cubeWireHZ], [cubeWireHX, cubeWireHY, cubeWireHZ],
+  );
+  const gHX = GROUND.size[0] / 2 * 1.005, gHY = GROUND.size[1] / 2 * 1.005, gHZ = GROUND.size[2] / 2 * 1.005;
+  // The ground wireframe bakes the ground's world Y centre in (collider sits at GROUND.pos).
+  const gMidY = GROUND.pos[1];
+  const groundWirePositions = new Float32Array([
+    -gHX, gMidY - gHY, -gHZ,  gHX, gMidY - gHY, -gHZ,  gHX, gMidY + gHY, -gHZ,  -gHX, gMidY + gHY, -gHZ,
+    -gHX, gMidY - gHY,  gHZ,  gHX, gMidY - gHY,  gHZ,  gHX, gMidY + gHY,  gHZ,  -gHX, gMidY + gHY,  gHZ,
+  ]);
+  const groundWire = addLineMeshAccessors(
+    groundWirePositions, LINE_BOX_INDICES,
+    [-gHX, gMidY - gHY, -gHZ], [gHX, gMidY + gHY, gHZ],
+  );
+
+  // Single embedded image shared by both PBR materials.
   const imgBV = addBufferView(textureBytes, undefined);
 
   const gltf = {
     asset: { version: '2.0', generator: 'filament-havok-minimum' },
+    extensionsUsed: ['KHR_materials_unlit'],
     scene: 0,
-    scenes: [{ nodes: [0, 1] }],
+    scenes: [{ nodes: [0, 1, 2, 3] }],
     nodes: [
       { name: 'cube', mesh: 0 },
       { name: 'ground', mesh: 1 },
+      { name: 'cubeWireframe', mesh: 2 },
+      { name: 'groundWireframe', mesh: 3 },
     ],
     meshes: [
       { primitives: [{ attributes: { POSITION: cube.POSITION, NORMAL: cube.NORMAL, TEXCOORD_0: cube.TEXCOORD_0 }, indices: cube.indices, material: 0 }] },
       { primitives: [{ attributes: { POSITION: ground.POSITION, NORMAL: ground.NORMAL, TEXCOORD_0: ground.TEXCOORD_0 }, indices: ground.indices, material: 1 }] },
+      // mode 1 = LINES (glTF spec). gltfio maps that to Filament's PrimitiveType.LINES.
+      { primitives: [{ mode: 1, attributes: { POSITION: cubeWire.POSITION }, indices: cubeWire.indices, material: 2 }] },
+      { primitives: [{ mode: 1, attributes: { POSITION: groundWire.POSITION }, indices: groundWire.indices, material: 3 }] },
     ],
     materials: [
       // doubleSided so back-face culling can't hide faces whose winding happens to be reversed
@@ -199,6 +240,9 @@ function buildSceneGlb(textureBytes) {
       // visible without having to rewind every index).
       { name: 'cube',   pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.0, roughnessFactor: CUBE_ROUGHNESS }, doubleSided: true },
       { name: 'ground', pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.0, roughnessFactor: 0.9 },            doubleSided: true },
+      // Unlit so the wireframes show as solid coloured lines regardless of lighting.
+      { name: 'cubeWireframe',   extensions: { KHR_materials_unlit: {} }, pbrMetallicRoughness: { baseColorFactor: [1.0, 0.5, 0.2, 1.0] } },
+      { name: 'groundWireframe', extensions: { KHR_materials_unlit: {} }, pbrMetallicRoughness: { baseColorFactor: [0.2, 1.0, 0.4, 1.0] } },
     ],
     images: [{ bufferView: imgBV, mimeType: 'image/jpeg' }],
     samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
@@ -235,98 +279,19 @@ function buildSceneGlb(textureBytes) {
   return glb;
 }
 
-// ---- Debug wireframe overlay (separate transparent WebGL2 canvas) ----
-function makeBoxLineVerts(sx, sy, sz) {
-  const hx = sx / 2, hy = sy / 2, hz = sz / 2;
-  const c = [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz], [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]];
-  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-  const v = [];
-  for (const [a, b] of edges) v.push(...c[a], ...c[b]);
-  return new Float32Array(v);
-}
-
-function initDebugCanvas(mainCanvas) {
-  debugCanvas = document.createElement('canvas');
-  debugCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none';
-  debugCanvas.width = mainCanvas.width;
-  debugCanvas.height = mainCanvas.height;
-  mainCanvas.parentElement.appendChild(debugCanvas);
-  const gl = debugGl = debugCanvas.getContext('webgl2');
-  if (!gl) { console.warn('[debug] WebGL2 unavailable for wireframe overlay'); return; }
-  const vs = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs, '#version 300 es\nin vec3 aPos; uniform mat4 uMVP;\nvoid main(){gl_Position=uMVP*vec4(aPos,1.0);}');
-  gl.compileShader(vs);
-  const fs = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fs, '#version 300 es\nprecision mediump float; uniform vec4 uColor; out vec4 o;\nvoid main(){o=uColor;}');
-  gl.compileShader(fs);
-  debugProg = gl.createProgram();
-  gl.attachShader(debugProg, vs); gl.attachShader(debugProg, fs);
-  gl.linkProgram(debugProg);
-  gl.deleteShader(vs); gl.deleteShader(fs);
-  if (!gl.getProgramParameter(debugProg, gl.LINK_STATUS)) {
-    console.warn('[debug] shader link error:', gl.getProgramInfoLog(debugProg));
-    debugProg = null; return;
-  }
-  // Cache shader locations + scratch matrices once; upload the unit cube lines once. Per-frame
-  // drawDebug then only does matrix math + one drawArrays per body — no allocations, no rebuffering.
-  debugAPos = gl.getAttribLocation(debugProg, 'aPos');
-  debugUMVP = gl.getUniformLocation(debugProg, 'uMVP');
-  debugUColor = gl.getUniformLocation(debugProg, 'uColor');
-  dbgScratch.view = mat4.create();
-  dbgScratch.proj = mat4.create();
-  dbgScratch.vp = mat4.create();
-  dbgScratch.model = mat4.create();
-  dbgScratch.mvp = mat4.create();
-  dbgScratch.q = quat.create();
-  dbgScratch.p = vec3.create();
-  dbgScratch.s = vec3.create();
-  debugVbo = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
-  gl.bufferData(gl.ARRAY_BUFFER, makeBoxLineVerts(1, 1, 1), gl.STATIC_DRAW);
-}
-
-function drawDebug(eye, center, up, aspect) {
-  if (!debugGl || !debugProg) return;
-  const gl = debugGl;
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  if (!showWireframe || !HK || !worldId) return;
-  gl.enable(gl.DEPTH_TEST);
-  gl.useProgram(debugProg);
-  const S = dbgScratch;
-  mat4.lookAt(S.view, eye, center, up);
-  mat4.perspective(S.proj, 75 * Math.PI / 180, aspect, 0.01, 10000.0);
-  mat4.multiply(S.vp, S.proj, S.view);
-  gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
-  gl.enableVertexAttribArray(debugAPos);
-  gl.vertexAttribPointer(debugAPos, 3, gl.FLOAT, false, 0, 0);
-
-  function drawBox(size, color, p, r) {
-    quat.set(S.q, r[0], r[1], r[2], r[3]);
-    vec3.set(S.p, p[0], p[1], p[2]);
-    vec3.set(S.s, size[0], size[1], size[2]);
-    mat4.fromRotationTranslationScale(S.model, S.q, S.p, S.s);
-    mat4.multiply(S.mvp, S.vp, S.model);
-    gl.uniformMatrix4fv(debugUMVP, false, S.mvp);
-    gl.uniform4fv(debugUColor, color);
-    gl.drawArrays(gl.LINES, 0, UNIT_CUBE_LINE_COUNT);
-  }
-
-  drawBox(GROUND.size, DEBUG_COLOR_STATIC, GROUND.pos, IDENTITY_QUATERNION);
-  if (cubeBodyId !== null) {
-    const pr = HK.HP_Body_GetPosition(cubeBodyId);
-    const qr = HK.HP_Body_GetOrientation(cubeBodyId);
-    drawBox(CUBE_SIZE, DEBUG_COLOR_DYNAMIC, pr[1], qr[1]);
-  }
-  gl.disableVertexAttribArray(debugAPos);
-}
-
-// ---- W-key wireframe toggle ----
+// ---- W-key wireframe toggle (adds / removes the wireframe entities from the scene) ----
 function setWireframeVisible(visible) {
   showWireframe = visible;
   const hint = document.getElementById('hint');
   if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  if (!scene || !cubeWireframeEntity || !groundWireframeEntity) return;
+  if (visible) {
+    scene.addEntity(cubeWireframeEntity);
+    scene.addEntity(groundWireframeEntity);
+  } else {
+    scene.remove(cubeWireframeEntity);
+    scene.remove(groundWireframeEntity);
+  }
 }
 
 window.addEventListener('keydown', (event) => {
@@ -352,7 +317,7 @@ Filament.init([IBL_URL], () => {
 async function main() {
   const canvas = document.getElementsByTagName('canvas')[0];
   engine = Filament.Engine.create(canvas);
-  const scene = engine.createScene();
+  scene = engine.createScene();
 
   // IBL for lighting + reflections; no skybox, so the background stays the dark clear colour.
   const ibl = engine.createIblFromKtx1(IBL_URL);
@@ -381,12 +346,10 @@ async function main() {
   view.setColorGrading(colorGrading);
   renderer.setClearOptions({ clearColor: [0.13, 0.13, 0.15, 1.0], clear: true });
 
-  initDebugCanvas(canvas);
-
   HK = await HavokPhysics();
   initPhysics();
 
-  // Build & load the scene GLB (cube + ground both reference the same embedded frog texture).
+  // Build & load the scene GLB (cube + ground + LINE wireframes, all in one asset / one canvas).
   const textureBytes = await fetchBytes(TEXTURE_URL);
   const glb = buildSceneGlb(textureBytes);
   const assetLoader = engine.createAssetLoader();
@@ -394,23 +357,28 @@ async function main() {
   await new Promise((resolve) => {
     asset.loadResources(() => {
       assetLoader.delete();
+      // Pop every renderable into the scene right now so the wireframe toggle can manage them by
+      // name immediately (no further popRenderable in the render loop).
+      let e = asset.popRenderable();
+      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
       const rm = engine.getRenderableManager();
-      for (const e of asset.getEntities()) {
-        const inst = rm.getInstance(e);
-        if (inst) { rm.setCastShadows(inst, true); rm.setReceiveShadows(inst, true); inst.delete(); }
+      for (const ent of asset.getEntities()) {
+        const inst = rm.getInstance(ent);
+        if (inst) {
+          rm.setCastShadows(inst, true);
+          rm.setReceiveShadows(inst, true);
+          rm.setCulling(inst, false);
+          inst.delete();
+        }
       }
       resolve();
     }, () => {}, '');
   });
-  const named = asset.getEntitiesByName('cube');
-  cubeEntity = named.length > 0 ? named[0] : null;
-  if (cubeEntity) {
-    const rm = engine.getRenderableManager();
-    const inst = rm.getInstance(cubeEntity);
-    if (inst) { rm.setCulling(inst, false); inst.delete(); }
-  } else {
-    console.warn('[Filament+Havok] cube entity not found');
-  }
+  cubeEntity = asset.getEntitiesByName('cube')[0] || null;
+  cubeWireframeEntity = asset.getEntitiesByName('cubeWireframe')[0] || null;
+  groundWireframeEntity = asset.getEntitiesByName('groundWireframe')[0] || null;
+  if (!cubeEntity) console.warn('[Filament+Havok] cube entity not found');
+  if (!cubeWireframeEntity || !groundWireframeEntity) console.warn('[Filament+Havok] wireframe entities not found');
 
   const center = [0, 0.5, 0];
   const orbitDist = 6;
@@ -421,7 +389,6 @@ async function main() {
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.width = Math.floor(window.innerWidth * dpr);
     const height = canvas.height = Math.floor(window.innerHeight * dpr);
-    if (debugCanvas) { debugCanvas.width = width; debugCanvas.height = height; }
     aspect = width / height;
     view.setViewport([0, 0, width, height]);
     const fovAxis = aspect < 1 ? Fov.HORIZONTAL : Fov.VERTICAL;
@@ -433,42 +400,44 @@ async function main() {
   setWireframeVisible(showWireframe);
 
   const tcm = engine.getTransformManager();
-  // Camera orbit speed in radians per second (was 0.005 / fixed frame, equivalent to 0.3 rad/s
-  // at 60fps); driving it by wall time instead of frame count keeps the rotation smooth even when
-  // requestAnimationFrame's frame interval jitters between, say, 16ms and 32ms.
-  const ORBIT_SPEED = 0.3;
-  let angle = 0.5;
-  let prevTime = 0;
+  // Camera orbit driven directly by wall time (matches the raw WebGL2 sample). No accumulator, no
+  // drift — frame interval jitter doesn't compound into a stutter, because the angle is a pure
+  // function of `now`.
+  const ORBIT_SPEED = 0.3; // rad/s
+  const ORBIT_PHASE = 0.5; // initial angle (was the seed `angle = 0.5`)
+  // Reusable scratch so the render loop doesn't allocate every frame.
+  const tmpMat = mat4.create(), tmpQuat = quat.create(), tmpVec = vec3.create();
   function render(now) {
     requestAnimationFrame(render);
-    const dt = prevTime ? Math.min((now - prevTime) / 1000, 0.1) : 1 / 60;
-    prevTime = now;
-
-    if (asset) {
-      let e = asset.popRenderable();
-      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
-    }
 
     if (HK && worldId) {
       checkResult(HK.HP_World_Step(worldId, FIXED_TIMESTEP), 'HP_World_Step');
-      if (cubeEntity) {
+      if (cubeEntity || cubeWireframeEntity) {
         const pr = HK.HP_Body_GetPosition(cubeBodyId);
         const qr = HK.HP_Body_GetOrientation(cubeBodyId);
         const p = pr[1], q = qr[1];
-        const m = mat4.fromRotationTranslation(mat4.create(), quat.fromValues(q[0], q[1], q[2], q[3]), vec3.fromValues(p[0], p[1], p[2]));
-        const inst = tcm.getInstance(cubeEntity);
-        tcm.setTransform(inst, m);
-        inst.delete();
+        quat.set(tmpQuat, q[0], q[1], q[2], q[3]);
+        vec3.set(tmpVec, p[0], p[1], p[2]);
+        mat4.fromRotationTranslation(tmpMat, tmpQuat, tmpVec);
+        if (cubeEntity) {
+          const inst = tcm.getInstance(cubeEntity);
+          tcm.setTransform(inst, tmpMat);
+          inst.delete();
+        }
+        if (cubeWireframeEntity) {
+          const inst = tcm.getInstance(cubeWireframeEntity);
+          tcm.setTransform(inst, tmpMat);
+          inst.delete();
+        }
       }
     }
 
-    angle += ORBIT_SPEED * dt;
+    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
     const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
     const up = [0, 1, 0];
     camera.lookAt(eye, center, up);
 
     renderer.render(swapChain, view);
-    drawDebug(eye, center, up, aspect);
   }
   requestAnimationFrame(render);
 }
