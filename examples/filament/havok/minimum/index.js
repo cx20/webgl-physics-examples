@@ -1,15 +1,16 @@
 // Filament + Havok — Minimum sample (PBR).
 //
-// A textured cube falls onto a ground and settles, simulated by Havok and rendered by Filament with
-// a lit, physically-based material. There is no lit .filamat we can load, so the scene is emitted
-// as an in-code glTF (GLB): a single cube mesh (the JPEG as baseColorTexture, with hand-authored
-// flat per-face normals so the lighting reads correctly) loaded through Filament's gltfio. The
-// papermill IBL and a directional sun light the scene, so the cube is shaded instead of looking
-// flat. The cube node is matched to its Havok box body and synced every frame.
+// A textured cube falls onto a textured ground and settles, simulated by Havok and rendered by
+// Filament with lit, physically-based materials. There is no lit .filamat we can load, so the scene
+// is emitted as an in-code glTF (GLB): a cube mesh + a ground quad (both sharing the same JPEG as
+// baseColorTexture, with hand-authored flat per-face normals so the lighting reads correctly),
+// loaded through Filament's gltfio. The papermill IBL and a directional sun light the scene, so the
+// cube is shaded instead of looking flat. The cube node is matched to its Havok box body and synced
+// every frame.
 //
 // Collider wireframes are drawn on a separate transparent WebGL2 canvas overlaid with the same
-// camera (Filament can't easily draw lines); the ground is shown only as a wireframe. Press W to
-// toggle them.
+// camera (Filament can't easily draw lines); the ground collider's wireframe is the green box.
+// Press W to toggle them.
 //
 // Libraries are loaded as globals via <script> tags: Filament, HavokPhysics, gl-matrix
 // (vec3 / quat / mat4).
@@ -122,10 +123,10 @@ function initPhysics() {
   HK.HP_World_AddBody(worldId, cubeBodyId, false);
 }
 
-// ---- In-code GLB assembly (one textured cube node) ----
+// ---- In-code GLB assembly (textured cube + textured ground quad) ----
 function alignTo4(n) { return (n + 3) & ~3; }
 
-function buildCubeGlb(textureBytes) {
+function buildSceneGlb(textureBytes) {
   const accessors = [];
   const bufferViews = [];
   const binChunks = [];
@@ -144,26 +145,56 @@ function buildCubeGlb(textureBytes) {
     return index;
   }
 
-  const posBV = addBufferView(CUBE_POSITIONS, 34962);
-  accessors.push({ bufferView: posBV, componentType: 5126, count: 24, type: 'VEC3', min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] });
-  const nrmBV = addBufferView(CUBE_NORMALS, 34962);
-  accessors.push({ bufferView: nrmBV, componentType: 5126, count: 24, type: 'VEC3' });
-  const uvBV = addBufferView(CUBE_UVS, 34962);
-  accessors.push({ bufferView: uvBV, componentType: 5126, count: 24, type: 'VEC2' });
-  const idxBV = addBufferView(CUBE_INDICES, 34963);
-  accessors.push({ bufferView: idxBV, componentType: 5125, count: 36, type: 'SCALAR' });
+  function addMeshAccessors(positions, normals, uvs, indices, min, max) {
+    const posBV = addBufferView(positions, 34962);
+    const posAcc = accessors.length;
+    accessors.push({ bufferView: posBV, componentType: 5126, count: positions.length / 3, type: 'VEC3', min, max });
+    const nrmBV = addBufferView(normals, 34962);
+    const nrmAcc = accessors.length;
+    accessors.push({ bufferView: nrmBV, componentType: 5126, count: normals.length / 3, type: 'VEC3' });
+    const uvBV = addBufferView(uvs, 34962);
+    const uvAcc = accessors.length;
+    accessors.push({ bufferView: uvBV, componentType: 5126, count: uvs.length / 2, type: 'VEC2' });
+    const idxBV = addBufferView(indices, 34963);
+    const idxAcc = accessors.length;
+    accessors.push({ bufferView: idxBV, componentType: 5125, count: indices.length, type: 'SCALAR' });
+    return { POSITION: posAcc, NORMAL: nrmAcc, TEXCOORD_0: uvAcc, indices: idxAcc };
+  }
+
+  // Cube mesh.
+  const cube = addMeshAccessors(CUBE_POSITIONS, CUBE_NORMALS, CUBE_UVS, CUBE_INDICES, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
+
+  // Ground quad at the collider's top surface, with a single frog stretched across it.
+  const halfX = GROUND.size[0] / 2, halfZ = GROUND.size[2] / 2;
+  const gy = GROUND.pos[1] + GROUND.size[1] / 2;
+  const groundPositions = new Float32Array([-halfX, gy, -halfZ, halfX, gy, -halfZ, halfX, gy, halfZ, -halfX, gy, halfZ]);
+  const groundNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
+  const groundUVs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
+  const groundIndices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+  const ground = addMeshAccessors(groundPositions, groundNormals, groundUVs, groundIndices, [-halfX, gy, -halfZ], [halfX, gy, halfZ]);
+
+  // Single embedded image shared by both materials.
   const imgBV = addBufferView(textureBytes, undefined);
 
   const gltf = {
     asset: { version: '2.0', generator: 'filament-havok-minimum' },
     scene: 0,
-    scenes: [{ nodes: [0] }],
-    nodes: [{ name: 'cube', mesh: 0 }],
-    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
-    materials: [{
-      name: 'cube',
-      pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.0, roughnessFactor: CUBE_ROUGHNESS },
-    }],
+    scenes: [{ nodes: [0, 1] }],
+    nodes: [
+      { name: 'cube', mesh: 0 },
+      { name: 'ground', mesh: 1 },
+    ],
+    meshes: [
+      { primitives: [{ attributes: { POSITION: cube.POSITION, NORMAL: cube.NORMAL, TEXCOORD_0: cube.TEXCOORD_0 }, indices: cube.indices, material: 0 }] },
+      { primitives: [{ attributes: { POSITION: ground.POSITION, NORMAL: ground.NORMAL, TEXCOORD_0: ground.TEXCOORD_0 }, indices: ground.indices, material: 1 }] },
+    ],
+    materials: [
+      // doubleSided so back-face culling can't hide faces whose winding happens to be reversed
+      // (the hand-authored cube indices are not all CCW outward; doubleSided keeps every face
+      // visible without having to rewind every index).
+      { name: 'cube',   pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.0, roughnessFactor: CUBE_ROUGHNESS }, doubleSided: true },
+      { name: 'ground', pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.0, roughnessFactor: 0.9 },            doubleSided: true },
+    ],
     images: [{ bufferView: imgBV, mimeType: 'image/jpeg' }],
     samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
     textures: [{ sampler: 0, source: 0 }],
@@ -335,9 +366,9 @@ async function main() {
   HK = await HavokPhysics();
   initPhysics();
 
-  // Build & load the cube GLB (the texture is embedded so gltfio resolves no external URIs).
+  // Build & load the scene GLB (cube + ground both reference the same embedded frog texture).
   const textureBytes = await fetchBytes(TEXTURE_URL);
-  const glb = buildCubeGlb(textureBytes);
+  const glb = buildSceneGlb(textureBytes);
   const assetLoader = engine.createAssetLoader();
   asset = assetLoader.createAsset(glb);
   await new Promise((resolve) => {
