@@ -3,14 +3,15 @@
 // A 16x16 grid of coloured dominoes (a bitmap picture) is knocked over by a row of balls,
 // simulated by Havok and rendered by Filament. Geometry (cube + sphere) and materials are built
 // by hand in Filament: the compiled `texture.filamat` (unlit textured material) is reused with a
-// tiny 1x1 solid-colour texture per domino colour, so every domino samples a flat colour. Press W
-// to toggle the collider wireframes.
+// tiny 1x1 solid-colour texture per domino colour, so every domino samples a flat colour.
+//
+// Collider wireframes are rendered in the same Filament pass as LINES renderables using
+// `cube.filamat` (an unlit vertex-colour material) — no second canvas, no compositor stutter.
+// Press W to toggle them in / out of the scene.
 //
 // A compiled .filamat is tied to a Filament version, so this sample uses the matching `dev` build
 // (see index.html). Libraries are globals: Filament, HavokPhysics, gl-matrix.
 
-// cube.filamat = vertex-colour unlit material (for dominoes); texture.filamat = textured unlit
-// material (for the football). Both target the dev Filament build (see index.html).
 const FILAMAT_CUBE_URL = 'https://cx20.github.io/webgl-test/examples/filament/cube/cube.filamat';
 const FILAMAT_TEX_URL = 'https://cx20.github.io/webgl-test/examples/filament/texture/texture.filamat';
 const FOOTBALL_URL = '../../../../assets/textures/football.png';
@@ -55,18 +56,19 @@ const DOMINO_H = BOX_SIZE * 1.5;
 const DOMINO_D = BOX_SIZE * 1.0;
 const BALL_RADIUS = BOX_SIZE / 2;
 const GROUND = { size: [100, 0.2, 100], pos: [0, 0, 0] };
+const WIREFRAME_OUTSET = 1.005;
 
-const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
-const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+const COLOR_DYNAMIC = [255, 128, 51, 255];
+const COLOR_STATIC = [51, 255, 102, 255];
 
 let HK = null;
 let worldId = null;
 
 let engine = null;
-const bodies = []; // { entity, bodyId, scale:[x,y,z], kind:'box'|'sphere', curPos, curRot }
-
-let debugCanvas = null, debugGl = null, debugProg = null, debugVbo = null, showWireframe = true;
-let unitCubeLines = null, unitSphereLines = null;
+let scene = null;
+let showWireframe = true;
+const bodies = []; // { entity, wireframeEntity, bodyId, scale, kind, curPos, curRot }
+const staticWireframeEntities = [];
 
 // ---- Havok helpers ----
 function enumToNumber(value) {
@@ -118,13 +120,10 @@ function makeSphereGeometry(segments, rings) {
   return { positions: new Float32Array(pos), uvs: new Float32Array(uv), indices: new Uint16Array(idx) };
 }
 
-// ---- Filament geometry helpers ----
-// Cube vertex buffer with a flat per-vertex COLOR (cube.filamat uses getColor() as baseColor).
 function buildColorCubeVB(eng, rgb) {
   const VA = Filament.VertexAttribute, AT = Filament.VertexBuffer$AttributeType;
   const vb = Filament.VertexBuffer.Builder()
-    .vertexCount(24)
-    .bufferCount(2)
+    .vertexCount(24).bufferCount(2)
     .attribute(VA.POSITION, 0, AT.FLOAT3, 0, 0)
     .attribute(VA.COLOR, 1, AT.UBYTE4, 0, 0)
     .normalized(VA.COLOR)
@@ -137,7 +136,6 @@ function buildColorCubeVB(eng, rgb) {
   return vb;
 }
 
-// Flat ground quad (XZ plane) at y=0 with tiled UVs.
 function makePlaneGeometry(size, tiles) {
   const h = size / 2;
   return {
@@ -147,12 +145,10 @@ function makePlaneGeometry(size, tiles) {
   };
 }
 
-// Vertex buffer with POSITION + UV0 (texture.filamat needs uv0) — used for the football sphere.
 function buildVB(eng, positions, uvs, vertexCount) {
   const VA = Filament.VertexAttribute, AT = Filament.VertexBuffer$AttributeType;
   const vb = Filament.VertexBuffer.Builder()
-    .vertexCount(vertexCount)
-    .bufferCount(2)
+    .vertexCount(vertexCount).bufferCount(2)
     .attribute(VA.POSITION, 0, AT.FLOAT3, 0, 0)
     .attribute(VA.UV0, 1, AT.FLOAT2, 0, 0)
     .build(eng);
@@ -170,8 +166,70 @@ function buildIB(eng, indices) {
   return ib;
 }
 
-// ---- Physics body creation (also builds the matching Filament renderable) ----
-function addBody(scene, vb, ib, halfExtentBox, matInstance, shapeId, motionType, scale, pos, rot, kind) {
+// ---- LINES wireframes (cube.filamat: POSITION + COLOR per vertex) ----
+const LINE_BOX_INDICES = new Uint16Array([
+  0, 1, 1, 2, 2, 3, 3, 0,
+  4, 5, 5, 6, 6, 7, 7, 4,
+  0, 4, 1, 5, 2, 6, 3, 7,
+]);
+function buildLineBoxPositions(hx, hy, hz, cx = 0, cy = 0, cz = 0) {
+  return new Float32Array([
+    cx - hx, cy - hy, cz - hz,  cx + hx, cy - hy, cz - hz,  cx + hx, cy + hy, cz - hz,  cx - hx, cy + hy, cz - hz,
+    cx - hx, cy - hy, cz + hz,  cx + hx, cy - hy, cz + hz,  cx + hx, cy + hy, cz + hz,  cx - hx, cy + hy, cz + hz,
+  ]);
+}
+
+function buildSphereLineGeometry(radius, segments = 16) {
+  const positions = [];
+  for (let plane = 0; plane < 3; plane++) {
+    for (let i = 0; i < segments; i++) {
+      const a0 = (i / segments) * Math.PI * 2, a1 = ((i + 1) / segments) * Math.PI * 2;
+      const c0 = Math.cos(a0) * radius, s0 = Math.sin(a0) * radius;
+      const c1 = Math.cos(a1) * radius, s1 = Math.sin(a1) * radius;
+      if (plane === 0)      positions.push(c0, s0, 0, c1, s1, 0);
+      else if (plane === 1) positions.push(c0, 0, s0, c1, 0, s1);
+      else                  positions.push(0, c0, s0, 0, c1, s1);
+    }
+  }
+  const positionArr = new Float32Array(positions);
+  const indices = new Uint16Array(positionArr.length / 3);
+  for (let i = 0; i < indices.length; i++) indices[i] = i;
+  return { positions: positionArr, indices };
+}
+
+function buildLineVB(eng, positions, color4) {
+  const VA = Filament.VertexAttribute, AT = Filament.VertexBuffer$AttributeType;
+  const vertexCount = positions.length / 3;
+  const vb = Filament.VertexBuffer.Builder()
+    .vertexCount(vertexCount).bufferCount(2)
+    .attribute(VA.POSITION, 0, AT.FLOAT3, 0, 0)
+    .attribute(VA.COLOR, 1, AT.UBYTE4, 0, 0)
+    .normalized(VA.COLOR)
+    .build(eng);
+  vb.setBufferAt(eng, 0, positions);
+  const col = new Uint8Array(vertexCount * 4);
+  for (let i = 0; i < vertexCount; i++) {
+    col[i * 4] = color4[0]; col[i * 4 + 1] = color4[1]; col[i * 4 + 2] = color4[2]; col[i * 4 + 3] = color4[3];
+  }
+  vb.setBufferAt(eng, 1, col);
+  return vb;
+}
+
+function buildLineRenderable(vb, ib, matInstance, halfExtent) {
+  const entity = Filament.EntityManager.get().create();
+  Filament.RenderableManager.Builder(1)
+    .boundingBox({ center: [0, 0, 0], halfExtent })
+    .material(0, matInstance)
+    .geometry(0, Filament.RenderableManager$PrimitiveType.LINES, vb, ib)
+    .build(engine, entity);
+  const rm = engine.getRenderableManager();
+  const inst = rm.getInstance(entity);
+  if (inst) { rm.setCulling(inst, false); inst.delete(); }
+  return entity;
+}
+
+// ---- Body creation (PBR + wireframe) ----
+function addBody(dynScene, vb, ib, halfExtentBox, matInstance, shapeId, motionType, scale, pos, rot, kind, wireVB, wireIB, wireMatInstance) {
   const cb = HK.HP_Body_Create();
   const bodyId = cb[1];
   HK.HP_Body_SetShape(bodyId, shapeId);
@@ -190,13 +248,21 @@ function addBody(scene, vb, ib, halfExtentBox, matInstance, shapeId, motionType,
     .material(0, matInstance)
     .geometry(0, Filament.RenderableManager$PrimitiveType.TRIANGLES, vb, ib)
     .build(engine, entity);
-  scene.addEntity(entity);
+  dynScene.addEntity(entity);
   const rm = engine.getRenderableManager();
   const inst = rm.getInstance(entity);
   if (inst) { rm.setCulling(inst, false); inst.delete(); }
 
-  bodies.push({ entity, bodyId, scale, kind, curPos: pos.slice(), curRot: rot.slice() });
+  let wireframeEntity = null;
+  if (wireVB && wireIB) {
+    wireframeEntity = buildLineRenderable(wireVB, wireIB, wireMatInstance, halfExtentBox);
+    dynScene.addEntity(wireframeEntity);
+  }
+
+  bodies.push({ entity, wireframeEntity, bodyId, scale, kind, curPos: pos.slice(), curRot: rot.slice() });
 }
+
+let tmpMat = null, tmpQuat = null, tmpVec = null, tmpScale = null;
 
 function stepAndSync() {
   checkResult(HK.HP_World_Step(worldId, FIXED_TIMESTEP), 'HP_World_Step');
@@ -207,121 +273,23 @@ function stepAndSync() {
     const r = HK.HP_Body_GetOrientation(b.bodyId)[1];
     b.curPos[0] = p[0]; b.curPos[1] = p[1]; b.curPos[2] = p[2];
     b.curRot[0] = r[0]; b.curRot[1] = r[1]; b.curRot[2] = r[2]; b.curRot[3] = r[3];
-    const m = mat4.fromRotationTranslationScale(
-      mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]),
-      vec3.fromValues(p[0], p[1], p[2]), vec3.fromValues(b.scale[0], b.scale[1], b.scale[2]));
-    const inst = tcm.getInstance(b.entity);
-    tcm.setTransform(inst, m);
-    inst.delete();
-  }
-  tcm.commitLocalTransformTransaction();
-}
-
-// ---- Debug wireframe overlay ----
-function makeBoxLineVerts(sx, sy, sz) {
-  const hx = sx / 2, hy = sy / 2, hz = sz / 2;
-  const c = [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz], [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]];
-  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-  const v = [];
-  for (const [a, b] of edges) v.push(...c[a], ...c[b]);
-  return new Float32Array(v);
-}
-
-function makeSphereLineVerts(radius, segments = 12) {
-  const v = [];
-  for (let c = 0; c < 3; c++) {
-    for (let i = 0; i < segments; i++) {
-      const a0 = (i / segments) * Math.PI * 2, a1 = ((i + 1) / segments) * Math.PI * 2;
-      const c0 = Math.cos(a0) * radius, s0 = Math.sin(a0) * radius, c1 = Math.cos(a1) * radius, s1 = Math.sin(a1) * radius;
-      if (c === 0) v.push(c0, s0, 0, c1, s1, 0);
-      else if (c === 1) v.push(c0, 0, s0, c1, 0, s1);
-      else v.push(0, c0, s0, 0, c1, s1);
+    quat.set(tmpQuat, r[0], r[1], r[2], r[3]);
+    vec3.set(tmpVec, p[0], p[1], p[2]);
+    vec3.set(tmpScale, b.scale[0], b.scale[1], b.scale[2]);
+    mat4.fromRotationTranslationScale(tmpMat, tmpQuat, tmpVec, tmpScale);
+    if (b.entity) {
+      const inst = tcm.getInstance(b.entity);
+      tcm.setTransform(inst, tmpMat);
+      inst.delete();
+    }
+    if (b.wireframeEntity) {
+      // Wireframe shares the same unit-shape VB as the PBR mesh, so the same scaled transform fits.
+      const inst = tcm.getInstance(b.wireframeEntity);
+      tcm.setTransform(inst, tmpMat);
+      inst.delete();
     }
   }
-  return new Float32Array(v);
-}
-
-function initDebugCanvas(mainCanvas) {
-  debugCanvas = document.createElement('canvas');
-  debugCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none';
-  debugCanvas.width = mainCanvas.width;
-  debugCanvas.height = mainCanvas.height;
-  mainCanvas.parentElement.appendChild(debugCanvas);
-  const gl = debugGl = debugCanvas.getContext('webgl2');
-  if (!gl) { console.warn('[debug] WebGL2 unavailable for wireframe overlay'); return; }
-  const vs = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs, '#version 300 es\nin vec3 aPos; uniform mat4 uMVP;\nvoid main(){gl_Position=uMVP*vec4(aPos,1.0);}');
-  gl.compileShader(vs);
-  const fs = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fs, '#version 300 es\nprecision mediump float; uniform vec4 uColor; out vec4 o;\nvoid main(){o=uColor;}');
-  gl.compileShader(fs);
-  debugProg = gl.createProgram();
-  gl.attachShader(debugProg, vs); gl.attachShader(debugProg, fs);
-  gl.linkProgram(debugProg);
-  gl.deleteShader(vs); gl.deleteShader(fs);
-  if (!gl.getProgramParameter(debugProg, gl.LINK_STATUS)) {
-    console.warn('[debug] shader link error:', gl.getProgramInfoLog(debugProg));
-    debugProg = null; return;
-  }
-  debugVbo = gl.createBuffer();
-  unitCubeLines = makeBoxLineVerts(1, 1, 1);
-  unitSphereLines = makeSphereLineVerts(1);
-}
-
-function drawDebug(eye, center, up, aspect) {
-  if (!debugGl || !debugProg) return;
-  const gl = debugGl;
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  if (!showWireframe || !HK || !worldId) return;
-  gl.enable(gl.DEPTH_TEST);
-  gl.useProgram(debugProg);
-  const aPos = gl.getAttribLocation(debugProg, 'aPos');
-  const uMVP = gl.getUniformLocation(debugProg, 'uMVP');
-  const uColor = gl.getUniformLocation(debugProg, 'uColor');
-  const viewM = mat4.lookAt(mat4.create(), eye, center, up);
-  const projM = mat4.perspective(mat4.create(), 75 * Math.PI / 180, aspect, 0.01, 10000.0);
-  const vp = mat4.multiply(mat4.create(), projM, viewM);
-  gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-
-  const model = mat4.create(), mvp = mat4.create(), sq = quat.create(), sp = vec3.create(), ss = vec3.create();
-  function drawScaled(p, r, scale) {
-    quat.set(sq, r[0], r[1], r[2], r[3]);
-    vec3.set(sp, p[0], p[1], p[2]);
-    vec3.set(ss, scale[0], scale[1], scale[2]);
-    mat4.fromRotationTranslationScale(model, sq, sp, ss);
-    mat4.multiply(mvp, vp, model);
-    gl.uniformMatrix4fv(uMVP, false, mvp);
-  }
-
-  // Ground (static, green)
-  gl.uniform4fv(uColor, DEBUG_COLOR_STATIC);
-  drawScaled(GROUND.pos, IDENTITY_QUATERNION, GROUND.size);
-  gl.bufferData(gl.ARRAY_BUFFER, unitCubeLines, gl.DYNAMIC_DRAW);
-  gl.drawArrays(gl.LINES, 0, unitCubeLines.length / 3);
-
-  // Dominoes (orange boxes)
-  gl.uniform4fv(uColor, DEBUG_COLOR_DYNAMIC);
-  gl.bufferData(gl.ARRAY_BUFFER, unitCubeLines, gl.DYNAMIC_DRAW);
-  const cubeCount = unitCubeLines.length / 3;
-  for (const b of bodies) {
-    if (b.kind !== 'box') continue;
-    drawScaled(b.curPos, b.curRot, b.scale);
-    gl.drawArrays(gl.LINES, 0, cubeCount);
-  }
-
-  // Balls (orange spheres)
-  gl.bufferData(gl.ARRAY_BUFFER, unitSphereLines, gl.DYNAMIC_DRAW);
-  const sphCount = unitSphereLines.length / 3;
-  for (const b of bodies) {
-    if (b.kind !== 'sphere') continue;
-    drawScaled(b.curPos, b.curRot, b.scale);
-    gl.drawArrays(gl.LINES, 0, sphCount);
-  }
-  gl.disableVertexAttribArray(aPos);
+  tcm.commitLocalTransformTransaction();
 }
 
 // ---- W-key wireframe toggle ----
@@ -329,6 +297,14 @@ function setWireframeVisible(visible) {
   showWireframe = visible;
   const hint = document.getElementById('hint');
   if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  if (!scene) return;
+  for (const b of bodies) {
+    if (!b.wireframeEntity) continue;
+    if (visible) scene.addEntity(b.wireframeEntity); else scene.remove(b.wireframeEntity);
+  }
+  for (const e of staticWireframeEntities) {
+    if (visible) scene.addEntity(e); else scene.remove(e);
+  }
 }
 
 window.addEventListener('keydown', (event) => {
@@ -345,17 +321,30 @@ Filament.init([FILAMAT_CUBE_URL, FILAMAT_TEX_URL, FOOTBALL_URL, GRASS_URL], () =
 });
 
 async function main() {
+  tmpMat = mat4.create();
+  tmpQuat = quat.create();
+  tmpVec = vec3.create();
+  tmpScale = vec3.create();
+
   const canvas = document.getElementsByTagName('canvas')[0];
   engine = Filament.Engine.create(canvas);
-  const scene = engine.createScene();
+  scene = engine.createScene();
 
-  // Dominoes: one vertex-colour material (cube.filamat) shared by all, with a per-colour cube
-  // vertex buffer carrying that colour.
+  // Dominoes: one vertex-colour material (cube.filamat) shared by all, with a per-colour cube VB.
   const cubeMat = engine.createMaterial(FILAMAT_CUBE_URL);
   const cubeInst = cubeMat.getDefaultInstance();
+  const wireMatInstance = cubeInst; // cube.filamat just samples vertex colour
   const cubeVBByKey = {};
   for (const [key, rgb] of Object.entries(colorHash)) cubeVBByKey[key] = buildColorCubeVB(engine, rgb);
   const cubeIB = buildIB(engine, CUBE_INDICES);
+
+  // Unit-size LINES box + sphere wireframes (sized to the unit shape; per-body scale takes care of
+  // the actual domino / ball dimensions in the sync). Outset to avoid z-fighting with PBR.
+  const cubeWireVB = buildLineVB(engine, buildLineBoxPositions(0.5 * WIREFRAME_OUTSET, 0.5 * WIREFRAME_OUTSET, 0.5 * WIREFRAME_OUTSET), COLOR_DYNAMIC);
+  const cubeWireIB = buildIB(engine, LINE_BOX_INDICES);
+  const sphereWireGeo = buildSphereLineGeometry(WIREFRAME_OUTSET);
+  const sphereWireVB = buildLineVB(engine, sphereWireGeo.positions, COLOR_DYNAMIC);
+  const sphereWireIB = buildIB(engine, sphereWireGeo.indices);
 
   // Balls: football-textured sphere (texture.filamat).
   const texMat = engine.createMaterial(FILAMAT_TEX_URL);
@@ -398,15 +387,13 @@ async function main() {
   view.setScene(scene);
   renderer.setClearOptions({ clearColor: [0.1, 0.1, 0.15, 1.0], clear: true });
 
-  initDebugCanvas(canvas);
-
   HK = await HavokPhysics();
   const w = HK.HP_World_Create();
   worldId = w[1];
   checkResult(HK.HP_World_SetGravity(worldId, [0, -10, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
 
-  // Ground (static box). Not rendered by Filament (shown as the green collider wireframe).
+  // Ground (static box). Not rendered by Filament as PBR — only as the green collider wireframe.
   const gs = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, GROUND.size);
   const gb = HK.HP_Body_Create();
   HK.HP_Body_SetShape(gb[1], gs[1]);
@@ -414,6 +401,16 @@ async function main() {
   HK.HP_Body_SetPosition(gb[1], GROUND.pos);
   HK.HP_Body_SetOrientation(gb[1], IDENTITY_QUATERNION);
   HK.HP_World_AddBody(worldId, gb[1], false);
+
+  // Ground LINES wireframe (size + position baked).
+  {
+    const ghx = GROUND.size[0] / 2 * WIREFRAME_OUTSET, ghy = GROUND.size[1] / 2 * WIREFRAME_OUTSET, ghz = GROUND.size[2] / 2 * WIREFRAME_OUTSET;
+    const vb = buildLineVB(engine, buildLineBoxPositions(ghx, ghy, ghz, GROUND.pos[0], GROUND.pos[1], GROUND.pos[2]), COLOR_STATIC);
+    const ib = buildIB(engine, LINE_BOX_INDICES);
+    const entity = buildLineRenderable(vb, ib, wireMatInstance, [ghx, ghy, ghz]);
+    scene.addEntity(entity);
+    staticWireframeEntities.push(entity);
+  }
 
   // Shared shapes
   const dominoShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [DOMINO_W, DOMINO_H, DOMINO_D])[1];
@@ -429,7 +426,8 @@ async function main() {
       const y = BOX_SIZE;
       const z = -8 * BOX_SIZE + row * BOX_SIZE * 1.2;
       addBody(scene, cubeVBByKey[colorKey] || cubeVBByKey['無'], cubeIB, [0.5, 0.5, 0.5], cubeInst,
-        dominoShape, HK.MotionType.DYNAMIC, dominoScale, [x, y, z], IDENTITY_QUATERNION, 'box');
+        dominoShape, HK.MotionType.DYNAMIC, dominoScale, [x, y, z], IDENTITY_QUATERNION, 'box',
+        cubeWireVB, cubeWireIB, wireMatInstance);
     }
   }
 
@@ -439,7 +437,8 @@ async function main() {
     const y = 8;
     const z = -8 * BOX_SIZE + (15 - i) * BOX_SIZE * 1.2;
     addBody(scene, sphereVB, sphereIB, [1, 1, 1], ballInst,
-      ballShape, HK.MotionType.DYNAMIC, ballScale, [x, y, z], IDENTITY_QUATERNION, 'sphere');
+      ballShape, HK.MotionType.DYNAMIC, ballScale, [x, y, z], IDENTITY_QUATERNION, 'sphere',
+      sphereWireVB, sphereWireIB, wireMatInstance);
   }
 
   const center = [0, 2, 0];
@@ -451,7 +450,6 @@ async function main() {
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.width = Math.floor(window.innerWidth * dpr);
     const height = canvas.height = Math.floor(window.innerHeight * dpr);
-    if (debugCanvas) { debugCanvas.width = width; debugCanvas.height = height; }
     aspect = width / height;
     view.setViewport([0, 0, width, height]);
     const fovAxis = aspect < 1 ? Fov.HORIZONTAL : Fov.VERTICAL;
@@ -462,18 +460,18 @@ async function main() {
 
   setWireframeVisible(showWireframe);
 
-  let angle = 0.5;
-  function render() {
+  // Camera orbit driven directly by wall time.
+  const ORBIT_SPEED = 0.24, ORBIT_PHASE = 0.5;
+  function render(now) {
     requestAnimationFrame(render);
     if (HK && worldId) {
       try { stepAndSync(); } catch (e) { console.error('[physics] error:', e); HK = null; }
     }
-    angle += 0.004;
+    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
     const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
     const up = [0, 1, 0];
     camera.lookAt(eye, center, up);
     renderer.render(swapChain, view);
-    drawDebug(eye, center, up, aspect);
   }
   requestAnimationFrame(render);
 }
