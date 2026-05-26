@@ -2,7 +2,11 @@
 //
 // Loads the classic Duck glTF with Google Filament and drives it with a hand-built Havok scene:
 // a static ground box and a dynamic box collider sized to the duck. The duck tumbles as it falls;
-// click anywhere to bounce it back up. A wireframe overlay (toggle with W) shows the colliders.
+// click anywhere to bounce it back up.
+//
+// Collider wireframes are loaded as a second gltfio asset built in-code (LINES primitives with
+// KHR_materials_unlit), so they render in the same Filament pass as the duck — no second canvas,
+// no compositor stutter. Press W to toggle the wireframes in / out of the scene.
 //
 // Libraries are loaded as globals via <script> tags: Filament, HavokPhysics, gl-matrix
 // (vec3 / quat / mat4).
@@ -14,29 +18,27 @@ const SKY_URL = 'https://cx20.github.io/gltf-test/textures/ktx/papermill/papermi
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 
-// Duck collider half-ish extents (matches the other renderers' Falling glTF samples).
 const cubeSizeX = 5;
 const cubeSizeY = 5;
 const cubeSizeZ = 9 / 16 * 5;
 const DUCK_SCALE = 5;
 const GROUND_SIZE = [800, 8, 800];
 const GROUND_POS = [0, -5, 0];
+const WIREFRAME_OUTSET = 1.005;
 
-const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0]; // orange = duck collider
-const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];  // green  = ground
+const COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0]; // orange = duck collider
+const COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];  // green  = ground
 
 let HK = null;
 let worldId = null;
 let duckBodyId = null;
 
 let engine = null;
-let asset = null;
-
-// Debug overlay
-let debugCanvas = null;
-let debugGl = null;
-let debugProg = null;
-let debugVbo = null;
+let scene = null;
+let asset = null;             // duck asset
+let wireAsset = null;         // wireframe asset
+let duckWireframeEntity = null;
+let groundWireframeEntity = null;
 let showWireframe = true;
 
 // ---- Havok helpers ----
@@ -60,7 +62,6 @@ function createStaticBox(size, pos) {
   const s = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
   checkResult(s[0], 'HP_Shape_CreateBox static');
   const b = HK.HP_Body_Create();
-  checkResult(b[0], 'HP_Body_Create static');
   const bodyId = b[1];
   HK.HP_Body_SetShape(bodyId, s[1]);
   HK.HP_Body_SetMotionType(bodyId, HK.MotionType.STATIC);
@@ -72,24 +73,19 @@ function createStaticBox(size, pos) {
 
 function initPhysics() {
   const w = HK.HP_World_Create();
-  checkResult(w[0], 'HP_World_Create');
   worldId = w[1];
   checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
 
   createStaticBox(GROUND_SIZE, GROUND_POS);
 
-  // Duck: dynamic box collider matching the duck's bounding box.
   const size = [cubeSizeX * 2, cubeSizeY * 2, cubeSizeZ * 2];
   const ds = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
-  checkResult(ds[0], 'HP_Shape_CreateBox duck');
   const db = HK.HP_Body_Create();
-  checkResult(db[0], 'HP_Body_Create duck');
   duckBodyId = db[1];
   HK.HP_Body_SetShape(duckBodyId, ds[1]);
   HK.HP_Body_SetMotionType(duckBodyId, HK.MotionType.DYNAMIC);
   const mp = HK.HP_Shape_BuildMassProperties(ds[1]);
-  checkResult(mp[0], 'HP_Shape_BuildMassProperties duck');
   HK.HP_Body_SetMassProperties(duckBodyId, mp[1]);
   HK.HP_Body_SetPosition(duckBodyId, [0, 20, 0]);
   HK.HP_Body_SetOrientation(duckBodyId, IDENTITY_QUATERNION);
@@ -97,77 +93,115 @@ function initPhysics() {
   HK.HP_World_AddBody(worldId, duckBodyId, false);
 }
 
-// ---- Debug wireframe overlay (separate transparent WebGL2 canvas) ----
-function makeBoxLineVerts(sx, sy, sz) {
-  const hx = sx / 2, hy = sy / 2, hz = sz / 2;
-  const c = [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz], [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]];
-  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-  const v = [];
-  for (const [a, b] of edges) v.push(...c[a], ...c[b]);
-  return new Float32Array(v);
+// ---- In-code wireframe GLB ----
+function alignTo4(n) { return (n + 3) & ~3; }
+const LINE_BOX_INDICES = new Uint32Array([
+  0, 1, 1, 2, 2, 3, 3, 0,
+  4, 5, 5, 6, 6, 7, 7, 4,
+  0, 4, 1, 5, 2, 6, 3, 7,
+]);
+function buildLineBoxPositions(hx, hy, hz, cx = 0, cy = 0, cz = 0) {
+  return new Float32Array([
+    cx - hx, cy - hy, cz - hz,  cx + hx, cy - hy, cz - hz,  cx + hx, cy + hy, cz - hz,  cx - hx, cy + hy, cz - hz,
+    cx - hx, cy - hy, cz + hz,  cx + hx, cy - hy, cz + hz,  cx + hx, cy + hy, cz + hz,  cx - hx, cy + hy, cz + hz,
+  ]);
 }
 
-function initDebugCanvas(mainCanvas) {
-  debugCanvas = document.createElement('canvas');
-  debugCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none';
-  debugCanvas.width = mainCanvas.width;
-  debugCanvas.height = mainCanvas.height;
-  mainCanvas.parentElement.appendChild(debugCanvas);
-  const gl = debugGl = debugCanvas.getContext('webgl2');
-  if (!gl) { console.warn('[debug] WebGL2 unavailable for wireframe overlay'); return; }
-  const vs = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs, '#version 300 es\nin vec3 aPos; uniform mat4 uMVP;\nvoid main(){gl_Position=uMVP*vec4(aPos,1.0);}');
-  gl.compileShader(vs);
-  const fs = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fs, '#version 300 es\nprecision mediump float; uniform vec4 uColor; out vec4 o;\nvoid main(){o=uColor;}');
-  gl.compileShader(fs);
-  debugProg = gl.createProgram();
-  gl.attachShader(debugProg, vs); gl.attachShader(debugProg, fs);
-  gl.linkProgram(debugProg);
-  gl.deleteShader(vs); gl.deleteShader(fs);
-  if (!gl.getProgramParameter(debugProg, gl.LINK_STATUS)) {
-    console.warn('[debug] shader link error:', gl.getProgramInfoLog(debugProg));
-    debugProg = null; return;
+// Build an in-code GLB containing N LINES wireframes, each with its own POSITION + indices
+// accessors, sharing N materials (one per `color`). Each node is named so the caller can find its
+// entity after gltfio loads the asset.
+function buildWireframeGlb(specs) {
+  const accessors = [];
+  const bufferViews = [];
+  const binChunks = [];
+  let binOffset = 0;
+  function addBufferView(typedArray, target) {
+    const padded = alignTo4(binOffset);
+    if (padded > binOffset) { binChunks.push(new Uint8Array(padded - binOffset)); binOffset = padded; }
+    const bytes = new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength);
+    const index = bufferViews.length;
+    const bv = { buffer: 0, byteOffset: binOffset, byteLength: bytes.byteLength };
+    if (target !== undefined) bv.target = target;
+    bufferViews.push(bv);
+    binChunks.push(bytes);
+    binOffset += bytes.byteLength;
+    return index;
   }
-  debugVbo = gl.createBuffer();
+  const meshes = [];
+  const materials = [];
+  const nodes = [];
+  for (const spec of specs) {
+    const posBV = addBufferView(spec.positions, 34962);
+    const posAcc = accessors.length;
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < spec.positions.length; i += 3) {
+      const x = spec.positions[i], y = spec.positions[i + 1], z = spec.positions[i + 2];
+      if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+    }
+    accessors.push({ bufferView: posBV, componentType: 5126, count: spec.positions.length / 3, type: 'VEC3', min: [minX, minY, minZ], max: [maxX, maxY, maxZ] });
+    const idxBV = addBufferView(spec.indices, 34963);
+    const idxAcc = accessors.length;
+    accessors.push({ bufferView: idxBV, componentType: 5125, count: spec.indices.length, type: 'SCALAR' });
+    materials.push({ name: spec.name + 'Mat', extensions: { KHR_materials_unlit: {} }, pbrMetallicRoughness: { baseColorFactor: spec.color } });
+    meshes.push({ primitives: [{ mode: 1, attributes: { POSITION: posAcc }, indices: idxAcc, material: materials.length - 1 }] });
+    nodes.push({ name: spec.name, mesh: meshes.length - 1 });
+  }
+  const gltf = {
+    asset: { version: '2.0', generator: 'filament-havok-wireframe' },
+    extensionsUsed: ['KHR_materials_unlit'],
+    scene: 0,
+    scenes: [{ nodes: nodes.map((_, i) => i) }],
+    nodes, meshes, materials, accessors, bufferViews,
+    buffers: [{ byteLength: binOffset }],
+  };
+  let jsonBytes = new TextEncoder().encode(JSON.stringify(gltf));
+  const jsonPad = alignTo4(jsonBytes.length) - jsonBytes.length;
+  if (jsonPad) { const t = new Uint8Array(jsonBytes.length + jsonPad); t.set(jsonBytes); t.fill(0x20, jsonBytes.length); jsonBytes = t; }
+  const binBuf = new Uint8Array(alignTo4(binOffset));
+  let o = 0; for (const ch of binChunks) { binBuf.set(ch, o); o += ch.byteLength; }
+  const totalLen = 12 + 8 + jsonBytes.length + 8 + binBuf.length;
+  const glb = new Uint8Array(totalLen);
+  const dv = new DataView(glb.buffer);
+  let p = 0;
+  dv.setUint32(p, 0x46546C67, true); p += 4;
+  dv.setUint32(p, 2, true); p += 4;
+  dv.setUint32(p, totalLen, true); p += 4;
+  dv.setUint32(p, jsonBytes.length, true); p += 4;
+  dv.setUint32(p, 0x4E4F534A, true); p += 4;
+  glb.set(jsonBytes, p); p += jsonBytes.length;
+  dv.setUint32(p, binBuf.length, true); p += 4;
+  dv.setUint32(p, 0x004E4942, true); p += 4;
+  glb.set(binBuf, p);
+  return glb;
 }
 
-function drawDebug(eye, center, up, aspect) {
-  if (!debugGl || !debugProg) return;
-  const gl = debugGl;
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  if (!showWireframe || !HK || !worldId) return;
-  gl.enable(gl.DEPTH_TEST);
-  gl.useProgram(debugProg);
-  const aPos = gl.getAttribLocation(debugProg, 'aPos');
-  const uMVP = gl.getUniformLocation(debugProg, 'uMVP');
-  const uColor = gl.getUniformLocation(debugProg, 'uColor');
-  const viewM = mat4.lookAt(mat4.create(), eye, center, up);
-  const projM = mat4.perspective(mat4.create(), 75 * Math.PI / 180, aspect, 0.01, 10000.0);
-  const vp = mat4.multiply(mat4.create(), projM, viewM);
-  gl.bindBuffer(gl.ARRAY_BUFFER, debugVbo);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-
-  function drawBox(size, color, p, r) {
-    const model = mat4.fromRotationTranslation(mat4.create(), quat.fromValues(r[0], r[1], r[2], r[3]), vec3.fromValues(p[0], p[1], p[2]));
-    const mvp = mat4.multiply(mat4.create(), vp, model);
-    gl.uniformMatrix4fv(uMVP, false, mvp);
-    gl.uniform4fv(uColor, color);
-    const verts = makeBoxLineVerts(size[0], size[1], size[2]);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
-    gl.drawArrays(gl.LINES, 0, verts.length / 3);
-  }
-
-  drawBox(GROUND_SIZE, DEBUG_COLOR_STATIC, GROUND_POS, IDENTITY_QUATERNION);
-  if (duckBodyId !== null) {
-    const pr = HK.HP_Body_GetPosition(duckBodyId);
-    const qr = HK.HP_Body_GetOrientation(duckBodyId);
-    drawBox([cubeSizeX * 2, cubeSizeY * 2, cubeSizeZ * 2], DEBUG_COLOR_DYNAMIC, pr[1], qr[1]);
-  }
-  gl.disableVertexAttribArray(aPos);
+async function loadWireframeAsset() {
+  const dhx = cubeSizeX * WIREFRAME_OUTSET, dhy = cubeSizeY * WIREFRAME_OUTSET, dhz = cubeSizeZ * WIREFRAME_OUTSET;
+  const ghx = GROUND_SIZE[0] / 2 * WIREFRAME_OUTSET, ghy = GROUND_SIZE[1] / 2 * WIREFRAME_OUTSET, ghz = GROUND_SIZE[2] / 2 * WIREFRAME_OUTSET;
+  const specs = [
+    { name: 'duckWire',   positions: buildLineBoxPositions(dhx, dhy, dhz),                                       indices: LINE_BOX_INDICES.slice(), color: COLOR_DYNAMIC },
+    { name: 'groundWire', positions: buildLineBoxPositions(ghx, ghy, ghz, GROUND_POS[0], GROUND_POS[1], GROUND_POS[2]), indices: LINE_BOX_INDICES.slice(), color: COLOR_STATIC },
+  ];
+  const glb = buildWireframeGlb(specs);
+  const loader = engine.createAssetLoader();
+  const a = loader.createAsset(glb);
+  await new Promise((resolve) => {
+    a.loadResources(() => {
+      loader.delete();
+      let e = a.popRenderable();
+      while (e.getId() !== 0) { scene.addEntity(e); e = a.popRenderable(); }
+      const rm = engine.getRenderableManager();
+      for (const ent of a.getEntities()) {
+        const inst = rm.getInstance(ent);
+        if (inst) { rm.setCulling(inst, false); inst.delete(); }
+      }
+      resolve();
+    }, () => {}, '');
+  });
+  duckWireframeEntity = a.getEntitiesByName('duckWire')[0] || null;
+  groundWireframeEntity = a.getEntitiesByName('groundWire')[0] || null;
+  return a;
 }
 
 // ---- W-key wireframe toggle ----
@@ -175,6 +209,11 @@ function setWireframeVisible(visible) {
   showWireframe = visible;
   const hint = document.getElementById('hint');
   if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  if (!scene) return;
+  for (const ent of [duckWireframeEntity, groundWireframeEntity]) {
+    if (!ent) continue;
+    if (visible) scene.addEntity(ent); else scene.remove(ent);
+  }
 }
 
 window.addEventListener('keydown', (event) => {
@@ -199,10 +238,16 @@ Filament.init([IBL_URL, SKY_URL], () => {
   main().catch(e => console.error(e));
 });
 
+let tmpMat = null, tmpQuat = null, tmpVec = null;
+
 async function main() {
+  tmpMat = mat4.create();
+  tmpQuat = quat.create();
+  tmpVec = vec3.create();
+
   const canvas = document.getElementsByTagName('canvas')[0];
   engine = Filament.Engine.create(canvas);
-  const scene = engine.createScene();
+  scene = engine.createScene();
 
   const ibl = engine.createIblFromKtx1(IBL_URL);
   ibl.setIntensity(50000);
@@ -227,11 +272,8 @@ async function main() {
   const view = engine.createView();
   view.setCamera(camera);
   view.setScene(scene);
-  // Explicit LINEAR color grading; the default path trips "uniform buffer too small" at FL1.
   view.setColorGrading(Filament.ColorGrading.Builder().toneMapping(ToneMapping.LINEAR).build(engine));
   renderer.setClearOptions({ clearColor: [0.6, 0.6, 0.6, 1.0], clear: true });
-
-  initDebugCanvas(canvas);
 
   // Load the Duck (.gltf with external .bin + texture, resolved against its folder).
   const bytes = new Uint8Array(await (await fetch(DUCK_URL)).arrayBuffer());
@@ -241,6 +283,8 @@ async function main() {
   await new Promise((resolve) => {
     asset.loadResources(() => {
       assetLoader.delete();
+      let e = asset.popRenderable();
+      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
       const rm = engine.getRenderableManager();
       for (const e of asset.getEntities()) {
         const inst = rm.getInstance(e);
@@ -253,6 +297,9 @@ async function main() {
   HK = await HavokPhysics();
   initPhysics();
 
+  // Wireframe asset (duck box + ground box, both unlit LINES).
+  wireAsset = await loadWireframeAsset();
+
   // Camera: auto-orbit framing the duck's fall onto the ground.
   const center = [0, 4, 0];
   const orbitDist = 26;
@@ -263,7 +310,6 @@ async function main() {
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.width = Math.floor(window.innerWidth * dpr);
     const height = canvas.height = Math.floor(window.innerHeight * dpr);
-    if (debugCanvas) { debugCanvas.width = width; debugCanvas.height = height; }
     aspect = width / height;
     view.setViewport([0, 0, width, height]);
     const fovAxis = aspect < 1 ? Fov.HORIZONTAL : Fov.VERTICAL;
@@ -276,42 +322,45 @@ async function main() {
 
   const root = asset.getRoot();
   const tcm = engine.getTransformManager();
-  const offsetLocal = vec3.fromValues(0, -cubeSizeY, 0); // re-center the duck on the collider box
+  const offsetLocal = vec3.fromValues(0, -cubeSizeY, 0);
 
-  let angle = 0.4;
-  function render() {
+  const ORBIT_SPEED = 0.21, ORBIT_PHASE = 0.4;
+  function render(now) {
     requestAnimationFrame(render);
-
-    if (asset) {
-      let e = asset.popRenderable();
-      while (e.getId() !== 0) { scene.addEntity(e); e = asset.popRenderable(); }
-    }
 
     if (HK && worldId) {
       checkResult(HK.HP_World_Step(worldId, FIXED_TIMESTEP), 'HP_World_Step');
       const pr = HK.HP_Body_GetPosition(duckBodyId);
       const qr = HK.HP_Body_GetOrientation(duckBodyId);
       const p = pr[1], q = qr[1];
-      // Duck visual = body transform, scaled, shifted down so it sits centered in the collider.
       const rot = quat.fromValues(q[0], q[1], q[2], q[3]);
+      // Duck visual = body transform, scaled, shifted down so it sits centered in the collider.
       const off = vec3.transformQuat(vec3.create(), offsetLocal, rot);
       const m = mat4.fromRotationTranslationScale(
         mat4.create(), rot,
         vec3.fromValues(p[0] + off[0], p[1] + off[1], p[2] + off[2]),
         vec3.fromValues(DUCK_SCALE, DUCK_SCALE, DUCK_SCALE),
       );
-      const inst = tcm.getInstance(root);
-      tcm.setTransform(inst, m);
-      inst.delete();
+      const rootInst = tcm.getInstance(root);
+      tcm.setTransform(rootInst, m);
+      rootInst.delete();
+      // Duck wireframe = body transform directly (positions are baked at collider half-extents).
+      if (duckWireframeEntity) {
+        quat.set(tmpQuat, q[0], q[1], q[2], q[3]);
+        vec3.set(tmpVec, p[0], p[1], p[2]);
+        mat4.fromRotationTranslation(tmpMat, tmpQuat, tmpVec);
+        const inst = tcm.getInstance(duckWireframeEntity);
+        tcm.setTransform(inst, tmpMat);
+        inst.delete();
+      }
     }
 
-    angle += 0.0035;
+    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
     const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
     const up = [0, 1, 0];
     camera.lookAt(eye, center, up);
 
     renderer.render(swapChain, view);
-    drawDebug(eye, center, up, aspect);
   }
   requestAnimationFrame(render);
 }
