@@ -145,11 +145,10 @@ function init() {
         return m;
     }
 
-    function getTexture(imageFile, flipY) {
-        // Do NOT pre-allocate a fixed size — setSource must match the texture's allocated
-        // dimensions. Passing { width, height } that differ from the actual image causes
-        // GL_INVALID_VALUE in texSubImage2D.
-        const texture = new pc.Texture(app.graphicsDevice);
+    function getTexture(imageFile, w, h, flipY) {
+        // Pre-allocate at the EXACT image dimensions — PlayCanvas uses texSubImage2D for
+        // setSource() and throws GL_INVALID_VALUE if the sizes don't match.
+        const texture = new pc.Texture(app.graphicsDevice, { width: w, height: h });
         const img = new Image();
         img.onload = function () {
             if (flipY === false) texture.flipY = false;
@@ -164,9 +163,10 @@ function init() {
         return texture;
     }
 
-    function createTextureMaterial(imageFile, flipY) {
+    function createTextureMaterial(imageFile, w, h, flipY) {
         const m = new pc.StandardMaterial();
-        m.diffuseMap = getTexture(imageFile, flipY);
+        m.diffuseMap = getTexture(imageFile, w, h, flipY);
+        m.cull = pc.CULLFACE_NONE;
         m.update();
         return m;
     }
@@ -194,8 +194,8 @@ function init() {
     app.root.addChild(camera);
 
     const wallMat  = createTransparentMaterial(new pc.Color(1, 1, 1));
-    const floorMat = createTextureMaterial("../../../../assets/textures/grass.jpg");
-    const shogiMat = createTextureMaterial("../../../../assets/textures/shogi_001/shogi.png", false);
+    const floorMat = createTextureMaterial("../../../../assets/textures/grass.jpg", 512, 512);
+    const shogiMat = createTextureMaterial("../../../../assets/textures/shogi_001/shogi.png", 1024, 512, false);
 
     const floor = new pc.Entity("floor");
     floor.setLocalPosition(0, -2, 0);
@@ -265,11 +265,9 @@ function init() {
             restitution: 0.3
         });
         const visual = new pc.Entity("visual");
-        const pcModel = new pc.Model();
-        pcModel.graph = new pc.GraphNode();
-        pcModel.meshInstances = [new pc.MeshInstance(shogiMesh, shogiMat, pcModel.graph)];
-        visual.addComponent("model");
-        visual.model.model = pcModel;
+        visual.addComponent("render", {
+            meshInstances: [new pc.MeshInstance(shogiMesh, shogiMat)]
+        });
         piece.addChild(visual);
         app.root.addChild(piece);
         return piece;
