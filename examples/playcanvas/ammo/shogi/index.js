@@ -267,43 +267,6 @@ function init() {
     shogiMesh.setIndices(geo.indices);
     shogiMesh.update();
 
-    // Pre-compute the unique vertex positions (10 points) for the convex hull.
-    // Using only unique points produces a cleaner hull and avoids degenerate faces
-    // that cause contact instability. Each piece gets its OWN btConvexHullShape
-    // instance — sharing one shape between many dynamic bodies confuses Bullet's
-    // contact-manifold cache and causes jitter.
-    const uniqueHullPositions = (() => {
-        const seen = new Set();
-        const pts = [];
-        const pos = geo.pos;
-        for (let i = 0; i < pos.length; i += 3) {
-            const key = `${pos[i].toFixed(4)},${pos[i+1].toFixed(4)},${pos[i+2].toFixed(4)}`;
-            if (!seen.has(key)) {
-                seen.add(key);
-                pts.push(pos[i], pos[i+1], pos[i+2]);
-            }
-        }
-        return pts;
-    })();
-
-    function buildConvexHull() {
-        const shape = new Ammo.btConvexHullShape();
-        for (let i = 0; i < uniqueHullPositions.length; i += 3) {
-            const v = new Ammo.btVector3(
-                uniqueHullPositions[i],
-                uniqueHullPositions[i+1],
-                uniqueHullPositions[i+2]
-            );
-            shape.addPoint(v, false);
-            Ammo.destroy(v);
-        }
-        shape.recalcLocalAabb();
-        return shape;
-    }
-
-    // A dummy box halfExtents is still given to the PlayCanvas collision component
-    // so the entity participates in the PC collision event system. The Ammo body's
-    // actual shape is replaced with a per-piece convex hull immediately after spawn.
     const halfW = PIECE_W / 2;
     const halfH = PIECE_H / 2;
     const halfD = PIECE_D * 0.7;
@@ -332,23 +295,6 @@ function init() {
         });
         piece.addChild(visual);
         app.root.addChild(piece);
-
-        // Replace the box shape on the Ammo rigid body with a fresh convex hull.
-        // The body is created synchronously during addChild, so it is available here.
-        const body = piece.rigidbody.body;
-        if (body) {
-            const hull = buildConvexHull();
-            body.setCollisionShape(hull);
-            const li = new Ammo.btVector3(0, 0, 0);
-            hull.calculateLocalInertia(1.0, li);
-            body.setMassProps(1.0, li);
-            body.updateInertiaTensor();
-            Ammo.destroy(li);
-            // Higher angular damping suppresses wobble on thin flat pieces.
-            body.setDamping(0.05, 0.5);
-            body.setSleepingThresholds(0.1, 0.1);
-        }
-
         return piece;
     }
 
@@ -359,14 +305,6 @@ function init() {
         const z = (Math.random() - 0.5) * 8;
         pieces.push(createPiece(x, y, z));
     }
-
-    // Split impulse separates penetration correction from velocity changes,
-    // which is the primary Bullet fix for resting-contact jitter on stacked objects.
-    // More solver iterations help the constraint solver converge under the pile load.
-    const solverInfo = app.systems.rigidbody.dynamicsWorld.getSolverInfo();
-    solverInfo.m_numIterations = 20;
-    solverInfo.m_splitImpulse = 1;
-    solverInfo.m_splitImpulsePenetrationThreshold = -0.02;
 
     let angle = 0;
     const EXPECTED_FPS = 60;
@@ -399,8 +337,8 @@ function init() {
         }
 
         if (showWireframe) {
-            drawPhysicsDebug(app, staticDebugEntities);   // box wireframe for floor/walls
-            drawShogiMeshWireframe(app, pieces, geo);      // mesh edge wireframe for pieces
+            drawPhysicsDebug(app, staticDebugEntities);
+            drawPhysicsDebug(app, pieces);
         }
     });
 }
