@@ -146,7 +146,10 @@ function init() {
     }
 
     function getTexture(imageFile, flipY) {
-        const texture = new pc.Texture(app.graphicsDevice, { width: 512, height: 512 });
+        // Do NOT pre-allocate a fixed size — setSource must match the texture's allocated
+        // dimensions. Passing { width, height } that differ from the actual image causes
+        // GL_INVALID_VALUE in texSubImage2D.
+        const texture = new pc.Texture(app.graphicsDevice);
         const img = new Image();
         img.onload = function () {
             if (flipY === false) texture.flipY = false;
@@ -164,7 +167,6 @@ function init() {
     function createTextureMaterial(imageFile, flipY) {
         const m = new pc.StandardMaterial();
         m.diffuseMap = getTexture(imageFile, flipY);
-        m.cull = pc.CULLFACE_NONE;
         m.update();
         return m;
     }
@@ -263,9 +265,11 @@ function init() {
             restitution: 0.3
         });
         const visual = new pc.Entity("visual");
-        visual.addComponent("render", {
-            meshInstances: [new pc.MeshInstance(shogiMesh, shogiMat)]
-        });
+        const pcModel = new pc.Model();
+        pcModel.graph = new pc.GraphNode();
+        pcModel.meshInstances = [new pc.MeshInstance(shogiMesh, shogiMat, pcModel.graph)];
+        visual.addComponent("model");
+        visual.model.model = pcModel;
         piece.addChild(visual);
         app.root.addChild(piece);
         return piece;
