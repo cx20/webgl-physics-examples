@@ -43,17 +43,29 @@ function buildShogiGeometry(w, h, d) {
         0.75, 0.0,  1.0, 0.0,  1.0, 0.5,  0.75, 0.5,
         0.75, 0.0,  1.0, 0.0,  1.0, 0.5,  0.75, 0.5,
     ];
+    // Winding is corrected so that cross-product normals point outward for each face.
+    // Front and left faces are CCW-from-outside already; the rest are reversed.
     const indices = [
+        // Front  (+Z outward — unchanged)
          0,  1,  2,   0,  2,  3,
-         4,  5,  6,   4,  6,  7,
-         8,  9, 10,   8, 10, 11,
-        12, 13, 14,  12, 14, 15,
-        16, 17, 18,  16, 18, 19,
+        // Back   (−Z outward — reversed)
+         4,  6,  5,   4,  7,  6,
+        // Top    (+Y outward — reversed)
+         8, 10,  9,   8, 11, 10,
+        // Bottom (−Y outward — reversed)
+        12, 14, 13,  12, 15, 14,
+        // Right  (+X outward — reversed)
+        16, 18, 17,  16, 19, 18,
+        // Left   (−X outward — unchanged)
         20, 21, 22,  20, 22, 23,
+        // Apex front  (unchanged)
         24, 25, 26,
-        27, 28, 29,
-        30, 33, 31,  33, 32, 31,
-        34, 35, 36,  34, 36, 37,
+        // Apex back   (reversed)
+        27, 29, 28,
+        // Apex right  (reversed)
+        30, 31, 33,  33, 31, 32,
+        // Apex left   (reversed)
+        34, 36, 35,  34, 37, 36,
     ];
     return { pos, uvs, indices };
 }
@@ -122,7 +134,7 @@ function init() {
         if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
-    app.scene.ambientLight = new pc.Color(0.5, 0.5, 0.5);
+    app.scene.ambientLight = new pc.Color(0.8, 0.8, 0.8);
 
     function createTransparentMaterial(color) {
         const m = new pc.StandardMaterial();
@@ -161,6 +173,7 @@ function init() {
     light.addComponent("light", {
         type: "directional",
         color: new pc.Color(1, 1, 1),
+        intensity: 2.0,
         castShadows: true,
         shadowResolution: 2048,
         shadowBias: 0.2,
