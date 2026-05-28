@@ -133,10 +133,11 @@ function init() {
         return m;
     }
 
-    function getTexture(imageFile) {
+    function getTexture(imageFile, flipY) {
         const texture = new pc.Texture(app.graphicsDevice, { width: 512, height: 512 });
         const img = new Image();
         img.onload = function () {
+            if (flipY === false) texture.flipY = false;
             texture.minFilter = pc.FILTER_LINEAR;
             texture.magFilter = pc.FILTER_LINEAR;
             texture.addressU = pc.ADDRESS_CLAMP_TO_EDGE;
@@ -148,9 +149,9 @@ function init() {
         return texture;
     }
 
-    function createTextureMaterial(imageFile) {
+    function createTextureMaterial(imageFile, flipY) {
         const m = new pc.StandardMaterial();
-        m.diffuseMap = getTexture(imageFile);
+        m.diffuseMap = getTexture(imageFile, flipY);
         m.cull = pc.CULLFACE_NONE;
         m.update();
         return m;
@@ -179,7 +180,7 @@ function init() {
 
     const wallMat  = createTransparentMaterial(new pc.Color(1, 1, 1));
     const floorMat = createTextureMaterial("../../../../assets/textures/grass.jpg");
-    const shogiMat = createTextureMaterial("../../../../assets/textures/shogi_001/shogi.png");
+    const shogiMat = createTextureMaterial("../../../../assets/textures/shogi_001/shogi.png", false);
 
     const floor = new pc.Entity("floor");
     floor.setLocalPosition(0, -2, 0);
