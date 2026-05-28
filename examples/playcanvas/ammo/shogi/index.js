@@ -267,23 +267,43 @@ function init() {
     shogiMesh.setIndices(geo.indices);
     shogiMesh.update();
 
-    // Build a shared btConvexHullShape from the mesh vertices.
-    // All dynamic pieces share this one shape instance; Bullet supports this safely.
-    function buildConvexHull(positions) {
+    // Pre-compute the unique vertex positions (10 points) for the convex hull.
+    // Using only unique points produces a cleaner hull and avoids degenerate faces
+    // that cause contact instability. Each piece gets its OWN btConvexHullShape
+    // instance — sharing one shape between many dynamic bodies confuses Bullet's
+    // contact-manifold cache and causes jitter.
+    const uniqueHullPositions = (() => {
+        const seen = new Set();
+        const pts = [];
+        const pos = geo.pos;
+        for (let i = 0; i < pos.length; i += 3) {
+            const key = `${pos[i].toFixed(4)},${pos[i+1].toFixed(4)},${pos[i+2].toFixed(4)}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                pts.push(pos[i], pos[i+1], pos[i+2]);
+            }
+        }
+        return pts;
+    })();
+
+    function buildConvexHull() {
         const shape = new Ammo.btConvexHullShape();
-        for (let i = 0; i < positions.length; i += 3) {
-            const v = new Ammo.btVector3(positions[i], positions[i+1], positions[i+2]);
+        for (let i = 0; i < uniqueHullPositions.length; i += 3) {
+            const v = new Ammo.btVector3(
+                uniqueHullPositions[i],
+                uniqueHullPositions[i+1],
+                uniqueHullPositions[i+2]
+            );
             shape.addPoint(v, false);
             Ammo.destroy(v);
         }
         shape.recalcLocalAabb();
         return shape;
     }
-    const convexHull = buildConvexHull(geo.pos);
 
     // A dummy box halfExtents is still given to the PlayCanvas collision component
     // so the entity participates in the PC collision event system. The Ammo body's
-    // actual shape is replaced with the convex hull immediately after spawn.
+    // actual shape is replaced with a per-piece convex hull immediately after spawn.
     const halfW = PIECE_W / 2;
     const halfH = PIECE_H / 2;
     const halfD = PIECE_D * 0.7;
@@ -313,16 +333,20 @@ function init() {
         piece.addChild(visual);
         app.root.addChild(piece);
 
-        // Replace the box shape on the Ammo rigid body with the convex hull.
+        // Replace the box shape on the Ammo rigid body with a fresh convex hull.
         // The body is created synchronously during addChild, so it is available here.
         const body = piece.rigidbody.body;
         if (body) {
-            body.setCollisionShape(convexHull);
+            const hull = buildConvexHull();
+            body.setCollisionShape(hull);
             const li = new Ammo.btVector3(0, 0, 0);
-            convexHull.calculateLocalInertia(1.0, li);
+            hull.calculateLocalInertia(1.0, li);
             body.setMassProps(1.0, li);
             body.updateInertiaTensor();
             Ammo.destroy(li);
+            // Damping and sleep thresholds help pieces settle without jitter.
+            body.setDamping(0.05, 0.1);
+            body.setSleepingThresholds(0.1, 0.1);
         }
 
         return piece;
