@@ -4,6 +4,110 @@ import { loadWasmModuleAsync } from 'https://rawcdn.githack.com/playcanvas/engin
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Restitution/Materials_Restitution.glb';
 const RESET_Y_THRESHOLD = -20;
 
+const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
+const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
+
+function _ringPoints(axis, radius, segments, out, mat) {
+    const tmp = new pc.Vec3();
+    const transformed = new pc.Vec3();
+    let prev = null;
+    for (let i = 0; i <= segments; i++) {
+        const t = (i / segments) * Math.PI * 2;
+        const c = Math.cos(t) * radius, s = Math.sin(t) * radius;
+        if      (axis === 0) tmp.set(0, c, s);
+        else if (axis === 1) tmp.set(c, 0, s);
+        else                 tmp.set(c, s, 0);
+        mat.transformPoint(tmp, transformed);
+        const cur = transformed.clone();
+        if (prev) { out.push(prev); out.push(cur); }
+        prev = cur;
+    }
+}
+
+function _drawWireSphereLocal(app, mat, radius, color) {
+    const pts = [];
+    _ringPoints(0, radius, 16, pts, mat);
+    _ringPoints(1, radius, 16, pts, mat);
+    _ringPoints(2, radius, 16, pts, mat);
+    app.drawLines(pts, pts.map(() => color), false);
+}
+
+function _drawWireBoxLocal(app, mat, hx, hy, hz, color) {
+    app.drawWireAlignedBox(new pc.Vec3(-hx, -hy, -hz), new pc.Vec3(hx, hy, hz), color, false, undefined, mat);
+}
+
+function _drawWireCylinderLocal(app, mat, radius, halfHeight, axis, color) {
+    const pts = [];
+    const segs = 16;
+    const oA = new pc.Vec3(), oB = new pc.Vec3();
+    if      (axis === 0) { oA.set(-halfHeight, 0, 0); oB.set(halfHeight, 0, 0); }
+    else if (axis === 1) { oA.set(0, -halfHeight, 0); oB.set(0, halfHeight, 0); }
+    else                 { oA.set(0, 0, -halfHeight); oB.set(0, 0, halfHeight); }
+    const tmp = new pc.Vec3(), tr = new pc.Vec3();
+    const verts = [];
+    for (const off of [oA, oB]) {
+        const ring = [];
+        for (let i = 0; i <= segs; i++) {
+            const t = (i / segs) * Math.PI * 2;
+            const c = Math.cos(t) * radius, s = Math.sin(t) * radius;
+            if      (axis === 0) tmp.set(off.x, c, s);
+            else if (axis === 1) tmp.set(c, off.y, s);
+            else                 tmp.set(c, s, off.z);
+            mat.transformPoint(tmp, tr);
+            ring.push(tr.clone());
+        }
+        verts.push(ring);
+        for (let i = 0; i < segs; i++) { pts.push(ring[i]); pts.push(ring[i + 1]); }
+    }
+    const step = Math.floor(segs / 4);
+    for (let k = 0; k < 4; k++) { pts.push(verts[0][k * step]); pts.push(verts[1][k * step]); }
+    app.drawLines(pts, pts.map(() => color), false);
+}
+
+function _drawWireCapsuleLocal(app, mat, radius, cylHalf, axis, color) {
+    _drawWireCylinderLocal(app, mat, radius, cylHalf, axis, color);
+    const off = new pc.Vec3();
+    for (const sign of [-1, 1]) {
+        if      (axis === 0) off.set(sign * cylHalf, 0, 0);
+        else if (axis === 1) off.set(0, sign * cylHalf, 0);
+        else                 off.set(0, 0, sign * cylHalf);
+        const local = new pc.Mat4().setTranslate(off.x, off.y, off.z);
+        _drawWireSphereLocal(app, new pc.Mat4().mul2(mat, local), radius, color);
+    }
+}
+
+function drawPhysicsDebug(app, entities) {
+    for (const entity of entities) {
+        const col = entity.collision;
+        if (!col || !col.type) continue;
+        let rbOwner = entity;
+        while (rbOwner && !rbOwner.rigidbody) rbOwner = rbOwner.parent;
+        const isDynamic = rbOwner?.rigidbody?.type === pc.BODYTYPE_DYNAMIC;
+        const color = isDynamic ? _DBG_COLOR_DYNAMIC : _DBG_COLOR_STATIC;
+        const mat = new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
+        switch (col.type) {
+            case 'box': {
+                const h = col.halfExtents;
+                _drawWireBoxLocal(app, mat, h.x, h.y, h.z, color);
+                break;
+            }
+            case 'sphere':
+                _drawWireSphereLocal(app, mat, col.radius, color);
+                break;
+            case 'capsule': {
+                const r = col.radius;
+                _drawWireCapsuleLocal(app, mat, r, Math.max(0, (col.height - 2 * r) * 0.5), col.axis ?? 1, color);
+                break;
+            }
+            case 'cylinder':
+                _drawWireCylinderLocal(app, mat, col.radius, col.height * 0.5, col.axis ?? 1, color);
+                break;
+        }
+    }
+}
+
+let showWireframe = true;
+
 loadWasmModuleAsync(
     'Ammo',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
@@ -245,6 +349,14 @@ function init() {
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     window.addEventListener('resize', () => app.resizeCanvas(canvas.width, canvas.height));
 
+    window.addEventListener('keydown', event => {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
+
     app.scene.ambientLight = new pc.Color(0.68, 0.7, 0.76);
     const light = new pc.Entity('light');
     light.addComponent('light', { type: 'directional', color: new pc.Color(1,1,1),
@@ -273,6 +385,13 @@ function init() {
         const entityMap = buildEntityMap(gltfJson, root);
         dynamicBodies = initPhysics(gltfJson, entityMap);
 
+        const debugEntities = [];
+        const visitForDebug = (e) => {
+            if (e.collision && e.collision.type && e.collision.type !== 'compound') debugEntities.push(e);
+            for (const c of e.children) visitForDebug(c);
+        };
+        visitForDebug(root);
+
         const { center, radius } = computeWorldBounds(root);
         let angle = 0;
         const expectedFps = 60;
@@ -285,6 +404,8 @@ function init() {
                 center.z + Math.cos(Math.PI * angle / 180) * radius
             );
             camera.lookAt(center);
+
+            if (showWireframe) drawPhysicsDebug(app, debugEntities);
 
             for (const body of dynamicBodies) {
                 if (body.entity.getPosition().y >= RESET_Y_THRESHOLD) continue;

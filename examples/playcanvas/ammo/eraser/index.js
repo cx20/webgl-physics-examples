@@ -95,8 +95,25 @@ let options = {
     uvs: textureCoords
 };
 
+const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
+const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
+
+function drawPhysicsDebug(app, entities) {
+    for (const entity of entities) {
+        const col = entity.collision;
+        if (!col || col.type !== 'box') continue;
+        const isDynamic = entity.rigidbody?.type === pc.BODYTYPE_DYNAMIC;
+        const color = isDynamic ? _DBG_COLOR_DYNAMIC : _DBG_COLOR_STATIC;
+        const mat = new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
+        const h = col.halfExtents;
+        app.drawWireAlignedBox(new pc.Vec3(-h.x, -h.y, -h.z), new pc.Vec3(h.x, h.y, h.z), color, false, undefined, mat);
+    }
+}
+
+let showWireframe = true;
+
 loadWasmModuleAsync(
-    'Ammo', 
+    'Ammo',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm',
     init);
@@ -112,6 +129,14 @@ function init() {
 
     window.addEventListener("resize", function () {
         app.resizeCanvas(canvas.width, canvas.height);
+    });
+
+    window.addEventListener("keydown", function (event) {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
 	function createEraserMesh() {
@@ -198,7 +223,7 @@ function init() {
         { size:[ 1, 10, 10], pos:[ 5, 5, 0], rot:[0,0,0] } 
     ];
 
-    let surfaces = [];
+    const staticDebugEntities = [];
     for (let i = 0; i < boxDataSet.length; i++) {
         let size = boxDataSet[i].size
         let pos = boxDataSet[i].pos;
@@ -214,6 +239,7 @@ function init() {
         boxModel.addComponent("model", { type: "box", material: whiteMaterial });
         box.addChild(boxModel);
         app.root.addChild(box);
+        staticDebugEntities.push(box);
     }
 
     const SCALE = 2;
@@ -254,6 +280,7 @@ function init() {
     floorModel.addComponent("model", { type: "box", material: floorMaterial });
     floor.addChild(floorModel);
     app.root.addChild(floor);
+    staticDebugEntities.push(floor);
 
     let numErasers = 0;
     let erasers = [];
@@ -294,5 +321,10 @@ function init() {
         
         camera.setLocalPosition(Math.sin(Math.PI*angle/180) * 40, 10, Math.cos(Math.PI*angle/180) * 40);
         camera.lookAt(0, 0, 0);
+
+        if (showWireframe) {
+            drawPhysicsDebug(app, staticDebugEntities);
+            drawPhysicsDebug(app, erasers);
+        }
     });
 }
