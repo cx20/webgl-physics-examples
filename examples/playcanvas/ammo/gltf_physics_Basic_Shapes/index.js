@@ -366,7 +366,11 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
             }
         }
 
-        const compound = body.getCollisionShape();
+        // body.getCollisionShape() returns btCollisionShape (base type) and lacks
+        // addChildShape. Use the collision component's shape which IS the btCompoundShape
+        // instance created by PlayCanvas — it retains all btCompoundShape methods.
+        const compound = ownerEntity.collision.shape;
+        if (!compound) { Ammo.destroy(hull); Ammo.destroy(childXform); continue; }
         compound.addChildShape(childXform, hull);
         Ammo.destroy(childXform);
 
@@ -375,7 +379,7 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
         if (motionNode && !motionNode.isKinematic) {
             const mass = motionNode.mass ?? 1;
             const li = new Ammo.btVector3(0, 0, 0);
-            compound.calculateLocalInertia(mass, li);
+            body.getCollisionShape().calculateLocalInertia(mass, li);
             body.setMassProps(mass, li);
             body.updateInertiaTensor();
             Ammo.destroy(li);
