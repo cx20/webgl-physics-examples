@@ -449,15 +449,40 @@ function drawPhysicsDebug(app, entities) {
     }
 }
 
-// Draw AABB boxes for entities whose collision was registered directly in Ammo
-// (no PlayCanvas collision component, so they can't appear in drawPhysicsDebug).
+// Draw the actual mesh wireframe for entities whose collision was registered
+// directly in Ammo as btBvhTriangleMeshShape (no PlayCanvas collision component).
+// Uses pc.Mesh.getPositions/getIndices to read the CPU-side vertex data and draws
+// all triangle edges in world space. Falls back to AABB if data is unavailable.
 function drawMeshStaticDebug(app, entities) {
+    const pa = new pc.Vec3(), pb = new pc.Vec3();
+    const wa = new pc.Vec3(), wb = new pc.Vec3();
     for (const e of entities) {
         if (!e.render) continue;
+        const worldMat = e.getWorldTransform();
         for (const mi of e.render.meshInstances) {
-            const c = mi.aabb.center, h = mi.aabb.halfExtents;
-            const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
-            _drawWireBoxLocal(app, mat, h.x, h.y, h.z, _DBG_COLOR_STATIC);
+            const mesh = mi.mesh;
+            const positions = [], indices = [];
+            mesh.getPositions(positions);
+            mesh.getIndices(indices);
+            if (positions.length > 0 && indices.length > 0) {
+                const pts = [];
+                for (let i = 0; i < indices.length; i += 3) {
+                    const a = indices[i]*3, b = indices[i+1]*3, c = indices[i+2]*3;
+                    for (const [s, t] of [[a,b],[b,c],[c,a]]) {
+                        pa.set(positions[s], positions[s+1], positions[s+2]);
+                        pb.set(positions[t], positions[t+1], positions[t+2]);
+                        worldMat.transformPoint(pa, wa);
+                        worldMat.transformPoint(pb, wb);
+                        pts.push(wa.clone(), wb.clone());
+                    }
+                }
+                if (pts.length > 0) app.drawLines(pts, pts.map(() => _DBG_COLOR_STATIC), false);
+            } else {
+                // Fallback: AABB when mesh data is not CPU-accessible
+                const c = mi.aabb.center, h = mi.aabb.halfExtents;
+                const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
+                _drawWireBoxLocal(app, mat, h.x, h.y, h.z, _DBG_COLOR_STATIC);
+            }
         }
     }
 }
