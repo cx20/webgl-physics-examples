@@ -344,8 +344,8 @@ function init() {
             body.setMassProps(1.0, li);
             body.updateInertiaTensor();
             Ammo.destroy(li);
-            // Damping and sleep thresholds help pieces settle without jitter.
-            body.setDamping(0.05, 0.1);
+            // Higher angular damping suppresses wobble on thin flat pieces.
+            body.setDamping(0.05, 0.5);
             body.setSleepingThresholds(0.1, 0.1);
         }
 
@@ -359,6 +359,14 @@ function init() {
         const z = (Math.random() - 0.5) * 8;
         pieces.push(createPiece(x, y, z));
     }
+
+    // Split impulse separates penetration correction from velocity changes,
+    // which is the primary Bullet fix for resting-contact jitter on stacked objects.
+    // More solver iterations help the constraint solver converge under the pile load.
+    const solverInfo = app.systems.rigidbody.dynamicsWorld.getSolverInfo();
+    solverInfo.m_numIterations = 20;
+    solverInfo.m_splitImpulse = 1;
+    solverInfo.m_splitImpulsePenetrationThreshold = -0.02;
 
     let angle = 0;
     const EXPECTED_FPS = 60;
