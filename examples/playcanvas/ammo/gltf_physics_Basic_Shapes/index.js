@@ -127,6 +127,30 @@ function addAmmoStaticMeshBody(json, binary, meshIdx, entity, friction, restitut
     return body;
 }
 
+// Build a btConvexHullShape from a glTF mesh's vertex positions read from the
+// GLB binary.  Used for convexHull=true mesh colliders on dynamic bodies.
+function buildConvexHullFromMesh(json, binary, meshIdx) {
+    const gltfMesh = json.meshes[meshIdx];
+    if (!gltfMesh) return null;
+    const hull = new Ammo.btConvexHullShape();
+    let pointCount = 0;
+    for (const prim of gltfMesh.primitives ?? []) {
+        if ((prim.mode ?? 4) !== 4) continue;
+        const posIdx = prim.attributes?.POSITION;
+        if (posIdx === undefined) continue;
+        const pos = readGlbFloat32(json, binary, posIdx);
+        for (let i = 0; i < pos.length; i += 3) {
+            const v = new Ammo.btVector3(pos[i], pos[i+1], pos[i+2]);
+            hull.addPoint(v, false);
+            Ammo.destroy(v);
+            pointCount++;
+        }
+    }
+    if (pointCount === 0) { Ammo.destroy(hull); return null; }
+    hull.recalcLocalAabb();
+    return hull;
+}
+
 function buildEntityMap(gltfJson, clonedRoot) {
     const nodes = gltfJson.nodes ?? [];
     const map = new Array(nodes.length).fill(null);
@@ -225,7 +249,10 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
 
     // Attach collision shapes to the appropriate entities.
     const standaloneStatics  = [];
-    const meshStaticEntities = []; // entities whose physics were added directly to Ammo
+    const meshStaticEntities = []; // entities with manual static Ammo bodies (btBvhTriangleMeshShape)
+    // convexHull=true mesh colliders deferred to Pass 3 (rigidbody must exist first).
+    // Each entry: { nodeIdx, ownerIdx, meshIdx, mat }
+    const convexHullPending  = [];
 
     for (let i = 0; i < nodes.length; i++) {
         const physExt = nodes[i].extensions?.KHR_physics_rigid_bodies;
@@ -236,11 +263,19 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
         if (shapeIdx === undefined && meshIdx === undefined) continue;
 
         const ownerIdx = findBodyOwner(i);
+        const mat = physExt.collider.physicsMaterial !== undefined
+            ? (matDefs[physExt.collider.physicsMaterial] ?? {}) : {};
 
         if (ownerIdx === i) {
-            // Body-owner with self-collider: implicit shape → synthetic child.
-            // Mesh colliders on compound owners are skipped (Bullet restriction).
-            if (shapeIdx === undefined) continue;
+            if (shapeIdx === undefined) {
+                // No implicit shape on this body owner.
+                // convexHull=true mesh → defer to Pass 3.
+                // convexHull=false (concave) dynamic mesh: not supported by Bullet → skip.
+                if (meshIdx !== undefined && geo.convexHull) {
+                    convexHullPending.push({ nodeIdx: i, ownerIdx, meshIdx, mat });
+                }
+                continue;
+            }
             const parent   = entityMap[i];
             if (!parent) continue;
             const shapeDef = shapeDefs[shapeIdx];
@@ -263,11 +298,12 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
                 e.addComponent('collision', cd);
                 if (ownerIdx < 0) standaloneStatics.push({ entity: e, collider: physExt.collider });
 
+            } else if (meshIdx !== undefined && ownerIdx >= 0 && geo.convexHull) {
+                // convexHull=true compound child → defer to Pass 3.
+                convexHullPending.push({ nodeIdx: i, ownerIdx, meshIdx, mat });
+
             } else if (meshIdx !== undefined && ownerIdx < 0) {
-                // Static mesh body: build btBvhTriangleMeshShape manually from GLB binary.
-                // This avoids relying on PlayCanvas reading back GPU-side vertex buffers.
-                const mat = physExt.collider.physicsMaterial !== undefined
-                    ? (matDefs[physExt.collider.physicsMaterial] ?? {}) : {};
+                // Static concave mesh body: build btBvhTriangleMeshShape manually.
                 const frict = mat.dynamicFriction ?? mat.staticFriction ?? 0.5;
                 const rest  = mat.restitution ?? 0;
                 const body  = addAmmoStaticMeshBody(gltfJson, binary, meshIdx, e, frict, rest, dynamicsWorld);
@@ -301,6 +337,55 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
         if (info.mat.restitution     !== undefined) info.entity.rigidbody.restitution = info.mat.restitution;
     }
 
+    // Pass 3: add btConvexHullShape children to compound bodies.
+    // This must happen after Pass 2 so the rigidbody (and its compound shape) exists.
+    const convexHullEntities = []; // for debug wireframe (drawn in dynamic color)
+    for (const { nodeIdx, ownerIdx, meshIdx, mat } of convexHullPending) {
+        const ownerEntity = entityMap[ownerIdx];
+        if (!ownerEntity?.rigidbody?.body) continue;
+        const body = ownerEntity.rigidbody.body;
+
+        const hull = buildConvexHullFromMesh(gltfJson, binary, meshIdx);
+        if (!hull) continue;
+
+        // Apply world scale of the owner to the hull.
+        const ws = ownerEntity.getWorldTransform().getScale();
+        const ls = new Ammo.btVector3(Math.abs(ws.x), Math.abs(ws.y), Math.abs(ws.z));
+        hull.setLocalScaling(ls);
+        Ammo.destroy(ls);
+
+        // Child transform: identity for self-colliders; local offset for compound children.
+        const childXform = new Ammo.btTransform();
+        childXform.setIdentity();
+        if (nodeIdx !== ownerIdx) {
+            const meshEntity = entityMap[nodeIdx];
+            if (meshEntity) {
+                const lp = meshEntity.getLocalPosition(), lr = meshEntity.getLocalRotation();
+                childXform.setOrigin(new Ammo.btVector3(lp.x, lp.y, lp.z));
+                childXform.setRotation(new Ammo.btQuaternion(lr.x, lr.y, lr.z, lr.w));
+            }
+        }
+
+        const compound = body.getCollisionShape();
+        compound.addChildShape(childXform, hull);
+        Ammo.destroy(childXform);
+
+        // Recalculate inertia for dynamic bodies after adding the new shape.
+        const motionNode = nodes[ownerIdx].extensions.KHR_physics_rigid_bodies.motion;
+        if (motionNode && !motionNode.isKinematic) {
+            const mass = motionNode.mass ?? 1;
+            const li = new Ammo.btVector3(0, 0, 0);
+            compound.calculateLocalInertia(mass, li);
+            body.setMassProps(mass, li);
+            body.updateInertiaTensor();
+            Ammo.destroy(li);
+        }
+
+        // Debug wireframe: use the entity that actually holds the mesh visual.
+        const debugEntity = nodeIdx !== ownerIdx ? entityMap[nodeIdx] : ownerEntity;
+        if (debugEntity) convexHullEntities.push(debugEntity);
+    }
+
     // Collect leaf collision entities for debug wireframe drawing.
     const debugEntities = [];
     const visitForDebug = (e) => {
@@ -317,7 +402,8 @@ function initPhysics(gltfJson, binary, entityMap, dynamicsWorld) {
             initialRotation: info.entity.getRotation().clone()
         })),
         debugEntities,
-        meshStaticEntities // entities with manual Ammo bodies (no PC collision component)
+        meshStaticEntities,
+        convexHullEntities
     };
 }
 
@@ -449,11 +535,10 @@ function drawPhysicsDebug(app, entities) {
     }
 }
 
-// Draw the actual mesh wireframe for entities whose collision was registered
-// directly in Ammo as btBvhTriangleMeshShape (no PlayCanvas collision component).
-// Uses pc.Mesh.getPositions/getIndices to read the CPU-side vertex data and draws
-// all triangle edges in world space. Falls back to AABB if data is unavailable.
-function drawMeshStaticDebug(app, entities) {
+// Draw actual mesh wireframe edges for entities that have render meshes but no
+// PlayCanvas collision component (static btBvhTriangleMeshShape or convex hull).
+// Uses pc.Mesh.getPositions/getIndices; falls back to AABB if unavailable.
+function drawMeshDebug(app, entities, color) {
     const pa = new pc.Vec3(), pb = new pc.Vec3();
     const wa = new pc.Vec3(), wb = new pc.Vec3();
     for (const e of entities) {
@@ -476,12 +561,12 @@ function drawMeshStaticDebug(app, entities) {
                         pts.push(wa.clone(), wb.clone());
                     }
                 }
-                if (pts.length > 0) app.drawLines(pts, pts.map(() => _DBG_COLOR_STATIC), false);
+                if (pts.length > 0) app.drawLines(pts, pts.map(() => color), false);
             } else {
                 // Fallback: AABB when mesh data is not CPU-accessible
                 const c = mi.aabb.center, h = mi.aabb.halfExtents;
                 const mat = new pc.Mat4().setTranslate(c.x, c.y, c.z);
-                _drawWireBoxLocal(app, mat, h.x, h.y, h.z, _DBG_COLOR_STATIC);
+                _drawWireBoxLocal(app, mat, h.x, h.y, h.z, color);
             }
         }
     }
@@ -547,6 +632,7 @@ function init() {
     let dynamicBodies      = [];
     let debugEntities      = [];
     let meshStaticEntities = [];
+    let convexHullEntities = [];
 
     Promise.all([
         fetchGlbData(MODEL_URL),
@@ -567,6 +653,7 @@ function init() {
         dynamicBodies      = result.dynamicBodies;
         debugEntities      = result.debugEntities;
         meshStaticEntities = result.meshStaticEntities;
+        convexHullEntities = result.convexHullEntities;
 
         const { center, radius } = computeWorldBounds(root);
         let angle = 0;
@@ -583,7 +670,8 @@ function init() {
 
             if (showWireframe) {
                 drawPhysicsDebug(app, debugEntities);
-                drawMeshStaticDebug(app, meshStaticEntities);
+                drawMeshDebug(app, meshStaticEntities,  _DBG_COLOR_STATIC);   // btBvhTriangleMeshShape (yellow)
+                drawMeshDebug(app, convexHullEntities, _DBG_COLOR_DYNAMIC);  // btConvexHullShape (green)
             }
 
             for (const body of dynamicBodies) {
