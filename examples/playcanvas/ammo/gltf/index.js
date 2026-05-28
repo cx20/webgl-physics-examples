@@ -1,8 +1,25 @@
 ﻿import * as pc from 'playcanvas';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
+const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
+const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
+
+function drawPhysicsDebug(app, entities) {
+    for (const entity of entities) {
+        const col = entity.collision;
+        if (!col || col.type !== 'box') continue;
+        const isDynamic = entity.rigidbody?.type === pc.BODYTYPE_DYNAMIC;
+        const color = isDynamic ? _DBG_COLOR_DYNAMIC : _DBG_COLOR_STATIC;
+        const mat = new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
+        const h = col.halfExtents;
+        app.drawWireAlignedBox(new pc.Vec3(-h.x, -h.y, -h.z), new pc.Vec3(h.x, h.y, h.z), color, false, undefined, mat);
+    }
+}
+
+let showWireframe = true;
+
 loadWasmModuleAsync(
-    'Ammo', 
+    'Ammo',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm',
     init);
@@ -18,6 +35,14 @@ function init() {
 
     window.addEventListener("resize", function () {
         app.resizeCanvas(canvas.width, canvas.height);
+    });
+
+    window.addEventListener("keydown", function (event) {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
@@ -122,6 +147,8 @@ function init() {
     floor.addChild(floorModel);
     app.root.addChild(floor);
 
+    const debugEntities = [duckBody, floor];
+
     let angle = 0;
     let time = 0;
     let maxErasers = 200;
@@ -131,5 +158,6 @@ function init() {
         angle += 0.5 * ADJUST_SPEED;
         camera.setLocalPosition(Math.sin(Math.PI*angle/180) * 4, 3, Math.cos(Math.PI*angle/180) * 4);
         camera.lookAt(0, 0, 0);
+        if (showWireframe) drawPhysicsDebug(app, debugEntities);
     });
 }
