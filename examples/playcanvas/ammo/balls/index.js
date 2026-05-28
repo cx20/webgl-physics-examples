@@ -9,8 +9,53 @@ const dataSet = [
     {imageFile:"../../../../assets/textures/TennisBall.jpg", scale:0.3}, // TennisBall.jpg
 ];
 
+const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
+const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
+
+function _drawWireSphere(app, pos, radius, color) {
+    const pts = [];
+    const segs = 16;
+    for (let axis = 0; axis < 3; axis++) {
+        let prev = null;
+        for (let i = 0; i <= segs; i++) {
+            const t = (i / segs) * Math.PI * 2;
+            const c = Math.cos(t) * radius;
+            const s = Math.sin(t) * radius;
+            let cur;
+            if      (axis === 0) cur = new pc.Vec3(pos.x,     pos.y + c, pos.z + s);
+            else if (axis === 1) cur = new pc.Vec3(pos.x + c, pos.y,     pos.z + s);
+            else                 cur = new pc.Vec3(pos.x + c, pos.y + s, pos.z    );
+            if (prev) { pts.push(prev); pts.push(cur); }
+            prev = cur;
+        }
+    }
+    app.drawLines(pts, pts.map(() => color), false);
+}
+
+function drawPhysicsDebug(app, entities) {
+    for (const entity of entities) {
+        const col = entity.collision;
+        if (!col || !col.type) continue;
+        const isDynamic = entity.rigidbody?.type === pc.BODYTYPE_DYNAMIC;
+        const color = isDynamic ? _DBG_COLOR_DYNAMIC : _DBG_COLOR_STATIC;
+        const mat = new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
+        switch (col.type) {
+            case 'box': {
+                const h = col.halfExtents;
+                app.drawWireAlignedBox(new pc.Vec3(-h.x, -h.y, -h.z), new pc.Vec3(h.x, h.y, h.z), color, false, undefined, mat);
+                break;
+            }
+            case 'sphere':
+                _drawWireSphere(app, entity.getPosition(), col.radius, color);
+                break;
+        }
+    }
+}
+
+let showWireframe = true;
+
 loadWasmModuleAsync(
-    'Ammo', 
+    'Ammo',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.wasm',
     init);
@@ -26,6 +71,14 @@ function init() {
 
     window.addEventListener("resize", function () {
         app.resizeCanvas(canvas.width, canvas.height);
+    });
+
+    window.addEventListener("keydown", function (event) {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
     app.scene.ambientLight = new pc.Color(0.2, 0.2, 0.2);
@@ -103,7 +156,7 @@ function init() {
         { size:[ 1, 10, 10], pos:[ 5, 5, 0], rot:[0,0,0] } 
     ];
 
-    let surfaces = [];
+    const staticDebugEntities = [];
     for (let i = 0; i < boxDataSet.length; i++) {
         let size = boxDataSet[i].size
         let pos = boxDataSet[i].pos;
@@ -119,6 +172,7 @@ function init() {
         boxModel.addComponent("model", { type: "box", material: whiteMaterial });
         box.addChild(boxModel);
         app.root.addChild(box);
+        staticDebugEntities.push(box);
     }
 
     let spheres = [];
@@ -148,6 +202,7 @@ function init() {
     floorModel.addComponent("model", { type: "box", material: floorMaterial });
     floor.addChild(floorModel);
     app.root.addChild(floor);
+    staticDebugEntities.push(floor);
 
     let numBalls = 0;
     let balls = [];
@@ -192,5 +247,10 @@ function init() {
         
         camera.setLocalPosition(Math.sin(Math.PI*angle/180) * 40, 10, Math.cos(Math.PI*angle/180) * 40);
         camera.lookAt(0, 0, 0);
+
+        if (showWireframe) {
+            drawPhysicsDebug(app, staticDebugEntities);
+            drawPhysicsDebug(app, balls);
+        }
     });
 }
