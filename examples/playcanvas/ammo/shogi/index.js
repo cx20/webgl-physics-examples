@@ -105,6 +105,32 @@ function drawPhysicsDebug(app, entities) {
     }
 }
 
+// Draw the actual pentagon-prism mesh edges for each shogi piece.
+// All pieces are batched into a single drawLines call for efficiency.
+function drawShogiMeshWireframe(app, pieces, geo) {
+    if (pieces.length === 0) return;
+    const positions = geo.pos;
+    const indices   = geo.indices;
+    const pa = new pc.Vec3(), pb = new pc.Vec3();
+    const wa = new pc.Vec3(), wb = new pc.Vec3();
+    const pts = [];
+    for (const piece of pieces) {
+        const mat = new pc.Mat4().setTRS(
+            piece.getPosition(), piece.getRotation(), pc.Vec3.ONE
+        );
+        for (let i = 0; i < indices.length; i += 3) {
+            const i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            for (const [a, b] of [[i0,i1],[i1,i2],[i2,i0]]) {
+                pa.set(positions[a*3], positions[a*3+1], positions[a*3+2]);
+                pb.set(positions[b*3], positions[b*3+1], positions[b*3+2]);
+                mat.transformPoint(pa, wa); mat.transformPoint(pb, wb);
+                pts.push(wa.clone(), wb.clone());
+            }
+        }
+    }
+    app.drawLines(pts, pts.map(() => _DBG_COLOR_DYNAMIC), false);
+}
+
 let showWireframe = true;
 
 loadWasmModuleAsync(
@@ -241,7 +267,23 @@ function init() {
     shogiMesh.setIndices(geo.indices);
     shogiMesh.update();
 
-    // Box collision half-extents that tightly wrap the pentagon-prism mesh.
+    // Build a shared btConvexHullShape from the mesh vertices.
+    // All dynamic pieces share this one shape instance; Bullet supports this safely.
+    function buildConvexHull(positions) {
+        const shape = new Ammo.btConvexHullShape();
+        for (let i = 0; i < positions.length; i += 3) {
+            const v = new Ammo.btVector3(positions[i], positions[i+1], positions[i+2]);
+            shape.addPoint(v, false);
+            Ammo.destroy(v);
+        }
+        shape.recalcLocalAabb();
+        return shape;
+    }
+    const convexHull = buildConvexHull(geo.pos);
+
+    // A dummy box halfExtents is still given to the PlayCanvas collision component
+    // so the entity participates in the PC collision event system. The Ammo body's
+    // actual shape is replaced with the convex hull immediately after spawn.
     const halfW = PIECE_W / 2;
     const halfH = PIECE_H / 2;
     const halfD = PIECE_D * 0.7;
@@ -270,6 +312,19 @@ function init() {
         });
         piece.addChild(visual);
         app.root.addChild(piece);
+
+        // Replace the box shape on the Ammo rigid body with the convex hull.
+        // The body is created synchronously during addChild, so it is available here.
+        const body = piece.rigidbody.body;
+        if (body) {
+            body.setCollisionShape(convexHull);
+            const li = new Ammo.btVector3(0, 0, 0);
+            convexHull.calculateLocalInertia(1.0, li);
+            body.setMassProps(1.0, li);
+            body.updateInertiaTensor();
+            Ammo.destroy(li);
+        }
+
         return piece;
     }
 
@@ -312,8 +367,8 @@ function init() {
         }
 
         if (showWireframe) {
-            drawPhysicsDebug(app, staticDebugEntities);
-            drawPhysicsDebug(app, pieces);
+            drawPhysicsDebug(app, staticDebugEntities);   // box wireframe for floor/walls
+            drawShogiMeshWireframe(app, pieces, geo);      // mesh edge wireframe for pieces
         }
     });
 }
