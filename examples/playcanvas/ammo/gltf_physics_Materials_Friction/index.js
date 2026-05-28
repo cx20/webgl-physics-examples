@@ -4,6 +4,25 @@ import { loadWasmModuleAsync } from 'https://rawcdn.githack.com/playcanvas/engin
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Friction/Materials_Friction.glb';
 const RESET_Y_THRESHOLD = -20;
 
+const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
+const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
+
+function drawPhysicsDebug(app, entities) {
+    for (const entity of entities) {
+        const col = entity.collision;
+        if (!col || col.type !== 'box') continue;
+        let rbOwner = entity;
+        while (rbOwner && !rbOwner.rigidbody) rbOwner = rbOwner.parent;
+        const isDynamic = rbOwner?.rigidbody?.type === pc.BODYTYPE_DYNAMIC;
+        const color = isDynamic ? _DBG_COLOR_DYNAMIC : _DBG_COLOR_STATIC;
+        const mat = new pc.Mat4().setTRS(entity.getPosition(), entity.getRotation(), pc.Vec3.ONE);
+        const h = col.halfExtents;
+        app.drawWireAlignedBox(new pc.Vec3(-h.x, -h.y, -h.z), new pc.Vec3(h.x, h.y, h.z), color, false, undefined, mat);
+    }
+}
+
+let showWireframe = true;
+
 loadWasmModuleAsync(
     'Ammo',
     'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/lib/ammo/ammo.wasm.js',
@@ -135,6 +154,14 @@ function init() {
         app.resizeCanvas(canvas.width, canvas.height);
     });
 
+    window.addEventListener('keydown', function(event) {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
+
     app.scene.ambientLight = new pc.Color(0.68, 0.7, 0.76);
 
     const light = new pc.Entity('light');
@@ -262,6 +289,13 @@ function init() {
             }
         }
 
+        const debugEntities = [];
+        const visitForDebug = (e) => {
+            if (e.collision && e.collision.type && e.collision.type !== 'compound') debugEntities.push(e);
+            for (const c of e.children) visitForDebug(c);
+        };
+        visitForDebug(root);
+
         const bounds = computeWorldBounds(root);
         const center = bounds.center;
         const radius = bounds.radius;
@@ -279,6 +313,8 @@ function init() {
 
             camera.setLocalPosition(x, y, z);
             camera.lookAt(center);
+
+            if (showWireframe) drawPhysicsDebug(app, debugEntities);
 
             for (const body of dynamicBodies) {
                 if (body.entity.getPosition().y >= RESET_Y_THRESHOLD) {
