@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 
 // PlayCanvas (rendering) + Havok low-level API (physics).
 // Textured erasers rain into a walled basket. The visual is a custom box mesh (same
@@ -225,17 +226,16 @@ async function main() {
 
     camera = new pc.Entity('camera');
     camera.addComponent('camera', { clearColor: new pc.Color(0.5, 0.5, 0.8), nearClip: 0.01, farClip: 1000, fov: 60 });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 10, 40));
 
     initPhysics();
     setInterval(updatePhysics, 1000 / 60);
 
-    let angle = 0;
     app.on('update', (dt) => {
-        angle += 0.5 * dt;
-        camera.setPosition(Math.sin(angle) * 40, 10, Math.cos(angle) * 40);
-        camera.lookAt(0, 0, 0);
-
         // Drip new erasers in until the basket is full.
         spawnTimer += dt;
         if (spawnTimer > 0.05 && erasers.length < MAX_ERASERS) { spawnEraser(); spawnTimer = 0; }

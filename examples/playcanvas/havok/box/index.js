@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -175,18 +176,16 @@ async function main() {
 
     camera = new pc.Entity('camera');
     camera.addComponent('camera', { clearColor: new pc.Color(0.5, 0.5, 0.8), farClip: 300 });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 4, 0), new pc.Vec3(0, 14, 32));
 
     initPhysics();
     setInterval(updatePhysics, 1000 / 60);
 
-    let angle = 0;
-    app.on('update', (dt) => {
-        angle += 0.25 * dt;
-        camera.setPosition(Math.sin(angle) * 32, 14, Math.cos(angle) * 32);
-        camera.lookAt(new pc.Vec3(0, 4, 0));
-        if (showWireframe) drawDebug();
-    });
+    app.on('update', () => { if (showWireframe) drawDebug(); });
 }
 
 window.addEventListener('keydown', (event) => {

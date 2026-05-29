@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 
 // PlayCanvas (rendering) + Havok low-level API (physics).
 // A glTF Duck is dropped onto a floor. Its collider is an axis-aligned box sized
@@ -134,19 +135,17 @@ async function main() {
     app.root.addChild(light);
 
     camera = new pc.Entity('camera');
-    camera.addComponent('camera', { clearColor: new pc.Color(0.5, 0.5, 0.8), farClip: 50 });
+    camera.addComponent('camera', { clearColor: new pc.Color(0.5, 0.5, 0.8), farClip: 100 });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 3, 8));
 
     initPhysics();
     setInterval(updatePhysics, 1000 / 60);
 
-    let angle = 0;
-    app.on('update', (dt) => {
-        angle += 0.5 * dt;
-        camera.setPosition(Math.sin(angle) * 4, 3, Math.cos(angle) * 4);
-        camera.lookAt(0, 0, 0);
-        if (showWireframe) drawDebug();
-    });
+    app.on('update', () => { if (showWireframe) drawDebug(); });
 }
 
 window.addEventListener('keydown', (event) => {
