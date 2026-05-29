@@ -141,7 +141,9 @@ function initPhysics() {
     staticDebugShapes.push({ pos: [0, 0, 0], hw: [100, 0.2, 100] });
 
     // Domino shape (shared)
-    const DOMINO_W = BOX_SIZE * 0.15, DOMINO_H = BOX_SIZE * 1.5, DOMINO_D = BOX_SIZE * 1.0;
+    // Half-extents; full size = 2x. Depth is kept under the z spacing (BOX_SIZE*1.2)
+    // so neighbouring dominoes don't overlap and explode at spawn.
+    const DOMINO_W = BOX_SIZE * 0.075, DOMINO_H = BOX_SIZE * 0.75, DOMINO_D = BOX_SIZE * 0.5;
     // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
     const dominoShapeId  = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [DOMINO_W * 2, DOMINO_H * 2, DOMINO_D * 2])[1];
     const dominoMassProps = HK.HP_Shape_BuildMassProperties(dominoShapeId)[1];
