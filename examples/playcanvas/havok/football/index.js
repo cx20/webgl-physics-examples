@@ -105,7 +105,8 @@ function initPhysics() {
     const footballTex = getTexture('football.png', 1024, 512);
 
     // Ground
-    const gsId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [20, 0.4, 20])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const gsId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [20 * 2, 0.4 * 2, 20 * 2])[1];
     const gbId = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(gbId, gsId);
     HK.HP_Body_SetMotionType(gbId, HK.MotionType.STATIC);

@@ -124,7 +124,8 @@ function initPhysics() {
 
     // Ground (static)
     const BOX_SIZE = 2;
-    const groundId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [100, 0.2, 100])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const groundId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [100 * 2, 0.2 * 2, 100 * 2])[1];
     const groundBodyId = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(groundBodyId, groundId);
     HK.HP_Body_SetMotionType(groundBodyId, HK.MotionType.STATIC);
@@ -141,7 +142,8 @@ function initPhysics() {
 
     // Domino shape (shared)
     const DOMINO_W = BOX_SIZE * 0.15, DOMINO_H = BOX_SIZE * 1.5, DOMINO_D = BOX_SIZE * 1.0;
-    const dominoShapeId  = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [DOMINO_W, DOMINO_H, DOMINO_D])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const dominoShapeId  = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [DOMINO_W * 2, DOMINO_H * 2, DOMINO_D * 2])[1];
     const dominoMassProps = HK.HP_Shape_BuildMassProperties(dominoShapeId)[1];
 
     // Ball shape (shared)
