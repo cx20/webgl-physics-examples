@@ -46,17 +46,21 @@ function drawDebug() {
     }
 }
 
-function getTexture(file, w, h) {
-    const tex = new pc.Texture(app.graphicsDevice, { width: w, height: h });
-    const img = new Image();
-    img.onload = () => {
-        tex.minFilter = pc.FILTER_LINEAR; tex.magFilter = pc.FILTER_LINEAR;
-        tex.addressU = pc.ADDRESS_CLAMP_TO_EDGE; tex.addressV = pc.ADDRESS_CLAMP_TO_EDGE;
-        tex.setSource(img);
-    };
-    img.crossOrigin = 'anonymous';
-    img.src = BASE_URL + file;
-    return tex;
+function createBallMaterial(file) {
+    // Load via the asset system so the texture keeps its native (non-square,
+    // equirectangular) size/aspect; pre-allocating a square texture and calling
+    // setSource() rescaled these 2:1 ball maps to 1:1 and distorted the mapping.
+    const m = new pc.StandardMaterial();
+    m.update();
+    app.assets.loadFromUrl(BASE_URL + file, 'texture', (err, asset) => {
+        if (err) { console.error('Failed to load texture', file, err); return; }
+        const tex = asset.resource;
+        tex.addressU = pc.ADDRESS_CLAMP_TO_EDGE;
+        tex.addressV = pc.ADDRESS_CLAMP_TO_EDGE;
+        m.diffuseMap = tex;
+        m.update();
+    });
+    return m;
 }
 
 function createStaticBox(hw, pos) {
@@ -116,14 +120,8 @@ function initPhysics() {
         app.root.addChild(we);
     }
 
-    // Preload textures and create materials
-    const textures = dataSet.map(d => getTexture(d.file, 512, 512));
-    const materials = dataSet.map((d, i) => {
-        const m = new pc.StandardMaterial();
-        m.diffuseMap = textures[i];
-        m.update();
-        return m;
-    });
+    // Create one material per ball type, loading each texture via the asset system.
+    const materials = dataSet.map(d => createBallMaterial(d.file));
 
     for (let i = 0; i < 200; i++) {
         const x = -5 + Math.random() * 10;
