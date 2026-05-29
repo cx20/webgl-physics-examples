@@ -118,17 +118,19 @@ function spawnPosition() {
 }
 
 function spawnCarrot() {
+    const spawnPos = spawnPosition();
     const bodyId = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(bodyId, coneShapeId);
     HK.HP_Body_SetMotionType(bodyId, HK.MotionType.DYNAMIC);
     HK.HP_Body_SetMassProperties(bodyId, coneMass);
-    HK.HP_Body_SetPosition(bodyId, spawnPosition());
+    HK.HP_Body_SetPosition(bodyId, spawnPos);
     HK.HP_Body_SetOrientation(bodyId, randomQuaternion());
     HK.HP_World_AddBody(worldId, bodyId, false);
 
     const entity = new pc.Entity('carrot' + carrots.length);
     entity.addComponent('model', { type: 'cone', material: carrotMat });
     entity.setLocalScale(SCALE / 2, SCALE, SCALE / 2);
+    entity.setPosition(spawnPos[0], spawnPos[1], spawnPos[2]);
     app.root.addChild(entity);
 
     carrots.push({ entity, bodyId });
