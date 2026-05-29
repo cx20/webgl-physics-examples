@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
@@ -6,8 +7,9 @@ const BASE_URL = 'https://cx20.github.io/webgl-physics-examples/assets/textures/
 const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
 const _DBG_COLOR_STATIC  = new pc.Color(1, 1, 0, 1);
 
-let HK, worldId, app;
+let HK, worldId, app, camera;
 let showWireframe = true;
+
 const physicsObjects = [];   // {entity, bodyId, hw: [x,y,z]}
 const staticDebugShapes = []; // {pos: [x,y,z], hw: [x,y,z]}
 
@@ -114,11 +116,13 @@ async function main() {
     light.setLocalEulerAngles(45, 45, 45);
     app.root.addChild(light);
 
-    const camera = new pc.Entity('camera');
+    camera = new pc.Entity('camera');
     camera.addComponent('camera', { clearColor: new pc.Color(0.5, 0.5, 0.8), farClip: 50 });
-    camera.translate(0, 5, 10);
-    camera.lookAt(0, 0, 0);
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 5, 15));
 
     initPhysics();
     setInterval(updatePhysics, 1000 / 60);
