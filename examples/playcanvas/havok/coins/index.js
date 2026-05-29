@@ -100,7 +100,8 @@ function initPhysics() {
     floorMat.gloss = 0.2;
     floorMat.update();
 
-    const floorShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [12, 1, 12])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const floorShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [12 * 2, 1 * 2, 12 * 2])[1];
     const floorBody  = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(floorBody, floorShape);
     HK.HP_Body_SetMotionType(floorBody, HK.MotionType.STATIC);

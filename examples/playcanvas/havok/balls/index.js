@@ -60,7 +60,8 @@ function getTexture(file, w, h) {
 }
 
 function createStaticBox(hw, pos) {
-    const shapeId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, hw)[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const shapeId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw[0] * 2, hw[1] * 2, hw[2] * 2])[1];
     const bodyId  = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(bodyId, shapeId);
     HK.HP_Body_SetMotionType(bodyId, HK.MotionType.STATIC);

@@ -117,7 +117,8 @@ function getTexture(url, w, h, flipY) {
 }
 
 function createStaticBox(x, y, z, hw, hh, hd) {
-    const shapeId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw, hh, hd])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const shapeId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw * 2, hh * 2, hd * 2])[1];
     const bodyId  = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(bodyId, shapeId);
     HK.HP_Body_SetMotionType(bodyId, HK.MotionType.STATIC);
@@ -189,7 +190,8 @@ function initPhysics() {
     shogiMesh.update();
 
     const hw = PIECE_W / 2, hh = PIECE_H / 2, hd = PIECE_D * 0.7;
-    const pieceShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw, hh, hd])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const pieceShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw * 2, hh * 2, hd * 2])[1];
     const pieceMass  = HK.HP_Shape_BuildMassProperties(pieceShape)[1];
 
     for (let i = 0; i < PIECE_COUNT; i++) {

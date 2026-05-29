@@ -27,7 +27,8 @@ function drawDebug() {
 }
 
 function createBoxBody(x, y, z, hw, hh, hd, isDynamic) {
-    const shapeId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw, hh, hd])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const shapeId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw * 2, hh * 2, hd * 2])[1];
     const bodyId  = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(bodyId, shapeId);
     HK.HP_Body_SetPosition(bodyId, [x, y, z]);

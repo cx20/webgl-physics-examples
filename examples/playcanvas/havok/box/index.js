@@ -88,7 +88,8 @@ function initPhysics() {
     const grassTex = getTexture('grass.jpg', 512, 512);
 
     // Ground
-    const gsId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [30, 0.4, 30])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const gsId = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [30 * 2, 0.4 * 2, 30 * 2])[1];
     const gbId = HK.HP_Body_Create()[1];
     HK.HP_Body_SetShape(gbId, gsId);
     HK.HP_Body_SetMotionType(gbId, HK.MotionType.STATIC);
@@ -107,7 +108,8 @@ function initPhysics() {
 
     // Shared box shape
     const hw = BOX_SIZE;
-    const boxShapeId  = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw, hw, hw])[1];
+    // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
+    const boxShapeId  = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw * 2, hw * 2, hw * 2])[1];
     const boxMassProps = HK.HP_Shape_BuildMassProperties(boxShapeId)[1];
 
     for (let x = 0; x < 16; x++) {
