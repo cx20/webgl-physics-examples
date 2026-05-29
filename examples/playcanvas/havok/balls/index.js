@@ -79,11 +79,12 @@ function initPhysics() {
     // Ground
     createStaticBox([20, 2, 20], [0, -2, 0]);
 
-    // Walls
-    createStaticBox([5, 5, 0.5], [ 0, 1.5, -2.5]);
-    createStaticBox([5, 5, 0.5], [ 0, 1.5,  2.5]);
-    createStaticBox([0.5, 5, 5], [-2.5, 1.5, 0]);
-    createStaticBox([0.5, 5, 5], [ 2.5, 1.5, 0]);
+    // Walls — full size is 2x the half-extents, so position them at +/-5 to form a
+    // clean 10x10 pen that contains the balls (which spawn within +/-5).
+    createStaticBox([5, 5, 0.5], [ 0, 5, -5]);
+    createStaticBox([5, 5, 0.5], [ 0, 5,  5]);
+    createStaticBox([0.5, 5, 5], [-5, 5, 0]);
+    createStaticBox([0.5, 5, 5], [ 5, 5, 0]);
 
     const darkMat = new pc.StandardMaterial();
     darkMat.diffuse = new pc.Color(0.24, 0.25, 0.26);
@@ -104,8 +105,8 @@ function initPhysics() {
 
     // Wall meshes
     const wallDefs = [
-        { size: [10, 10, 1], pos: [0, 1.5, -2.5] }, { size: [10, 10, 1], pos: [0, 1.5, 2.5] },
-        { size: [1, 10, 10], pos: [-2.5, 1.5, 0] }, { size: [1, 10, 10], pos: [2.5, 1.5, 0] }
+        { size: [10, 10, 1], pos: [0, 5, -5] }, { size: [10, 10, 1], pos: [0, 5, 5] },
+        { size: [1, 10, 10], pos: [-5, 5, 0] }, { size: [1, 10, 10], pos: [5, 5, 0] }
     ];
     for (const w of wallDefs) {
         const we = new pc.Entity();

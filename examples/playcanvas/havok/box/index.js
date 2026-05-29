@@ -106,8 +106,9 @@ function initPhysics() {
     app.root.addChild(groundEntity);
     staticDebugShapes.push({ pos: [0, 0, 0], hw: [30, 0.4, 30] });
 
-    // Shared box shape
-    const hw = BOX_SIZE;
+    // Shared box shape (half-extent; full size = hw*2, kept below the grid spacing
+    // of BOX_SIZE*1.2 so the boxes don't overlap and explode at spawn).
+    const hw = BOX_SIZE * 0.5;
     // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
     const boxShapeId  = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw * 2, hw * 2, hw * 2])[1];
     const boxMassProps = HK.HP_Shape_BuildMassProperties(boxShapeId)[1];
