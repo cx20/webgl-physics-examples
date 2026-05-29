@@ -186,7 +186,10 @@ async function main() {
 
     const light = new pc.Entity('light');
     light.addComponent('light', { type: 'directional', color: new pc.Color(1, 1, 1), castShadows: true, shadowResolution: 2048 });
-    light.setPosition(30, 100, 50);
+    // A directional light's direction comes from its rotation, not its position;
+    // setPosition() leaves it pointing the default way, so most balls only got the dim
+    // ambient light and looked black. Orient it like the other examples instead.
+    light.setLocalEulerAngles(45, 45, 45);
     app.root.addChild(light);
 
     camera = new pc.Entity('camera');
