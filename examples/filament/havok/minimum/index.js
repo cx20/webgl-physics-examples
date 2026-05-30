@@ -21,7 +21,9 @@ const TEXTURE_URL = '../../../../assets/textures/frog.jpg';
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
-const GROUND = { size: [4, 0.1, 4], pos: [0, 0, 0] };
+// Ground top surface sits at Y=0; body centre is half-height below.
+// Height 0.5 prevents fast-falling cube from tunnelling through a thin slab.
+const GROUND = { size: [4, 0.17, 4], pos: [0, -0.085, 0] };
 const CUBE_SIZE = [1, 1, 1];
 const CUBE_ROUGHNESS = 0.7;
 
@@ -112,7 +114,8 @@ function initPhysics() {
   HK.HP_Body_SetMotionType(cubeBodyId, HK.MotionType.DYNAMIC);
   const mp = HK.HP_Shape_BuildMassProperties(cs[1]);
   HK.HP_Body_SetMassProperties(cubeBodyId, mp[1]);
-  HK.HP_Body_SetPosition(cubeBodyId, [0, 2, 0]);
+  const groundTopY = GROUND.pos[1] + GROUND.size[1] / 2; // = 0
+  HK.HP_Body_SetPosition(cubeBodyId, [0, groundTopY + CUBE_SIZE[1] / 2 + 2, 0]);
   const angle = Math.PI * 10 / 180;
   const sn = Math.sin(angle / 2), cs2 = Math.cos(angle / 2), inv = 1 / Math.sqrt(2);
   HK.HP_Body_SetOrientation(cubeBodyId, [inv * sn, 0, inv * sn, cs2]);
@@ -184,14 +187,41 @@ function buildSceneGlb(textureBytes) {
   // Cube mesh.
   const cube = addTriMeshAccessors(CUBE_POSITIONS, CUBE_NORMALS, CUBE_UVS, CUBE_INDICES, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]);
 
-  // Ground quad at the collider's top surface, with a single frog stretched across it.
-  const halfX = GROUND.size[0] / 2, halfZ = GROUND.size[2] / 2;
-  const gy = GROUND.pos[1] + GROUND.size[1] / 2;
-  const groundPositions = new Float32Array([-halfX, gy, -halfZ, halfX, gy, -halfZ, halfX, gy, halfZ, -halfX, gy, halfZ]);
-  const groundNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
-  const groundUVs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
-  const groundIndices = new Uint32Array([0, 1, 2, 0, 2, 3]);
-  const ground = addTriMeshAccessors(groundPositions, groundNormals, groundUVs, groundIndices, [-halfX, gy, -halfZ], [halfX, gy, halfZ]);
+  // Ground: full 6-face box so it looks solid from any angle (not just a top-face quad).
+  const gcx = GROUND.pos[0], gcy = GROUND.pos[1], gcz = GROUND.pos[2];
+  const ghx = GROUND.size[0] / 2, ghy = GROUND.size[1] / 2, ghz = GROUND.size[2] / 2;
+  const groundPositions = new Float32Array([
+    gcx-ghx, gcy-ghy, gcz+ghz,  gcx+ghx, gcy-ghy, gcz+ghz,  gcx+ghx, gcy+ghy, gcz+ghz,  gcx-ghx, gcy+ghy, gcz+ghz,  // Front (+Z)
+    gcx-ghx, gcy-ghy, gcz-ghz,  gcx+ghx, gcy-ghy, gcz-ghz,  gcx+ghx, gcy+ghy, gcz-ghz,  gcx-ghx, gcy+ghy, gcz-ghz,  // Back  (-Z)
+    gcx+ghx, gcy+ghy, gcz+ghz,  gcx-ghx, gcy+ghy, gcz+ghz,  gcx-ghx, gcy+ghy, gcz-ghz,  gcx+ghx, gcy+ghy, gcz-ghz,  // Top   (+Y)
+    gcx-ghx, gcy-ghy, gcz+ghz,  gcx+ghx, gcy-ghy, gcz+ghz,  gcx+ghx, gcy-ghy, gcz-ghz,  gcx-ghx, gcy-ghy, gcz-ghz,  // Bottom(-Y)
+    gcx+ghx, gcy-ghy, gcz+ghz,  gcx+ghx, gcy+ghy, gcz+ghz,  gcx+ghx, gcy+ghy, gcz-ghz,  gcx+ghx, gcy-ghy, gcz-ghz,  // Right (+X)
+    gcx-ghx, gcy-ghy, gcz+ghz,  gcx-ghx, gcy+ghy, gcz+ghz,  gcx-ghx, gcy+ghy, gcz-ghz,  gcx-ghx, gcy-ghy, gcz-ghz,  // Left  (-X)
+  ]);
+  const groundNormals = new Float32Array([
+     0,  0,  1,  0,  0,  1,  0,  0,  1,  0,  0,  1,  // Front
+     0,  0, -1,  0,  0, -1,  0,  0, -1,  0,  0, -1,  // Back
+     0,  1,  0,  0,  1,  0,  0,  1,  0,  0,  1,  0,  // Top
+     0, -1,  0,  0, -1,  0,  0, -1,  0,  0, -1,  0,  // Bottom
+     1,  0,  0,  1,  0,  0,  1,  0,  0,  1,  0,  0,  // Right
+    -1,  0,  0, -1,  0,  0, -1,  0,  0, -1,  0,  0,  // Left
+  ]);
+  const groundUVs = new Float32Array([
+    0, 0, 1, 0, 1, 1, 0, 1,   // Front
+    1, 0, 1, 1, 0, 1, 0, 0,   // Back
+    0, 1, 0, 0, 1, 0, 1, 1,   // Top
+    1, 1, 0, 1, 0, 0, 1, 0,   // Bottom
+    1, 0, 1, 1, 0, 1, 0, 0,   // Right
+    0, 0, 1, 0, 1, 1, 0, 1,   // Left
+  ]);
+  const groundIndices = new Uint32Array([
+     0,  1,  2,  0,  2,  3,   4,  5,  6,  4,  6,  7,   8,  9, 10,  8, 10, 11,
+    12, 13, 14, 12, 14, 15,  16, 17, 18, 16, 18, 19,  20, 21, 22, 20, 22, 23,
+  ]);
+  const ground = addTriMeshAccessors(
+    groundPositions, groundNormals, groundUVs, groundIndices,
+    [gcx-ghx, gcy-ghy, gcz-ghz], [gcx+ghx, gcy+ghy, gcz+ghz],
+  );
 
   // Wireframe boxes. Slightly outset (~0.5%) so the lines sit just outside the textured geometry
   // and don't z-fight with the cube / ground triangle surfaces.
@@ -380,9 +410,11 @@ async function main() {
   if (!cubeEntity) console.warn('[Filament+Havok] cube entity not found');
   if (!cubeWireframeEntity || !groundWireframeEntity) console.warn('[Filament+Havok] wireframe entities not found');
 
-  const center = [0, 0.5, 0];
-  const orbitDist = 6;
-  const orbitHeight = 3;
+  // Orbit camera state (spherical coordinates around camTarget).
+  const camTarget = [0, 0.5, 0];
+  let camTheta  = 0.5;   // azimuth (rad)
+  let camPhi    = 0.40;  // elevation above horizon (rad); ~23°
+  let camRadius = 6.7;   // distance from target
 
   let aspect = 1;
   function resize() {
@@ -397,14 +429,26 @@ async function main() {
   window.addEventListener('resize', resize);
   resize();
 
+  // Mouse-drag orbit + scroll zoom.
+  let isDragging = false, lastX = 0, lastY = 0;
+  canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+  window.addEventListener('mouseup',   () => { isDragging = false; });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    camTheta -= (e.clientX - lastX) * 0.01;
+    camPhi   += (e.clientY - lastY) * 0.01;
+    camPhi = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, camPhi));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    camRadius *= 1 + e.deltaY * 0.001;
+    camRadius = Math.max(1.0, Math.min(50.0, camRadius));
+  }, { passive: false });
+
   setWireframeVisible(showWireframe);
 
   const tcm = engine.getTransformManager();
-  // Camera orbit driven directly by wall time (matches the raw WebGL2 sample). No accumulator, no
-  // drift — frame interval jitter doesn't compound into a stutter, because the angle is a pure
-  // function of `now`.
-  const ORBIT_SPEED = 0.3; // rad/s
-  const ORBIT_PHASE = 0.5; // initial angle (was the seed `angle = 0.5`)
   // Reusable scratch so the render loop doesn't allocate every frame.
   const tmpMat = mat4.create(), tmpQuat = quat.create(), tmpVec = vec3.create();
   function render(now) {
@@ -432,10 +476,10 @@ async function main() {
       }
     }
 
-    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
-    const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
-    const up = [0, 1, 0];
-    camera.lookAt(eye, center, up);
+    const ex = camTarget[0] + camRadius * Math.cos(camPhi) * Math.sin(camTheta);
+    const ey = camTarget[1] + camRadius * Math.sin(camPhi);
+    const ez = camTarget[2] + camRadius * Math.cos(camPhi) * Math.cos(camTheta);
+    camera.lookAt([ex, ey, ez], camTarget, [0, 1, 0]);
 
     renderer.render(swapChain, view);
   }
