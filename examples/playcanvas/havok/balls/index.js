@@ -2,11 +2,11 @@ import * as pc from 'playcanvas';
 import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 
 const dataSet = [
-    { file: 'Basketball.jpg',  scale: 1.0, restitution: 0.6 },
-    { file: 'BeachBall.jpg',   scale: 0.9, restitution: 0.7 },
-    { file: 'Football.jpg',    scale: 1.0, restitution: 0.55 },
-    { file: 'Softball.jpg',    scale: 0.3, restitution: 0.4 },
-    { file: 'TennisBall.jpg',  scale: 0.3, restitution: 0.75 },
+    { file: 'Basketball.jpg',  scale: 2.0, restitution: 0.6 },
+    { file: 'BeachBall.jpg',   scale: 1.8, restitution: 0.7 },
+    { file: 'Football.jpg',    scale: 2.0, restitution: 0.55 },
+    { file: 'Softball.jpg',    scale: 0.6, restitution: 0.4 },
+    { file: 'TennisBall.jpg',  scale: 0.6, restitution: 0.75 },
 ];
 
 const FIXED_TIMESTEP = 1 / 60;
@@ -197,7 +197,7 @@ async function main() {
     app.root.addChild(camera);
     const cc = camera.script.create(CameraControls);
     cc.enableFly = false;
-    cc.reset(new pc.Vec3(0, 1.5, 0), new pc.Vec3(0, 8, 12));
+    cc.reset(new pc.Vec3(0, 1.5, 0), new pc.Vec3(0, 20, 36));
 
     initPhysics();
     setInterval(updatePhysics, 1000 / 60);
