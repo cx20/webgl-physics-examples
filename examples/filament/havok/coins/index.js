@@ -540,9 +540,10 @@ async function main() {
   if (groundWire) staticWireframeEntities.push(groundWire);
   console.log('[Filament+Havok] coins ready:', coins.length);
 
-  const center = [0, 6, 0];
-  const orbitDist = 32;
-  const orbitHeight = 18;
+  const camTarget = [0, 6, 0];
+  let camTheta  = 0.5;   // azimuth (rad)
+  let camPhi    = 0.36;   // elevation (rad)
+  let camRadius = 34.2;
 
   let aspect = 1;
   function resize() {
@@ -557,11 +558,24 @@ async function main() {
   window.addEventListener('resize', resize);
   resize();
 
+  // Mouse-drag orbit + scroll zoom.
+  let isDragging = false, lastX = 0, lastY = 0;
+  canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+  window.addEventListener('mouseup',   () => { isDragging = false; });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    camTheta -= (e.clientX - lastX) * 0.01;
+    camPhi   += (e.clientY - lastY) * 0.01;
+    camPhi = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, camPhi));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    camRadius *= 1 + e.deltaY * 0.001;
+    camRadius = Math.max(1.0, Math.min(500.0, camRadius));
+  }, { passive: false });
   setWireframeVisible(showWireframe);
 
-  // Camera orbit driven directly by wall time — pure function of `now`, no accumulator drift.
-  const ORBIT_SPEED = 0.24; // rad/s
-  const ORBIT_PHASE = 0.5;
   function render(now) {
     requestAnimationFrame(render);
 
@@ -569,10 +583,10 @@ async function main() {
       try { stepAndSync(); } catch (e) { console.error('[physics] error:', e); HK = null; }
     }
 
-    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
-    const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
-    const up = [0, 1, 0];
-    camera.lookAt(eye, center, up);
+    const ex = camTarget[0] + camRadius * Math.cos(camPhi) * Math.sin(camTheta);
+    const ey = camTarget[1] + camRadius * Math.sin(camPhi);
+    const ez = camTarget[2] + camRadius * Math.cos(camPhi) * Math.cos(camTheta);
+    camera.lookAt([ex, ey, ez], camTarget, [0, 1, 0]);
 
     renderer.render(swapChain, view);
   }
