@@ -958,8 +958,10 @@ async function main() {
   const center = [(sceneMin[0] + sceneMax[0]) / 2, (sceneMin[1] + sceneMax[1]) / 2, (sceneMin[2] + sceneMax[2]) / 2];
   const span = Math.max(sceneMax[0] - sceneMin[0], sceneMax[1] - sceneMin[1], sceneMax[2] - sceneMin[2], 1);
   const radius = span * 0.5;
-  const orbitDist = radius * 1.5;
-  const orbitHeight = center[1] + radius * 0.35;
+  const camTarget = [...center];
+  let camTheta  = 0.6;   // azimuth (rad)
+  let camPhi    = Math.atan2(radius * 0.35, radius * 1.5);   // ~0.23
+  let camRadius = Math.sqrt((radius * 1.5) ** 2 + (radius * 0.35) ** 2);
   const far = Math.max(2000, radius * 60);
 
   let aspect = 1;
@@ -975,17 +977,31 @@ async function main() {
   window.addEventListener('resize', resize);
   resize();
 
+  // Mouse-drag orbit + scroll zoom.
+  let isDragging = false, lastX = 0, lastY = 0;
+  canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+  window.addEventListener('mouseup',   () => { isDragging = false; });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    camTheta -= (e.clientX - lastX) * 0.01;
+    camPhi   += (e.clientY - lastY) * 0.01;
+    camPhi = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, camPhi));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    camRadius *= 1 + e.deltaY * 0.001;
+    camRadius = Math.max(1.0, Math.min(500.0, camRadius));
+  }, { passive: false });
   setWireframeVisible(showWireframe);
 
-  // Camera orbit driven directly by wall time.
-  const ORBIT_SPEED = 0.21, ORBIT_PHASE = 0.6;
   function render(now) {
     requestAnimationFrame(render);
     try { physicsStep(); } catch (e) { console.error('[physics] step error:', e); HK = null; }
-    const angle = ORBIT_PHASE + now * 0.001 * ORBIT_SPEED;
-    const eye = [center[0] + Math.sin(angle) * orbitDist, orbitHeight, center[2] + Math.cos(angle) * orbitDist];
-    const up = [0, 1, 0];
-    camera.lookAt(eye, center, up);
+    const ex = camTarget[0] + camRadius * Math.cos(camPhi) * Math.sin(camTheta);
+    const ey = camTarget[1] + camRadius * Math.sin(camPhi);
+    const ez = camTarget[2] + camRadius * Math.cos(camPhi) * Math.cos(camTheta);
+    camera.lookAt([ex, ey, ez], camTarget, [0, 1, 0]);
     renderer.render(swapChain, view);
   }
   requestAnimationFrame(render);
