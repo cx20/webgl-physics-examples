@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js';
 
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Restitution/Materials_Restitution.glb';
@@ -366,7 +367,10 @@ function init() {
 
     const camera = new pc.Entity('camera');
     camera.addComponent('camera', { clearColor: new pc.Color(0.96,0.97,0.99), nearClip: 0.05, farClip: 1000, fov: 45 });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
 
     let dynamicBodies = [];
 
@@ -393,18 +397,9 @@ function init() {
         visitForDebug(root);
 
         const { center, radius } = computeWorldBounds(root);
-        let angle = 0;
-        const expectedFps = 60;
+        cc.reset(center, new pc.Vec3(center.x, center.y + radius * 0.4, center.z + radius));
 
         app.on('update', dt => {
-            angle += 0.25 * dt / (1 / expectedFps);
-            camera.setLocalPosition(
-                center.x + Math.sin(Math.PI * angle / 180) * radius,
-                center.y + radius * 0.4,
-                center.z + Math.cos(Math.PI * angle / 180) * radius
-            );
-            camera.lookAt(center);
-
             if (showWireframe) drawPhysicsDebug(app, debugEntities);
 
             for (const body of dynamicBodies) {

@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 const BASE_URL = "https://cx20.github.io/gltf-test";
@@ -117,7 +118,11 @@ function init() {
         farClip: 1000,
         fov: 60
     });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 2, 0), new pc.Vec3(0, 9, 18));
 
     function createMaterial(color, opacity = 1.0) {
         const material = new pc.StandardMaterial();
@@ -269,17 +274,7 @@ function init() {
         }
     });
 
-    let angle = 0;
-    const EXPECTED_FPS = 60;
     app.on("update", function(dt) {
-        const adjustSpeed = dt / (1 / EXPECTED_FPS);
-        angle += 0.5 * adjustSpeed;
-
-        const x = Math.sin(Math.PI * angle / 180) * 18;
-        const z = Math.cos(Math.PI * angle / 180) * 18;
-        camera.setLocalPosition(x, 9, z);
-        camera.lookAt(0, 2, 0);
-
         if (showWireframe) {
             drawPhysicsDebug(app, staticDebugEntities);
             drawPhysicsDebug(app, marbles);

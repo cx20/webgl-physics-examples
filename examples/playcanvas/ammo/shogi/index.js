@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 const PIECE_W     = 1.6;
@@ -217,7 +218,11 @@ function init() {
         farClip: 1000,
         fov: 60
     });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 4, 0), new pc.Vec3(0, 14, 28));
 
     const wallMat  = createTransparentMaterial(new pc.Color(1, 1, 1));
     const floorMat = createTextureMaterial("../../../../assets/textures/grass.jpg", 512, 512);
@@ -306,19 +311,7 @@ function init() {
         pieces.push(createPiece(x, y, z));
     }
 
-    let angle = 0;
-    const EXPECTED_FPS = 60;
     app.on("update", function (dt) {
-        const adj = dt / (1 / EXPECTED_FPS);
-        angle += 0.4 * adj;
-
-        camera.setLocalPosition(
-            Math.sin(Math.PI * angle / 180) * 28,
-            14,
-            Math.cos(Math.PI * angle / 180) * 28
-        );
-        camera.lookAt(0, 4, 0);
-
         for (const piece of pieces) {
             if (piece.getPosition().y < -10) {
                 const x = (Math.random() - 0.5) * 8;

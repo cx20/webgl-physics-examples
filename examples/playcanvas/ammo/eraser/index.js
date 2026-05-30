@@ -1,4 +1,5 @@
 ﻿import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 const w = 1.0;
@@ -212,9 +213,11 @@ function init() {
         nearClip: 0.01,
         farClip: 1000
     });
-    camera.translate(18, 20, 30);
-    camera.lookAt(0, 0, 0);
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 10, 40));
 
     let boxDataSet = [
         { size:[10, 10,  1], pos:[ 0, 5,-5], rot:[0,0,0] },
@@ -293,19 +296,15 @@ function init() {
         numErasers++;
     }
 
-    let angle = 0;
     let time = 0;
     let maxErasers = 200;
-    const EXCEPTED_FPS = 60;
     app.on("update", function (dt) {
-        let ADJUST_SPEED = dt / (1/EXCEPTED_FPS);
-        angle += 0.5 * ADJUST_SPEED;
         time += dt;
         if (time > 0.05 && numErasers < maxErasers) {
             spawnEraser();
             time = 0;
         }
-        
+
         for (let i = 0; i < numErasers; i++ ) {
             let eraser = erasers[i];
             if (eraser.localPosition.y < -10) {
@@ -318,9 +317,6 @@ function init() {
                 eraser.rigidbody.syncEntityToBody();
             }
         }
-        
-        camera.setLocalPosition(Math.sin(Math.PI*angle/180) * 40, 10, Math.cos(Math.PI*angle/180) * 40);
-        camera.lookAt(0, 0, 0);
 
         if (showWireframe) {
             drawPhysicsDebug(app, staticDebugEntities);

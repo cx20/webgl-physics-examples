@@ -1,4 +1,5 @@
 ﻿import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 const _DBG_COLOR_DYNAMIC = new pc.Color(0, 1, 0, 1);
@@ -105,9 +106,11 @@ function init() {
         clearColor: new pc.Color(0.5, 0.5, 0.8),
         farClip: 50
     });
-    camera.translate(0, 5, 10);
-    camera.lookAt(0, 0, 0);
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 3, 4));
 
     let duckBody = new pc.Entity("duckBody");
     let url =  'https://rawcdn.githack.com/cx20/gltf-test/5465cc37/sampleModels/Duck/glTF/Duck.gltf';
@@ -149,15 +152,7 @@ function init() {
 
     const debugEntities = [duckBody, floor];
 
-    let angle = 0;
-    let time = 0;
-    let maxErasers = 200;
-    const EXCEPTED_FPS = 60;
     app.on("update", function (dt) {
-        let ADJUST_SPEED = dt / (1/EXCEPTED_FPS);
-        angle += 0.5 * ADJUST_SPEED;
-        camera.setLocalPosition(Math.sin(Math.PI*angle/180) * 4, 3, Math.cos(Math.PI*angle/180) * 4);
-        camera.lookAt(0, 0, 0);
         if (showWireframe) drawPhysicsDebug(app, debugEntities);
     });
 }
