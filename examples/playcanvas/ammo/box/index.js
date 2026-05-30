@@ -1,4 +1,5 @@
 ﻿import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 let DOT_SIZE = 0.3;
@@ -153,24 +154,17 @@ function init() {
 
     // Create camera entity
     function Camera() {
-      let cam = new pc.Entity();
+      let cam = new pc.Entity('camera');
       app.systems.camera.addComponent(cam, {
         clearColor: new pc.Color(0.1, 0.1, 0.1),
         farClip: 20
       });
+      cam.addComponent('script');
       app.root.addChild(cam);
+      const cc = cam.script.create(CameraControls);
+      cc.enableFly = false;
+      cc.reset(new pc.Vec3(0, 2, 0), new pc.Vec3(0, 5, 9));
       this.entity = cam;
-      this.timer = 0;
-    }
-
-    Camera.prototype.update = function (dt) {
-      this.timer += dt;
-      // Spin the camera around a center point
-      let x = Math.sin(this.timer * 0.25) * 9;
-      let z = Math.cos(this.timer * 0.25) * 6;
-      let e = this.entity;
-      e.setPosition(x, 5, z);
-      e.lookAt(0, 2, 0);
     }
 
     // Create spot light entity
@@ -300,9 +294,7 @@ function init() {
 
     const debugEntities = [ground.entity, ...wall.bricks, ball.entity];
 
-    // Register an update event to rotate the camera
     app.on("update", function (dt) {
-      camera.update(dt);
       if (showWireframe) drawPhysicsDebug(app, debugEntities);
     });
 }

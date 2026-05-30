@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 // PlayCanvas + ammo.js — Falling Coins.
@@ -141,7 +142,11 @@ function init() {
         farClip: 1000,
         fov: 60
     });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 6, 0), new pc.Vec3(0, 18, 32));
 
     // Coin materials: PBR metalness + shared normal map (assigned once the texture arrives).
     const coinMaterials = COIN_TYPES.map(function (t) {
@@ -245,15 +250,7 @@ function init() {
         coins.push({ entity: body, rest: 0 });
     }
 
-    let angle = 0;
-    const EXPECTED_FPS = 60;
     app.on("update", function (dt) {
-        const adjustSpeed = dt / (1 / EXPECTED_FPS);
-        angle += 0.4 * adjustSpeed;
-
-        camera.setLocalPosition(Math.sin(Math.PI * angle / 180) * 32, 18, Math.cos(Math.PI * angle / 180) * 32);
-        camera.lookAt(0, 6, 0);
-
         if (showWireframe) {
             drawPhysicsDebug(app, [floor]);
             drawPhysicsDebug(app, coins.map(c => c.entity));

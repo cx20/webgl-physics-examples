@@ -1,5 +1,5 @@
 import * as pc from 'playcanvas';
-import { CameraControls } from 'camera-controls';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 
 const PC_ROOT = 'https://cx20.github.io/gltf-test/libs/playcanvas/v2.14.2';
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Triggers/Triggers.glb';

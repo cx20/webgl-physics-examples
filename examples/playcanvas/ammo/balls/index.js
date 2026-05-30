@@ -1,4 +1,5 @@
 ﻿import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from "https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js";
 
 const dataSet = [
@@ -145,9 +146,11 @@ function init() {
         nearClip: 0.01,
         farClip: 1000
     });
-    camera.translate(18, 20, 30);
-    camera.lookAt(0, 0, 0);
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 10, 40));
 
     let boxDataSet = [
         { size:[10, 10,  1], pos:[ 0, 5,-5], rot:[0,0,0] },
@@ -219,19 +222,15 @@ function init() {
         numBalls++;
     }
 
-    let angle = 0;
     let time = 0;
     let maxBalls = 200;
-    const EXCEPTED_FPS = 60;
     app.on("update", function (dt) {
-        let ADJUST_SPEED = dt / (1/EXCEPTED_FPS);
-        angle += 0.5 * ADJUST_SPEED;
         time += dt;
         if (time > 0.05 && numBalls < maxBalls) {
             spawnBall();
             time = 0;
         }
-        
+
         for (let i = 0; i < numBalls; i++ ) {
             let ball = balls[i];
             if (ball.localPosition.y < -10) {
@@ -244,9 +243,6 @@ function init() {
                 ball.rigidbody.syncEntityToBody();
             }
         }
-        
-        camera.setLocalPosition(Math.sin(Math.PI*angle/180) * 40, 10, Math.cos(Math.PI*angle/180) * 40);
-        camera.lookAt(0, 0, 0);
 
         if (showWireframe) {
             drawPhysicsDebug(app, staticDebugEntities);

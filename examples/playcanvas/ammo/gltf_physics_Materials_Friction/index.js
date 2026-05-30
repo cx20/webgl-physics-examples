@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 import { loadWasmModuleAsync } from 'https://rawcdn.githack.com/playcanvas/engine/f8e929634cf7b057f7c80ac206a4f3d2d11843dc/examples/src/wasm-loader.js';
 
 const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Friction/Materials_Friction.glb';
@@ -183,7 +184,10 @@ function init() {
         farClip: 1000,
         fov: 45
     });
+    camera.addComponent('script');
     app.root.addChild(camera);
+    const cc = camera.script.create(CameraControls);
+    cc.enableFly = false;
 
     const dynamicBodies = [];
 
@@ -299,21 +303,9 @@ function init() {
         const bounds = computeWorldBounds(root);
         const center = bounds.center;
         const radius = bounds.radius;
-
-        let angle = 0;
-        const expectedFps = 60;
+        cc.reset(center, new pc.Vec3(center.x, center.y + radius * 0.4, center.z + radius));
 
         app.on('update', function(dt) {
-            const adjustSpeed = dt / (1 / expectedFps);
-            angle += 0.25 * adjustSpeed;
-
-            const x = center.x + Math.sin(Math.PI * angle / 180) * radius;
-            const z = center.z + Math.cos(Math.PI * angle / 180) * radius;
-            const y = center.y + radius * 0.4;
-
-            camera.setLocalPosition(x, y, z);
-            camera.lookAt(center);
-
             if (showWireframe) drawPhysicsDebug(app, debugEntities);
 
             for (const body of dynamicBodies) {
