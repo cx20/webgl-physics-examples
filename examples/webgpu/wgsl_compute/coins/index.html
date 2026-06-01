@@ -29,11 +29,12 @@ struct SimParams {
     angDamping  : f32,
     restitution : f32,
     friction    : f32,
-    spawnRange  : f32,
+    time        : f32,
 }
 
 const GROUND_HALF : f32 = 13.0;
-const PHYSICS_THICKNESS_SCALE : f32 = 1.0;
+const SPAWN_RADIUS : f32 = 3.0;     // radius of the narrow spawn column at the top
+const SPAWN_RATE : f32 = 350.0;     // coins per second streamed into the column
 
 @group(0) @binding(0) var<storage, read> srcStates : array<CoinState>;
 @group(0) @binding(1) var<storage, read_write> dstStates : array<CoinState>;
@@ -49,50 +50,21 @@ fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
     );
 }
 
-fn rotateQ(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
-    let t = 2.0 * cross(q.xyz, v);
-    return v + q.w * t + cross(q.xyz, t);
-}
-
 fn normalizeQ(q : vec4<f32>) -> vec4<f32> {
     let l = length(q);
     return select(vec4<f32>(0.0, 0.0, 0.0, 1.0), q / l, l > 0.0001);
 }
 
-fn boxCorner(index : u32, halfExtents : vec3<f32>) -> vec3<f32> {
-    return vec3<f32>(
-        select(-halfExtents.x, halfExtents.x, (index & 1u) != 0u),
-        select(-halfExtents.y, halfExtents.y, (index & 2u) != 0u),
-        select(-halfExtents.z, halfExtents.z, (index & 4u) != 0u),
-    );
+// A sin-based hash correlates its outputs when the inputs are linear
+// (s, s+1, s+2 ...), biasing spawn positions along a diagonal. Use a
+// statistically stronger PCG hash instead.
+fn pcgHash(v : u32) -> u32 {
+    let state = v * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
 }
-
-fn quatToAxes(q : vec4<f32>) -> mat3x3<f32> {
-    let x = q.x; let y = q.y; let z = q.z; let w = q.w;
-    return mat3x3<f32>(
-        vec3<f32>(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y)),
-        vec3<f32>(2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x)),
-        vec3<f32>(2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y)),
-    );
-}
-
-fn obbHalfProj(axes : mat3x3<f32>, halfExtents : vec3<f32>, axis : vec3<f32>) -> f32 {
-    return abs(dot(axes[0], axis)) * halfExtents.x
-         + abs(dot(axes[1], axis)) * halfExtents.y
-         + abs(dot(axes[2], axis)) * halfExtents.z;
-}
-
-fn satPen(T : vec3<f32>, axesA : mat3x3<f32>, axesB : mat3x3<f32>, halfA : vec3<f32>, halfB : vec3<f32>, axis : vec3<f32>) -> f32 {
-    let lenSq = dot(axis, axis);
-    if (lenSq < 1e-8) {
-        return 1e9;
-    }
-    let n = axis * inverseSqrt(lenSq);
-    return obbHalfProj(axesA, halfA, n) + obbHalfProj(axesB, halfB, n) - abs(dot(T, n));
-}
-
-fn rand(seed : f32) -> f32 {
-    return fract(sin(seed * 12.9898 + 78.233) * 43758.5453);
+fn rndU(seed : u32) -> f32 {
+    return f32(pcgHash(seed)) * (1.0 / 4294967296.0);
 }
 
 @compute @workgroup_size(64)
@@ -104,32 +76,40 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
 
     let info = infos[i];
     let radius = info.size.x;
-    let halfHeight = info.size.y;
     let seed = srcStates[i].position.w;
-    let restitution = info.material.x;
-    let friction = info.material.y;
 
     var pos = srcStates[i].position.xyz;
     var vel = srcStates[i].velocity.xyz;
     var rot = srcStates[i].rotation;
     var angVel = srcStates[i].angularVel.xyz;
 
-    let outsideGround = abs(pos.x) > GROUND_HALF + radius || abs(pos.z) > GROUND_HALF + radius;
-    if (pos.y < params.groundY - 24.0 || (outsideGround && pos.y < params.groundY - 12.0)) {
-        let s = seed + 1.37;
-        pos = vec3<f32>(
-            (rand(s) - 0.5) * params.spawnRange,
-            params.groundY + 24.0 + rand(s + 1.0) * 18.0,
-            (rand(s + 2.0) - 0.5) * params.spawnRange,
-        );
-        angVel = vec3<f32>(
-            (rand(s + 3.0) - 0.5) * 6.0,
-            (rand(s + 4.0) - 0.5) * 2.0,
-            (rand(s + 5.0) - 0.5) * 6.0,
-        );
-        dstStates[i].position = vec4<f32>(pos, s);
-        dstStates[i].velocity = vec4<f32>((rand(s + 6.0) - 0.5) * 0.8, -1.0 - rand(s + 7.0) * 2.0, (rand(s + 8.0) - 0.5) * 0.8, 0.0);
-        dstStates[i].rotation = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let sleepY = params.groundY - 30.0;
+    let spawnY = params.groundY + 50.0;
+    let spawnTime = f32(i) / SPAWN_RATE;
+
+    // Coins start asleep below the floor and stream in over time (a few per frame)
+    // through a narrow column, so they fall like a waterfall instead of being dumped
+    // all at once. Spilled coins drop past the floor, sleep, and re-stream (see below),
+    // which keeps the pile at a steady height instead of growing into a mountain.
+    if (pos.y < sleepY) {
+        if (params.time >= spawnTime) {
+            // Fresh random position/spin each spawn; the per-frame term in the salt
+            // makes a recycled coin reappear at a different point in the column.
+            let salt = i * 2654435761u + u32(params.time * 60.0) * 40503u;
+            let ang = rndU(salt) * 6.28318530718;
+            let rad = sqrt(rndU(salt + 1u)) * SPAWN_RADIUS;
+            pos = vec3<f32>(cos(ang) * rad, spawnY, sin(ang) * rad);
+            vel = vec3<f32>(0.0, -1.0, 0.0);
+            angVel = vec3<f32>(
+                (rndU(salt + 3u) - 0.5) * 6.0,
+                (rndU(salt + 4u) - 0.5) * 2.0,
+                (rndU(salt + 5u) - 0.5) * 6.0,
+            );
+            rot = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        }
+        dstStates[i].position = vec4<f32>(pos, seed);
+        dstStates[i].velocity = vec4<f32>(vel, 0.0);
+        dstStates[i].rotation = rot;
         dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
         return;
     }
@@ -141,111 +121,52 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     let dq = quatMul(vec4<f32>(hw, 0.0), rot);
     rot = normalizeQ(rot + dq);
 
-    let physicsHalfHeight = halfHeight * PHYSICS_THICKNESS_SCALE;
-    let halfExtents = vec3<f32>(radius, physicsHalfHeight, radius);
-    var minY = 1e9;
-    var contactLocal = vec3<f32>(0.0, -physicsHalfHeight, 0.0);
-    for (var corner = 0u; corner < 8u; corner++) {
-        let local = boxCorner(corner, halfExtents);
-        let worldY = pos.y + rotateQ(rot, local).y;
-        if (worldY < minY) {
-            minY = worldY;
-            contactLocal = local;
-        }
-    }
-    if (minY < params.groundY && abs(pos.x) < GROUND_HALF && abs(pos.z) < GROUND_HALF) {
-        pos.y += params.groundY - minY;
-        if (vel.y < 0.0) {
-            let contactArm = rotateQ(rot, contactLocal);
-            let jY = -vel.y * (1.0 + params.restitution);
-            angVel += cross(contactArm, vec3<f32>(0.0, jY, 0.0)) * 0.20;
-            let dVelF = vec3<f32>(vel.x * (params.friction - 1.0), 0.0, vel.z * (params.friction - 1.0));
-            angVel += cross(contactArm, dVelF) * 0.25;
+    // Treat the coin's physics shape as a sphere of the coin radius. The visual
+    // tumble (rot/angVel) is integrated independently and does not feed back from
+    // these collisions, since a sphere carries no orientation.
 
+    // Sphere vs ground plane: keep the sphere centre one radius above the floor.
+    if (pos.y - radius < params.groundY && abs(pos.x) < GROUND_HALF && abs(pos.z) < GROUND_HALF) {
+        pos.y = params.groundY + radius;
+        if (vel.y < 0.0) {
             vel.y = -vel.y * params.restitution;
             vel.x *= params.friction;
             vel.z *= params.friction;
         }
-        angVel *= 0.80;
     }
 
-    let axesA = quatToAxes(rot);
-    let boundA = length(halfExtents);
+    // Sphere vs sphere against every other coin.
     for (var j = 0u; j < COIN_CAPACITY; j++) {
         if (j == i) {
             continue;
         }
         let other = srcStates[j];
-        let otherInfo = infos[j];
-        let otherHalfExtents = vec3<f32>(otherInfo.size.x, otherInfo.size.y * PHYSICS_THICKNESS_SCALE, otherInfo.size.x);
-        let T = other.position.xyz - pos;
-        let bound = boundA + length(otherHalfExtents);
-        if (dot(T, T) > bound * bound) {
-            continue;
-        }
-
-        let axesB = quatToAxes(other.rotation);
-        var minPen = 1e9;
-        var minAxis = vec3<f32>(1.0, 0.0, 0.0);
-        var separated = false;
-
-        for (var axisA = 0u; axisA < 3u; axisA++) {
-            if (separated) { break; }
-            let pen = satPen(T, axesA, axesB, halfExtents, otherHalfExtents, axesA[axisA]);
-            if (pen <= 0.0) { separated = true; break; }
-            if (pen < minPen) { minPen = pen; minAxis = axesA[axisA]; }
-        }
-        for (var axisB = 0u; axisB < 3u; axisB++) {
-            if (separated) { break; }
-            let pen = satPen(T, axesA, axesB, halfExtents, otherHalfExtents, axesB[axisB]);
-            if (pen <= 0.0) { separated = true; break; }
-            if (pen < minPen) { minPen = pen; minAxis = axesB[axisB]; }
-        }
-        for (var a = 0u; a < 3u; a++) {
-            if (separated) { break; }
-            for (var b = 0u; b < 3u; b++) {
-                if (separated) { break; }
-                let axis = cross(axesA[a], axesB[b]);
-                let pen = satPen(T, axesA, axesB, halfExtents, otherHalfExtents, axis);
-                if (pen <= 0.0) { separated = true; break; }
-                if (pen < minPen) { minPen = pen; minAxis = axis; }
-            }
-        }
-        if (separated) {
-            continue;
-        }
-
-        var n = normalize(minAxis);
-        if (dot(n, pos - other.position.xyz) < 0.0) {
-            n = -n;
-        }
-        pos += n * minPen * 0.50;
-
-        let cLx = clamp(dot(T, axesA[0]), -halfExtents.x, halfExtents.x);
-        let cLy = clamp(dot(T, axesA[1]), -halfExtents.y, halfExtents.y);
-        let cLz = clamp(dot(T, axesA[2]), -halfExtents.z, halfExtents.z);
-        let contactArm = axesA[0] * cLx + axesA[1] * cLy + axesA[2] * cLz;
-
-        let relVel = vel - other.velocity.xyz;
-        let vn = dot(relVel, n);
-        if (vn < 0.0) {
-            let jn = -(vn * (1.0 + 0.2) * 0.5);
-            vel += n * jn;
-            angVel += cross(contactArm, n * jn) * 0.5;
-
-            let tangent = relVel - n * vn;
-            let tangentLen = length(tangent);
-            if (tangentLen > 0.001) {
-                let tangentDir = tangent / tangentLen;
-                let jt = min(0.4 * jn, tangentLen * 0.5);
-                vel -= tangentDir * jt;
-                angVel += cross(contactArm, -tangentDir * jt) * 1.5;
+        if (other.position.y < sleepY) { continue; }   // skip asleep coins
+        let otherRadius = infos[j].size.x;
+        let delta = pos - other.position.xyz;         // points from the other coin to this one
+        let dist = length(delta);
+        let minDist = radius + otherRadius;
+        if (dist < minDist && dist > 1e-4) {
+            let n = delta / dist;
+            let overlap = minDist - dist;
+            pos += n * (overlap * 0.5);                // push half-way out of the other sphere
+            let relVel = vel - other.velocity.xyz;
+            let vn = dot(relVel, n);
+            if (vn < 0.0) {                            // only resolve when approaching
+                vel -= n * (vn * (1.0 + params.restitution) * 0.5);
             }
         }
     }
 
     vel *= params.damping;
     angVel *= params.angDamping;
+
+    // Recycle: a coin that fell past the floor (spilled off the edge) goes back to
+    // sleep below and re-streams from the top next frame.
+    if (pos.y < sleepY) {
+        pos = vec3<f32>(0.0, -1000.0 - f32(i) * 0.01, 0.0);
+        vel = vec3<f32>(0.0, 0.0, 0.0);
+    }
 
     dstStates[i].position = vec4<f32>(pos, seed);
     dstStates[i].velocity = vec4<f32>(vel, 0.0);
@@ -407,23 +328,16 @@ struct CoinInfo {
     color    : vec4<f32>,
 }
 
-const PHYSICS_THICKNESS_SCALE : f32 = 1.0;
-
 @group(0) @binding(0) var<uniform> camera : Camera;
 @group(0) @binding(1) var<storage, read> states : array<CoinState>;
 @group(0) @binding(2) var<storage, read> infos : array<CoinInfo>;
-
-fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
-    let t = 2.0 * cross(q.xyz, v);
-    return v + q.w * t + cross(q.xyz, t);
-}
 
 @vertex
 fn main(@location(0) position : vec3<f32>, @builtin(instance_index) instance : u32) -> @builtin(position) vec4<f32> {
     let state = states[instance];
     let info = infos[instance];
-    let local = vec3<f32>(position.x * info.size.x, position.y * info.size.y * PHYSICS_THICKNESS_SCALE, position.z * info.size.x);
-    let world = state.position.xyz + rotByQuat(local, state.rotation);
+    // The collider is a sphere of the coin radius; orientation is irrelevant.
+    let world = state.position.xyz + position * info.size.x;
     return camera.viewProjection * vec4<f32>(world, 1.0);
 }
 </script>

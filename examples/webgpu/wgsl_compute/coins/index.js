@@ -16,7 +16,6 @@ const INFO_FLOATS = 12;
 const STATIC_FLOATS = 12;
 const SUBSTEPS = 4;
 const GROUND_Y = -10.0;
-const SPAWN_RANGE = 15.0;
 const TEXTURE_FILES = [
     '../../../../assets/textures/floor_bump.png',
     '../../../../assets/textures/rockn.png',
@@ -29,7 +28,7 @@ const COIN_TYPES = [
 
 let device, context, format, depthTexture;
 let renderPipeline, computePipeline, skyboxPipeline, wirePipeline;
-let cylinderMesh, cubeMesh, wireBoxMesh;
+let cylinderMesh, cubeMesh, wireSphereMesh;
 let cameraBuffer, coinInfoBuffer, staticBuffer, simParamsBuffer, skyboxUniformBuffer;
 let sampler, textureView, environmentTextureView;
 let skyboxBindGroup, skyboxVertexBuffer;
@@ -40,6 +39,7 @@ let computeBindGroups = [];
 let currentState = 0;
 let coinCount = 0;
 let lastTime = -1;
+let simStartTime = -1;
 let showWireframe = true;
 
 const projectionMatrix = new Float32Array(16);
@@ -143,19 +143,22 @@ function createBoxGeometry() {
     return createMesh(positions, normals, uvs, indices);
 }
 
-function createWireBoxGeometry() {
-    const corners = [
-        [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
-        [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
-    ];
-    const edges = [
-        0, 1, 1, 2, 2, 3, 3, 0,
-        4, 5, 5, 6, 6, 7, 7, 4,
-        0, 4, 1, 5, 2, 6, 3, 7,
-    ];
+function createWireSphereGeometry(segments = 48) {
+    // Three orthogonal great circles outline the spherical collider as a line list.
     const positions = [];
-    for (let i = 0; i < edges.length; i++) {
-        positions.push(...corners[edges[i]]);
+    const ringPoint = (axis, angle) => {
+        const c = Math.cos(angle);
+        const s = Math.sin(angle);
+        if (axis === 0) return [0, c, s];
+        if (axis === 1) return [c, 0, s];
+        return [c, s, 0];
+    };
+    for (let axis = 0; axis < 3; axis++) {
+        for (let i = 0; i < segments; i++) {
+            const a0 = (i / segments) * Math.PI * 2;
+            const a1 = ((i + 1) / segments) * Math.PI * 2;
+            positions.push(...ringPoint(axis, a0), ...ringPoint(axis, a1));
+        }
     }
     return {
         positionBuffer: createVertexBuffer(new Float32Array(positions)),
@@ -341,9 +344,16 @@ function normalize3(v) {
     return [v[0] / length, v[1] / length, v[2] / length];
 }
 
+// A sin-based hash correlates its outputs for linearly spaced inputs, biasing the
+// initial layout along a diagonal. Decorrelate with the same PCG hash as the compute shader.
+function pcgHash(value) {
+    const state = (Math.imul(value >>> 0, 747796405) + 2891336453) >>> 0;
+    const word = Math.imul((state >>> ((state >>> 28) + 4)) ^ state, 277803737) >>> 0;
+    return ((word >>> 22) ^ word) >>> 0;
+}
+
 function randomFromIndex(index) {
-    const value = Math.sin((index + 1) * 12.9898) * 43758.5453;
-    return value - Math.floor(value);
+    return pcgHash(index) / 4294967296;
 }
 
 function directionForCubeFace(faceIndex, u, v) {
@@ -399,20 +409,12 @@ async function createInitialData() {
         const seed = ((coin * 37) % 101) / 101;
         const type = COIN_TYPES[Math.min(COIN_TYPES.length - 1, Math.floor(randomFromIndex(coin) * COIN_TYPES.length))];
         const stateBase = coin * STATE_FLOATS;
-        states[stateBase + 0] = (randomFromIndex(coin * 3 + 11) - 0.5) * SPAWN_RANGE;
-        states[stateBase + 1] = (randomFromIndex(coin * 7 + 23) + 1.2) * 18.0;
-        states[stateBase + 2] = (randomFromIndex(coin * 5 + 17) - 0.5) * SPAWN_RANGE;
-        states[stateBase + 3] = seed;
-        states[stateBase + 4] = 0;
-        states[stateBase + 5] = 0;
-        states[stateBase + 6] = 0;
-        states[stateBase + 8] = 0;
-        states[stateBase + 9] = 0;
-        states[stateBase + 10] = 0;
-        states[stateBase + 11] = 1;
-        states[stateBase + 12] = (randomFromIndex(coin * 23 + 2) - 0.5) * 6.0;
-        states[stateBase + 13] = (randomFromIndex(coin * 29 + 4) - 0.5) * 2.0;
-        states[stateBase + 14] = (randomFromIndex(coin * 31 + 6) - 0.5) * 6.0;
+        // Start every coin asleep far below the floor. The compute shader streams them
+        // in over time through a narrow column so they fall like a waterfall instead of
+        // being dumped into the scene all at once. (Other state floats stay zero.)
+        states[stateBase + 1] = -1000 - coin * 0.01;   // y: parked below the floor
+        states[stateBase + 3] = seed;                  // position.w carries the seed
+        states[stateBase + 11] = 1;                    // rotation = identity quaternion
         const infoBase = coin * INFO_FLOATS;
         infos[infoBase + 0] = type.radius;
         infos[infoBase + 1] = type.halfHeight;
@@ -472,8 +474,8 @@ function drawWireColliders(pass) {
     if (!showWireframe) return;
     pass.setPipeline(wirePipeline);
     pass.setBindGroup(0, wireBindGroups[currentState]);
-    pass.setVertexBuffer(0, wireBoxMesh.positionBuffer);
-    pass.draw(wireBoxMesh.vertexCount, coinCount);
+    pass.setVertexBuffer(0, wireSphereMesh.positionBuffer);
+    pass.draw(wireSphereMesh.vertexCount, coinCount);
 }
 
 function drawSkybox(encoder, targetView) {
@@ -512,20 +514,23 @@ function drawSkybox(encoder, targetView) {
 
 function frame(timeMs) {
     if (lastTime < 0) lastTime = timeMs;
+    if (simStartTime < 0) simStartTime = timeMs;
     const dt = Math.min((timeMs - lastTime) / 1000, 1 / 30);
     lastTime = timeMs;
+    const time = (timeMs - simStartTime) / 1000;
     writeCamera(timeMs);
     const simData = new ArrayBuffer(32);
     const simFloats = new Float32Array(simData);
-    const simUints = new Uint32Array(simData);
-    simFloats[0] = dt / SUBSTEPS;
-    simFloats[1] = 9.81;
-    simFloats[2] = GROUND_Y;
-    simFloats[3] = 0.9992;
-    simFloats[4] = 0.992;
-    simFloats[5] = 0.35;
-    simFloats[6] = 0.82;
-    simFloats[7] = SPAWN_RANGE;
+    simFloats[0] = dt / SUBSTEPS;      // sub-step dt
+    simFloats[1] = 9.81;               // gravity
+    simFloats[2] = GROUND_Y;           // ground plane height
+    simFloats[3] = 0.9992;             // linear damping
+    simFloats[4] = 0.992;              // angular damping
+    simFloats[5] = 0.2;                // restitution
+    // Ground tangential friction (velocity retained per ground contact). Spheres
+    // need low friction to slide outward, otherwise they jam into a steep mound.
+    simFloats[6] = 0.98;               // friction
+    simFloats[7] = time;               // elapsed seconds (drives streamed spawning)
     device.queue.writeBuffer(simParamsBuffer, 0, simData);
 
     const encoder = device.createCommandEncoder();
@@ -571,7 +576,7 @@ async function init() {
     format = navigator.gpu.getPreferredCanvasFormat();
     cylinderMesh = createCylinderGeometry();
     cubeMesh = createBoxGeometry();
-    wireBoxMesh = createWireBoxGeometry();
+    wireSphereMesh = createWireSphereGeometry();
     const initial = await createInitialData();
     for (let i = 0; i < 2; i++) {
         const buffer = device.createBuffer({ size: coinCount * STATE_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
