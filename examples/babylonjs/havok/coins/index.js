@@ -10,6 +10,82 @@ let engine;
 let scene;
 let canvas;
 
+let showWireframe = true;
+let physicsViewer = null;
+const trackedBodies = [];
+const trackedImpostors = [];
+
+function setupPhysicsDebugWireframe(scene) {
+    if (!BABYLON.Debug || !BABYLON.Debug.PhysicsViewer) {
+        return;
+    }
+
+    physicsViewer = new BABYLON.Debug.PhysicsViewer(scene);
+    const seenImpostors = new WeakSet();
+    const seenBodies = new WeakSet();
+
+    scene.registerBeforeRender(function () {
+        scene.meshes.forEach(function (mesh) {
+            if (!mesh) {
+                return;
+            }
+
+            if (mesh.physicsImpostor && !seenImpostors.has(mesh.physicsImpostor) && physicsViewer.showImpostor) {
+                seenImpostors.add(mesh.physicsImpostor);
+                trackedImpostors.push({ impostor: mesh.physicsImpostor, mesh: mesh });
+                if (showWireframe) {
+                    physicsViewer.showImpostor(mesh.physicsImpostor, mesh);
+                }
+            }
+
+            if (mesh.physicsBody && !seenBodies.has(mesh.physicsBody) && physicsViewer.showBody) {
+                seenBodies.add(mesh.physicsBody);
+                trackedBodies.push(mesh.physicsBody);
+                if (showWireframe) {
+                    physicsViewer.showBody(mesh.physicsBody);
+                }
+            }
+        });
+    });
+}
+
+function setWireframeVisible(visible) {
+    if (showWireframe === visible) {
+        return;
+    }
+    showWireframe = visible;
+    if (physicsViewer) {
+        if (visible) {
+            for (const body of trackedBodies) {
+                physicsViewer.showBody(body);
+            }
+            for (const entry of trackedImpostors) {
+                physicsViewer.showImpostor(entry.impostor, entry.mesh);
+            }
+        } else {
+            for (const body of trackedBodies) {
+                physicsViewer.hideBody(body);
+            }
+            for (const entry of trackedImpostors) {
+                physicsViewer.hideImpostor(entry.impostor);
+            }
+        }
+    }
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', function (e) {
+    if (e.repeat) {
+        return;
+    }
+    if (e.code === 'KeyW' || e.key === 'w' || e.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
+
 const randomNumber = (min, max) => {
     if (min == max) {
         return min;
@@ -67,6 +143,7 @@ const createScene = async function() {
     });
     const havokPlugin = new BABYLON.HavokPlugin(true, havokInstance);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), havokPlugin);
+    setupPhysicsDebugWireframe(scene);
 
     const ground = BABYLON.MeshBuilder.CreateGround('ground', { width: 20, height: 20 }, scene);
     ground.position.y = -10;
