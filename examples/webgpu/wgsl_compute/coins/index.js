@@ -1,6 +1,8 @@
 'use strict';
 
 const computeShaderWGSL = document.getElementById('cs').textContent;
+const clearGridShaderWGSL = document.getElementById('cs-clear').textContent;
+const buildGridShaderWGSL = document.getElementById('cs-build').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
 const wireVertexShaderWGSL = document.getElementById('wvs').textContent;
@@ -9,8 +11,13 @@ const wireFragmentShaderWGSL = document.getElementById('wfs').textContent;
 const canvas = document.getElementById('c');
 
 const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
-const MAX_COINS = 4096;
+const MAX_COINS = 8192;
 const STATIC_COUNT = 1;
+
+// Uniform spatial grid for broad-phase collision (mirrors the WGSL constants in index.html).
+const GRID_X = 64, GRID_Y = 64, GRID_Z = 64;
+const CELL_CAPACITY = 8;
+const GRID_SLOTS = GRID_X * GRID_Y * GRID_Z * (CELL_CAPACITY + 1);
 const STATE_FLOATS = 16;
 const INFO_FLOATS = 12;
 const STATIC_FLOATS = 12;
@@ -28,14 +35,17 @@ const COIN_TYPES = [
 
 let device, context, format, depthTexture;
 let renderPipeline, computePipeline, skyboxPipeline, wirePipeline;
+let clearGridPipeline, buildGridPipeline;
 let cylinderMesh, cubeMesh, wireSphereMesh;
-let cameraBuffer, coinInfoBuffer, staticBuffer, simParamsBuffer, skyboxUniformBuffer;
+let cameraBuffer, coinInfoBuffer, staticBuffer, simParamsBuffer, skyboxUniformBuffer, gridBuffer;
 let sampler, textureView, environmentTextureView;
 let skyboxBindGroup, skyboxVertexBuffer;
+let clearGridBindGroup;
 let stateBuffers = [];
 let renderBindGroups = [];
 let wireBindGroups = [];
 let computeBindGroups = [];
+let buildGridBindGroups = [];
 let currentState = 0;
 let coinCount = 0;
 let lastTime = -1;
@@ -534,11 +544,26 @@ function frame(timeMs) {
     device.queue.writeBuffer(simParamsBuffer, 0, simData);
 
     const encoder = device.createCommandEncoder();
+    const coinWorkgroups = Math.ceil(coinCount / 64);
+    const gridWorkgroups = Math.ceil(GRID_SLOTS / 64);
     for (let s = 0; s < SUBSTEPS; s++) {
+        // Rebuild the spatial grid from the current (src) state, then step the physics.
+        const clearPass = encoder.beginComputePass();
+        clearPass.setPipeline(clearGridPipeline);
+        clearPass.setBindGroup(0, clearGridBindGroup);
+        clearPass.dispatchWorkgroups(gridWorkgroups);
+        clearPass.end();
+
+        const buildPass = encoder.beginComputePass();
+        buildPass.setPipeline(buildGridPipeline);
+        buildPass.setBindGroup(0, buildGridBindGroups[currentState]);
+        buildPass.dispatchWorkgroups(coinWorkgroups);
+        buildPass.end();
+
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(computePipeline);
         computePass.setBindGroup(0, computeBindGroups[currentState]);
-        computePass.dispatchWorkgroups(Math.ceil(coinCount / 64));
+        computePass.dispatchWorkgroups(coinWorkgroups);
         computePass.end();
         currentState = 1 - currentState;
     }
@@ -592,6 +617,7 @@ async function init() {
     staticBuffer.unmap();
     cameraBuffer = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     simParamsBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    gridBuffer = device.createBuffer({ size: GRID_SLOTS * 4, usage: GPUBufferUsage.STORAGE });
     sampler = device.createSampler({ addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', magFilter: 'linear', minFilter: 'linear' });
     textureView = (await createTextureAtlas()).createView();
     try {
@@ -677,6 +703,12 @@ async function init() {
         depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
     });
     computePipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: computeShaderWGSL }), entryPoint: 'main' } });
+    clearGridPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: clearGridShaderWGSL }), entryPoint: 'main' } });
+    buildGridPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: buildGridShaderWGSL }), entryPoint: 'main' } });
+    clearGridBindGroup = device.createBindGroup({
+        layout: clearGridPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: gridBuffer } }],
+    });
     for (let i = 0; i < 2; i++) {
         renderBindGroups.push(device.createBindGroup({
             layout: renderPipeline.getBindGroupLayout(0),
@@ -705,6 +737,14 @@ async function init() {
                 { binding: 1, resource: { buffer: stateBuffers[1 - i] } },
                 { binding: 2, resource: { buffer: coinInfoBuffer } },
                 { binding: 3, resource: { buffer: simParamsBuffer } },
+                { binding: 4, resource: { buffer: gridBuffer } },
+            ],
+        }));
+        buildGridBindGroups.push(device.createBindGroup({
+            layout: buildGridPipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: stateBuffers[i] } },
+                { binding: 1, resource: { buffer: gridBuffer } },
             ],
         }));
     }
