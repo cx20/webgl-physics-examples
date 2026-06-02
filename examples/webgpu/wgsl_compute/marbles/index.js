@@ -1,4 +1,6 @@
 const computeShaderWGSL = document.getElementById('cs').textContent;
+const clearGridShaderWGSL = document.getElementById('cs-clear').textContent;
+const buildGridShaderWGSL = document.getElementById('cs-build').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
 const skyboxVertexShaderWGSL = document.getElementById('skybox-vs').textContent;
@@ -11,7 +13,7 @@ const canvas = document.getElementById('c');
 const MARBLES_GLTF_URL = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
 const GROUND_TEXTURE_FILE = '../../../../assets/textures/grass.jpg';
 const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
-const MARBLE_COUNT = 120;
+const MARBLE_COUNT = 600;
 const STATIC_COUNT = 1;
 const STATE_FLOATS = 16;
 const INFO_FLOATS = 4;
@@ -23,17 +25,25 @@ const SPAWN_RANGE = 8.5;
 const SPAWN_HEIGHT = 7.0;
 const MARBLE_SCALE = 1.0;
 
+// Uniform spatial grid for broad-phase collision (mirrors the WGSL constants in index.html;
+// CELL_SIZE is computed from the actual marble radii and injected into the shaders).
+const GRID_X = 64, GRID_Y = 64, GRID_Z = 64;
+const CELL_CAPACITY = 12;
+const GRID_SLOTS = GRID_X * GRID_Y * GRID_Z * (CELL_CAPACITY + 1);
+
 let device, context, format, depthTexture;
 let renderPipeline, computePipeline, skyboxPipeline, linePipeline;
+let clearGridPipeline, buildGridPipeline;
 let cubeMesh;
 let skyboxVertexBuffer, debugSphereVertexBuffer, debugSphereIndexBuffer, debugBoxVertexBuffer, debugBoxIndexBuffer;
-let cameraBuffer, skyboxUniformBuffer, marbleInfoBuffer, staticBuffer, simParamsBuffer;
+let cameraBuffer, skyboxUniformBuffer, marbleInfoBuffer, staticBuffer, simParamsBuffer, gridBuffer;
 let sampler, whiteTextureView, blackCubeTextureView, envCubeTextureView, groundMaterial;
-let skyboxBindGroup;
+let skyboxBindGroup, clearGridBindGroup;
 let marbleTemplates = [];
 let stateBuffers = [];
 let renderBindGroups = [];
 let computeBindGroups = [];
+let buildGridBindGroups = [];
 let lineBindGroups = [];
 let currentState = 0;
 let lastTime = -1;
@@ -838,11 +848,26 @@ function frame(timeMs) {
     ]));
 
     const encoder = device.createCommandEncoder();
+    const marbleWorkgroups = Math.ceil(MARBLE_COUNT / 64);
+    const gridWorkgroups = Math.ceil(GRID_SLOTS / 64);
     for (let s = 0; s < SUBSTEPS; s++) {
+        // Rebuild the spatial grid from the current (src) state, then step the physics.
+        const clearPass = encoder.beginComputePass();
+        clearPass.setPipeline(clearGridPipeline);
+        clearPass.setBindGroup(0, clearGridBindGroup);
+        clearPass.dispatchWorkgroups(gridWorkgroups);
+        clearPass.end();
+
+        const buildPass = encoder.beginComputePass();
+        buildPass.setPipeline(buildGridPipeline);
+        buildPass.setBindGroup(0, buildGridBindGroups[currentState]);
+        buildPass.dispatchWorkgroups(marbleWorkgroups);
+        buildPass.end();
+
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(computePipeline);
         computePass.setBindGroup(0, computeBindGroups[currentState]);
-        computePass.dispatchWorkgroups(Math.ceil(MARBLE_COUNT / 64));
+        computePass.dispatchWorkgroups(marbleWorkgroups);
         computePass.end();
         currentState = 1 - currentState;
     }
@@ -918,6 +943,15 @@ async function init() {
     }
     cubeMesh = createBoxGeometry();
     marbleTemplates = await loadMarbleTemplates();
+
+    // Grid cell size must cover the largest marble diameter so the 3x3x3 neighbour scan
+    // catches every overlapping pair; inject it (and the marble count) into the shaders.
+    const maxMarbleRadius = Math.max(...marbleTemplates.map((t) => t.radius));
+    const cellSize = Math.max(1.2, maxMarbleRadius * 2 * 1.15).toFixed(4);
+    const computeCode = computeShaderWGSL.replaceAll('__COUNT__', MARBLE_COUNT + 'u').replaceAll('__CELL_SIZE__', cellSize);
+    const vertexCode = vertexShaderWGSL.replaceAll('__COUNT__', MARBLE_COUNT + 'u');
+    const buildGridCode = buildGridShaderWGSL.replaceAll('__CELL_SIZE__', cellSize);
+
     groundMaterial = {
         textureView: await createTextureViewFromUrl(GROUND_TEXTURE_FILE),
         iridescenceTextureView: whiteTextureView,
@@ -959,11 +993,12 @@ async function init() {
 
     cameraBuffer = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     simParamsBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    gridBuffer = device.createBuffer({ size: GRID_SLOTS * 4, usage: GPUBufferUsage.STORAGE });
 
     renderPipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
-            module: device.createShaderModule({ code: vertexShaderWGSL }),
+            module: device.createShaderModule({ code: vertexCode }),
             entryPoint: 'main',
             buffers: [
                 { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
@@ -1015,9 +1050,21 @@ async function init() {
     computePipeline = device.createComputePipeline({
         layout: 'auto',
         compute: {
-            module: device.createShaderModule({ code: computeShaderWGSL }),
+            module: device.createShaderModule({ code: computeCode }),
             entryPoint: 'main',
         },
+    });
+    clearGridPipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: device.createShaderModule({ code: clearGridShaderWGSL }), entryPoint: 'main' },
+    });
+    buildGridPipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: device.createShaderModule({ code: buildGridCode }), entryPoint: 'main' },
+    });
+    clearGridBindGroup = device.createBindGroup({
+        layout: clearGridPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: gridBuffer } }],
     });
     assignMaterialBindGroups();
 
@@ -1069,6 +1116,15 @@ async function init() {
                 { binding: 1, resource: { buffer: stateBuffers[1 - i] } },
                 { binding: 2, resource: { buffer: marbleInfoBuffer } },
                 { binding: 3, resource: { buffer: simParamsBuffer } },
+                { binding: 4, resource: { buffer: gridBuffer } },
+            ],
+        }));
+
+        buildGridBindGroups.push(device.createBindGroup({
+            layout: buildGridPipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: stateBuffers[i] } },
+                { binding: 1, resource: { buffer: gridBuffer } },
             ],
         }));
 
