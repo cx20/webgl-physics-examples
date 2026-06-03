@@ -286,18 +286,16 @@ struct StaticItem {
 struct VSOut {
     @builtin(position) position : vec4<f32>,
     @location(0) normal : vec3<f32>,
-    @location(1) uv : vec2<f32>,
-    @location(2) tint : vec3<f32>,
-    @location(3) worldPos : vec3<f32>,
-    @location(4) texMix : f32,
+    @location(1) worldPos : vec3<f32>,
+    @location(2) @interpolate(flat) matIndex : u32,
 }
 
-const COUNT : u32 = __COUNT__;
-
+// All marbles are drawn in a single instanced call. Per-instance state (transform) comes
+// from the states buffer and the per-instance material index is packed in infos[].data.y;
+// the material parameters live in a shared palette read by the fragment shader.
 @group(0) @binding(0) var<uniform> camera : Camera;
 @group(0) @binding(1) var<storage, read> states : array<MarbleState>;
 @group(0) @binding(2) var<storage, read> infos : array<MarbleInfo>;
-@group(0) @binding(3) var<storage, read> statics : array<StaticItem>;
 
 fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
     let t = 2.0 * cross(q.xyz, v);
@@ -312,28 +310,12 @@ fn main(
     @builtin(instance_index) instance : u32,
 ) -> VSOut {
     var out : VSOut;
-    var worldPos : vec3<f32>;
-    var worldNormal : vec3<f32>;
-
-    if (instance < COUNT) {
-        let state = states[instance];
-        let info = infos[instance].data;
-        worldPos = rotByQuat(position * info.y, state.rotation) + state.position.xyz;
-        worldNormal = normalize(rotByQuat(normal, state.rotation));
-        out.uv = uv;
-        out.tint = vec3<f32>(1.0);
-        out.texMix = 1.0;
-    } else {
-        let item = statics[instance - COUNT];
-        worldPos = position * item.scale.xyz + item.position.xyz;
-        worldNormal = normal;
-        out.uv = uv;
-        out.tint = item.color.rgb;
-        out.texMix = 1.0;
-    }
-
-    out.normal = worldNormal;
+    let state = states[instance];
+    let info = infos[instance].data;
+    let worldPos = rotByQuat(position * info.x, state.rotation) + state.position.xyz;
+    out.normal = normalize(rotByQuat(normal, state.rotation));
     out.worldPos = worldPos;
+    out.matIndex = u32(info.y + 0.5);
     out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
     return out;
 }
@@ -345,21 +327,19 @@ struct Camera {
     cameraPos      : vec4<f32>,
 }
 
-struct Material {
+// One palette entry per distinct marble material (no per-marble textures; this model uses
+// factors only). baseColor.rgb, p0 = (ior, iridescenceFactor, iridescenceIor, thickness),
+// p1 = (metallic, roughness, _, _).
+struct Mat {
     baseColor : vec4<f32>,
-    params0   : vec4<f32>, // ior, iridescenceFactor, iridescenceIor, hasIridescenceMap
-    params1   : vec4<f32>, // thicknessMin, thicknessMax, hasThicknessMap, envIntensity
-    params2   : vec4<f32>, // envExposure, envDiffuseStrength, metallic, roughness
-    flags     : vec4<f32>, // hasTexture, unlitTextureOnly, unused, unused
+    p0        : vec4<f32>,
+    p1        : vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> camera : Camera;
-@group(1) @binding(0) var<uniform> material : Material;
-@group(1) @binding(1) var texSampler : sampler;
-@group(1) @binding(2) var tex : texture_2d<f32>;
-@group(1) @binding(3) var iridescenceTex : texture_2d<f32>;
-@group(1) @binding(4) var iridescenceThicknessTex : texture_2d<f32>;
-@group(1) @binding(5) var envCubeTex : texture_cube<f32>;
+@group(0) @binding(3) var<storage, read> palette : array<Mat>;
+@group(0) @binding(4) var texSampler : sampler;
+@group(0) @binding(5) var envCubeTex : texture_cube<f32>;
 
 fn sq(x: f32) -> f32 {
     return x * x;
@@ -460,11 +440,10 @@ fn evalIridescence(outsideIor: f32, eta2: f32, cosTheta1: f32, thinFilmThickness
 @fragment
 fn main(
     @location(0) normal : vec3<f32>,
-    @location(1) uv : vec2<f32>,
-    @location(2) tint : vec3<f32>,
-    @location(3) worldPos : vec3<f32>,
-    @location(4) texMix : f32,
+    @location(1) worldPos : vec3<f32>,
+    @location(2) @interpolate(flat) matIndex : u32,
 ) -> @location(0) vec4<f32> {
+    let m = palette[matIndex];
     let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
     let N = normalize(normal);
     let V = normalize(camera.cameraPos.xyz - worldPos);
@@ -473,32 +452,18 @@ fn main(
     let ndotl = max(dot(N, lightDir), 0.0);
     let ndoth = max(dot(N, H), 0.0);
 
-    let metallic = clamp(material.params2.z, 0.0, 1.0);
-    let roughness = clamp(material.params2.w, 0.04, 1.0);
+    let metallic = clamp(m.p1.x, 0.0, 1.0);
+    let roughness = clamp(m.p1.y, 0.04, 1.0);
 
-    let baseTex = textureSample(tex, texSampler, uv);
-    let base = material.baseColor * mix(vec4<f32>(1.0), baseTex, material.flags.x * texMix);
-    if (material.flags.y > 0.5) {
-        return vec4<f32>(base.rgb, base.a);
-    }
-
-    let ior = max(material.params0.x, 1.0);
+    let base = m.baseColor;
+    let ior = max(m.p0.x, 1.0);
     let f0s = sq((ior - 1.0) / (ior + 1.0));
     let baseF0 = mix(vec3<f32>(f0s), base.rgb, metallic);
     let fresnel = fresnelSchlick(baseF0, ndotv);
 
-    var irFactor = material.params0.y;
-    if (material.params0.w > 0.5) {
-        irFactor = irFactor * textureSample(iridescenceTex, texSampler, uv).r;
-    }
-
-    var irThickness = material.params1.y;
-    if (material.params1.z > 0.5) {
-        let t = textureSample(iridescenceThicknessTex, texSampler, uv).g;
-        irThickness = mix(material.params1.x, material.params1.y, t);
-    }
-
-    let irFresnel = evalIridescence(1.0, material.params0.z, ndotv, irThickness, baseF0);
+    let irFactor = m.p0.y;
+    let irThickness = m.p0.w;
+    let irFresnel = evalIridescence(1.0, m.p0.z, ndotv, irThickness, baseF0);
     let specColor = mix(fresnel, irFresnel, clamp(irFactor * 1.25, 0.0, 1.0));
 
     let shininess = mix(256.0, 8.0, roughness * roughness);
@@ -513,15 +478,59 @@ fn main(
     let blurredR = normalize(mix(R, N, roughness * roughness));
     let envDiffuse = textureSample(envCubeTex, texSampler, N).rgb;
     let envSpec = textureSample(envCubeTex, texSampler, blurredR).rgb;
-    let envIntensity = material.params1.w;
-    let envExposure = material.params2.x;
-    let envDiffuseStrength = material.params2.y;
-    color += base.rgb * envDiffuse * envExposure * ((0.08 + 0.22 * (1.0 - roughness)) * kd * envIntensity * envDiffuseStrength);
-    color += specColor * envSpec * envExposure * ((0.55 + 0.65 * metallic) * envIntensity);
+    color += base.rgb * envDiffuse * ((0.08 + 0.22 * (1.0 - roughness)) * kd);
+    color += specColor * envSpec * (0.55 + 0.65 * metallic);
 
     color = color / (color + vec3<f32>(1.0));
     color = pow(color, vec3<f32>(1.0 / 2.2));
     return vec4<f32>(color, base.a);
+}
+</script>
+
+<!-- Ground: a single textured, lit box (drawn in one instanced call). -->
+<script id="ground-vs" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+    cameraPos      : vec4<f32>,
+}
+struct StaticItem {
+    position : vec4<f32>,
+    scale    : vec4<f32>,
+    color    : vec4<f32>,
+}
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+}
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> statics : array<StaticItem>;
+@vertex
+fn main(
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>,
+    @builtin(instance_index) instance : u32,
+) -> VSOut {
+    let item = statics[instance];
+    let worldPos = position * item.scale.xyz + item.position.xyz;
+    var out : VSOut;
+    out.normal = normal;
+    out.uv = uv;
+    out.position = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return out;
+}
+</script>
+
+<script id="ground-fs" type="x-shader/x-fragment">
+@group(0) @binding(2) var texSampler : sampler;
+@group(0) @binding(3) var groundTex : texture_2d<f32>;
+@fragment
+fn main(@location(0) normal : vec3<f32>, @location(1) uv : vec2<f32>) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.6, 1.0, 0.5));
+    let ndotl = max(dot(normalize(normal), lightDir), 0.0);
+    let tex = textureSample(groundTex, texSampler, uv * 8.0).rgb;
+    return vec4<f32>(tex * (0.4 + 0.6 * ndotl), 1.0);
 }
 </script>
 
