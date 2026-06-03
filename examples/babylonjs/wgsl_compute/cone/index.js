@@ -299,6 +299,9 @@ struct SimParams {
 }
 const COUNT : u32 = ${CONE_COUNT}u;
 const ANG_SCALE : f32 = 0.28;   // how much off-centre contacts torque the cone (toppling)
+const GTIP : f32 = 5.0;         // velocity-independent gravity torque about the contact, so a
+                                // resting cone keeps tipping toward its stable apex-down pose
+                                // instead of only toppling from the landing impact
 @group(0) @binding(0) var<storage, read>       srcStates : array<ConeState>;
 @group(0) @binding(1) var<storage, read_write> dstStates : array<ConeState>;
 @group(0) @binding(2) var<storage, read>       infos     : array<ConeInfo>;
@@ -353,6 +356,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     var rot = srcStates[i].rotation;
     var angVel = srcStates[i].angularVel.xyz;
     var contacts = 0u;
+    var leverSum = vec3<f32>(0.0);
 
     vel.y -= params.gravity * params.dt;
     vel *= params.damping;
@@ -389,6 +393,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
                 }
             }
             contacts++;
+            leverSum += lever;
             if (abs(vel.y) < 0.02) { vel.y = 0.0; }
         }
     }
@@ -505,12 +510,19 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
                         }
                     }
                     contacts++;
+                    leverSum += lever;
                 }
             }
         }
     }
 
-    if (contacts > 0u) { angVel *= 0.86; }
+    // Gravity torque about the average contact point keeps tipping a resting cone toward its
+    // stable apex-down pose (works even at zero velocity, so it settles quickly), then damps.
+    if (contacts > 0u) {
+        let rAvg = leverSum / f32(contacts);
+        angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
+        angVel *= 0.86;
+    }
     let angSpeed = length(angVel);
     if (angSpeed > 9.0) { angVel *= 9.0 / angSpeed; }
     let linSpeed = length(vel);
