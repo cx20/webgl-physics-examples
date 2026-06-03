@@ -169,13 +169,17 @@ function createInitialStates() {
     return states;
 }
 
+// Cone proportions match the Babylon.js + Havok cone (from the three.js carrot: radiusBottom 12.5,
+// height 50 -> base radius = height/4). The base radius is therefore derived from the height with
+// the same 0.25 ratio, so the WGSL cones are the same slender shape rather than squat/fat.
+const CONE_RADIUS_RATIO = 0.25;
 function createConeInfos() {
     const infos = new Float32Array(CONE_COUNT * INFO_FLOATS);
     for (let i = 0; i < CONE_COUNT; i++) {
-        const seed = ((i * 37) % 101) / 101;
         const base = i * INFO_FLOATS;
-        infos[base + 0] = 0.45 + seed * 0.3;
-        infos[base + 1] = 1.2 + (((i * 17) % 101) / 101) * 1.0;
+        const height = 1.2 + (((i * 17) % 101) / 101) * 1.0;
+        infos[base + 0] = height * CONE_RADIUS_RATIO;   // base radius (1/4 of height, like Havok)
+        infos[base + 1] = height;
         infos[base + 2] = 0.1;
         infos[base + 3] = 0.055;
     }
