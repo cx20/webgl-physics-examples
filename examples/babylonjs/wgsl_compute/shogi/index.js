@@ -121,7 +121,9 @@ const PIECE_INDICES = new Uint16Array([
 ]);
 
 // ---------------------------------------------------------------- initial states
-const COUNT = 300;
+// 200 pieces fit the 13 x 13 plate as a low heap; more than this overflows the edges and the
+// spilled pieces recycle forever (a "fountain" of pieces raining back down).
+const COUNT = 200;
 const STATE_FLOATS = 16;
 const SUBSTEPS = 5;
 
@@ -147,9 +149,9 @@ function createInitialStates() {
     for (let i = 0; i < COUNT; i++) {
         const base = i * STATE_FLOATS;
         const seed = hash32(i + 1);
-        states[base + 0] = (hashF(seed) - 0.5) * 15;        // x
+        states[base + 0] = (hashF(seed) - 0.5) * 10;        // x (kept inside the 13-wide plate)
         states[base + 1] = (hashF(seed + 1) + 1.0) * 15;    // y (15..30)
-        states[base + 2] = (hashF(seed + 2) - 0.5) * 15;    // z
+        states[base + 2] = (hashF(seed + 2) - 0.5) * 10;    // z
         states[base + 3] = hashF(seed + 6);                  // seed (float 0..1)
         states[base + 11] = 1.0;                             // rotation: identity (qw=1)
         states[base + 12] = (hashF(seed + 3) - 0.5) * 6;     // initial tumble
@@ -294,13 +296,19 @@ fn satPen(T:vec3<f32>, axA:mat3x3<f32>, heA:vec3<f32>, axB:mat3x3<f32>, heB:vec3
 
 struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:vec3<f32>, lever:vec3<f32>, }
 
-const ANG_SCALE : f32 = 0.3;
-const PEN_SLOP  : f32 = 0.01;
-const BAUMGARTE : f32 = 0.5;
-const WAKE_LIN  : f32 = 0.25;
-const WAKE_ANG  : f32 = 0.9;
+const ANG_SCALE : f32 = 0.18;
+const PEN_SLOP  : f32 = 0.006;
+const BAUMGARTE : f32 = 0.4;
+const MAX_PUSH  : f32 = 0.06;
+const WAKE_LIN  : f32 = 0.15;
+const WAKE_ANG  : f32 = 0.6;
 const SLEEP_TIME : f32 = 0.4;
-const GTIP : f32 = 7.0;
+const GTIP : f32 = 2.5;
+// A body may only sleep on a stable support (the floor or an already-sleeping piece), when it
+// is slow AND the per-step push-out has converged (PUSH_REST). This stops pieces from freezing
+// mid-pile while still penetrating, which is what made the heap look like it was floating.
+const PUSH_REST : f32 = 0.03;
+const POKE_SPEED : f32 = 0.3;
 
 // Collide this piece (A, half-extents SHE) against another OBB (B). pushFactor/impFactor are
 // 1.0 against an immovable static and 0.5 for a piece-piece pair. Only the six face normals are
@@ -325,7 +333,8 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
     var n = minAxis;
     if (dot(n, -T) < 0.0) { n = -n; }   // n points from B toward this piece
     resp.normal = n;
-    resp.dPos = n * (max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE);
+    // Clamp the positional correction so a deep overlap can't teleport a piece out of the pile.
+    resp.dPos = n * min(max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE, MAX_PUSH);
 
     let cLx = clamp(dot(T, axA[0]), -SHE.x, SHE.x);
     let cLy = clamp(dot(T, axA[1]), -SHE.y, SHE.y);
@@ -362,26 +371,21 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     var angVel = srcStates[i].angularVel.xyz;
     let seed = srcStates[i].position.w;
     var sleepTimer = srcStates[i].velocity.w;
+    var asleep = sleepTimer >= SLEEP_TIME;
 
-    // Asleep: stay frozen (still collidable by others as a static obstacle).
-    if (sleepTimer >= SLEEP_TIME) {
-        dstStates[i].position = vec4<f32>(pos, seed);
-        dstStates[i].velocity = vec4<f32>(0.0, 0.0, 0.0, sleepTimer);
-        dstStates[i].rotation = rot;
-        dstStates[i].angularVel = vec4<f32>(0.0);
-        return;
-    }
-
-    vel.y -= params.gravity * params.dt;
-    vel *= 0.998;
-    angVel *= 0.96;
-    pos += vel * params.dt;
-
-    let sp = length(angVel);
-    if (sp > 0.0001) {
-        let axis = angVel / sp;
-        let half = sp * params.dt * 0.5;
-        rot = normalizeQ(quatMul(vec4<f32>(axis * sin(half), cos(half)), rot));
+    // Integrate only while awake; a sleeping piece holds its pose (but is still tested for
+    // contacts below so it can be woken up).
+    if (!asleep) {
+        vel.y -= params.gravity * params.dt;
+        vel *= 0.998;
+        angVel *= 0.96;
+        pos += vel * params.dt;
+        let sp = length(angVel);
+        if (sp > 0.0001) {
+            let axis = angVel / sp;
+            let half = sp * params.dt * 0.5;
+            rot = normalizeQ(quatMul(vec4<f32>(axis * sin(half), cos(half)), rot));
+        }
     }
 
     let axA = quatToAxes(rot);
@@ -389,32 +393,62 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
 
     var contacts = 0.0;
     var leverSum = vec3<f32>(0.0);
+    var pushMag = 0.0;
+    var stableSupport = false;   // resting on the floor or an already-sleeping piece
+    var awakePoke = false;       // a moving piece is pushing into us
 
-    // Floor (static).
-    var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.6);
-    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
+    // Floor (static, always a stable support).
+    var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.8);
+    if (r.hit > 0.0) {
+        pos += r.dPos; vel += r.dVel; angVel += r.dAng;
+        contacts += 1.0; leverSum += r.lever; pushMag += length(r.dPos);
+        stableSupport = true;
+    }
 
     // Piece-piece (read neighbours from the previous state). Against an already-sleeping
     // neighbour this piece takes the full push-out (the sleeper acts like a static).
     for (var j = 0u; j < COUNT; j++) {
         if (j == i) { continue; }
         let o = srcStates[j];
-        let push = select(0.5, 1.0, o.velocity.w >= SLEEP_TIME);
-        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), SHE, push, 0.5, 0.0, 0.5);
-        pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
+        let oAsleep = o.velocity.w >= SLEEP_TIME;
+        let push = select(0.5, 1.0, oAsleep);
+        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), SHE, push, 0.5, 0.0, 0.6);
+        if (r.hit > 0.0) {
+            pos += r.dPos; vel += r.dVel; angVel += r.dAng;
+            contacts += 1.0; leverSum += r.lever; pushMag += length(r.dPos);
+            if (oAsleep) { stableSupport = true; }
+            else if (length(o.velocity.xyz) > POKE_SPEED) { awakePoke = true; }
+        }
     }
 
+    // A sleeping piece stays frozen unless a moving piece disturbs it or its support is gone
+    // (otherwise it would hang in the air after the pile underneath shifts).
+    if (asleep) {
+        if (awakePoke || !stableSupport) {
+            sleepTimer = 0.0;
+            asleep = false;
+        } else {
+            dstStates[i].position = vec4<f32>(pos, seed);
+            dstStates[i].velocity = vec4<f32>(0.0, 0.0, 0.0, sleepTimer);
+            dstStates[i].rotation = rot;
+            dstStates[i].angularVel = vec4<f32>(0.0);
+            return;
+        }
+    }
+
+    // Cap falling/contact speeds so impacts into the dense pile stay gentle (no ejection fountain).
     let speed = length(vel);
-    if (speed > 45.0) { vel *= 45.0 / speed; }
-    if (length(angVel) > 12.0) { angVel *= 12.0 / length(angVel); }
+    if (speed > 18.0) { vel *= 18.0 / speed; }
+    if (length(angVel) > 8.0) { angVel *= 8.0 / length(angVel); }
 
     // Resting bodies: gravity torque about the average contact tips an edge-balanced piece
-    // toward a flat rest (and vanishes once balanced); then freeze once calm for SLEEP_TIME.
+    // toward a flat rest (and vanishes once balanced). Sleep only on a stable support, when
+    // slow and once the push-out has converged, so jammed/penetrating pieces never freeze.
     if (contacts > 0.0) {
         let rAvg = leverSum / contacts;
         angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
         angVel *= 0.9;
-        if (length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG) {
+        if (stableSupport && length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG && pushMag < PUSH_REST) {
             sleepTimer += params.dt;
         } else {
             sleepTimer = 0.0;
@@ -433,7 +467,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         let fx = f32((salt >> 0u) & 1023u) / 1023.0;
         let fy = f32((salt >> 10u) & 1023u) / 1023.0;
         let fz = f32((salt >> 20u) & 1023u) / 1023.0;
-        pos = vec3<f32>((fx - 0.5) * 15.0, (fy + 1.0) * 15.0, (fz - 0.5) * 15.0);
+        pos = vec3<f32>((fx - 0.5) * 10.0, (fy + 1.0) * 15.0, (fz - 0.5) * 10.0);
         vel = vec3<f32>(0.0, -0.3, 0.0);
         rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
         angVel = vec3<f32>(0.0, 0.0, 0.0);
