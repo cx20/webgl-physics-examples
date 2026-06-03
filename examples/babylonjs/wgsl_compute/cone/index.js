@@ -337,14 +337,15 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     let height = info.y;
     let restitution = info.z;
     let friction = info.w;
-    // Oriented "2-sphere capsule": radius = the cone base radius, two end-spheres centred at
-    // +/- hs along the cone axis so they tile a capsule of length = height. This fits the slender
-    // cone far better than a fat bounding sphere, so cones rest at the right height, topple via
-    // off-centre contacts and pack tightly instead of standing apart like balls. collisionRadius
-    // (used by the thin basket walls) is the slim capsule radius.
-    let rc = radius;
-    let hs = max(height * 0.5 - rc, 0.0);
-    let collisionRadius = rc;
+    // Oriented TAPERED two-sphere collider matching the cone: a big sphere (radius = base radius)
+    // at the base end and a small sphere at the pointed apex end, each inset so it reaches its end
+    // of the cone. The taper is what makes a toppled cone rest apex-down/base-up (a real cone lies
+    // on its slanted side) instead of floating horizontally on a fat uniform capsule.
+    let rBase = radius;
+    let rApex = radius * 0.25;
+    let offBase = -max(height * 0.5 - rBase, 0.0);   // toward the base (cone local -Y)
+    let offApex =  max(height * 0.5 - rApex, 0.0);   // toward the apex (cone local +Y)
+    let collisionRadius = rBase;   // used by the thin basket walls
     let seed = srcStates[i].position.w;
 
     var pos = srcStates[i].position.xyz;
@@ -359,17 +360,19 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     angVel *= 0.996;
 
     let axis0 = rotByQuat(rot, vec3<f32>(0.0, 1.0, 0.0));
+    var sOff = array<f32, 2>(offBase, offApex);
+    var sRad = array<f32, 2>(rBase, rApex);
 
-    // Floor: each capsule end-sphere collides with the ground plane (an off-centre hit torques
-    // the cone so it topples onto its side, like a real cone).
+    // Floor: the base sphere and the (smaller) apex sphere each collide with the ground plane. The
+    // different radii give an off-centre, asymmetric contact that topples the cone apex-down.
     for (var k = 0u; k < 2u; k++) {
-        let sgn = select(-1.0, 1.0, k == 0u);
-        let c = pos + axis0 * (sgn * hs);
-        if (abs(c.x) < params.groundHalf && abs(c.z) < params.groundHalf && c.y - rc < params.groundY) {
-            let pen = params.groundY - (c.y - rc);
+        let rad = sRad[k];
+        let c = pos + axis0 * sOff[k];
+        if (abs(c.x) < params.groundHalf && abs(c.z) < params.groundHalf && c.y - rad < params.groundY) {
+            let pen = params.groundY - (c.y - rad);
             pos.y += pen;
             let n = vec3<f32>(0.0, 1.0, 0.0);
-            let lever = axis0 * (sgn * hs);
+            let lever = axis0 * sOff[k];
             let cvel = vel + cross(angVel, lever);
             let vn = dot(cvel, n);
             if (vn < 0.0) {
@@ -450,28 +453,29 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         }
     }
 
-    // Cone-cone: capsule vs capsule via the four end-sphere pairs. Contacts apply an off-centre
-    // impulse (torque), so cones interlock and topple onto each other instead of standing apart.
-    let myReach = hs + rc;
+    // Cone-cone: tapered-capsule vs tapered-capsule via the four end-sphere pairs (each with its
+    // own base/apex radius). Contacts apply an off-centre impulse (torque), so cones interlock and
+    // topple onto each other instead of standing apart.
+    let myReach = max(abs(offBase) + rBase, abs(offApex) + rApex);
     for (var j = 0u; j < COUNT; j++) {
         if (j == i) { continue; }
         let other = srcStates[j];
         let otherInfo = infos[j].data;
-        let orc = otherInfo.x;
-        let ohs = max(otherInfo.y * 0.5 - orc, 0.0);
+        let oRBase = otherInfo.x;
+        let oRApex = otherInfo.x * 0.25;
+        var oOff = array<f32, 2>(-max(otherInfo.y * 0.5 - oRBase, 0.0), max(otherInfo.y * 0.5 - oRApex, 0.0));
+        var oRad = array<f32, 2>(oRBase, oRApex);
         let centerDelta = pos - other.position.xyz;
-        let reach = myReach + ohs + orc;
+        let reach = myReach + max(abs(oOff[0]) + oRBase, abs(oOff[1]) + oRApex);
         if (dot(centerDelta, centerDelta) > reach * reach) { continue; }
         let oaxis = rotByQuat(other.rotation, vec3<f32>(0.0, 1.0, 0.0));
-        let minDist = rc + orc;
 
         for (var ka = 0u; ka < 2u; ka++) {
-            let sgnA = select(-1.0, 1.0, ka == 0u);
-            let lever = axis0 * (sgnA * hs);
+            let lever = axis0 * sOff[ka];
+            let myR = sRad[ka];
             for (var kb = 0u; kb < 2u; kb++) {
-                let sgnB = select(-1.0, 1.0, kb == 0u);
                 let mc = pos + lever;
-                let oc = other.position.xyz + oaxis * (sgnB * ohs);
+                let oc = other.position.xyz + oaxis * oOff[kb];
                 var delta = mc - oc;
                 var dist = length(delta);
                 if (dist < 0.0001) {
@@ -479,6 +483,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
                     delta = vec3<f32>(cos(a), 0.2, sin(a)) * 0.001;
                     dist = length(delta);
                 }
+                let minDist = myR + oRad[kb];
                 if (dist < minDist) {
                     let n = delta / dist;
                     pos += n * ((minDist - dist) * 0.5);

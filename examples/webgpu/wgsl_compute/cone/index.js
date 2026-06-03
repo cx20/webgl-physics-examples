@@ -194,7 +194,8 @@ function createInitialStates() {
         const col = i % 16;
         const row = Math.floor(i / 16);
         const angle = seed * Math.PI * 2 + i * 0.37;
-        const rotation = quatFromEuler((seed - 0.5) * 0.45, angle, (0.5 - seed) * 0.35);
+        // Tumbled orientation so cones land tipped and pile on their sides (not standing upright).
+        const rotation = quatFromEuler((seed - 0.5) * 2.4, angle, (0.5 - seed) * 2.0);
         states[base + 0] = (col - 7.5) * 0.28 + Math.cos(angle) * 0.2;
         states[base + 1] = 6 + row * 0.55 + seed * 8;
         states[base + 2] = Math.sin(angle * 1.7) * BASKET_HALF * 0.7;
@@ -210,13 +211,17 @@ function createInitialStates() {
     return states;
 }
 
+// Cone proportions match the Babylon.js + Havok cone (three.js carrot: radiusBottom 12.5,
+// height 50 -> base radius = height/4), so the base radius is derived from the height with that
+// same 0.25 ratio (a slender carrot, not a fat squat cone).
+const CONE_RADIUS_RATIO = 0.25;
 function createConeInfos() {
     const infos = new Float32Array(CONE_COUNT * INFO_FLOATS);
     for (let i = 0; i < CONE_COUNT; i++) {
-        const seed = ((i * 37) % 101) / 101;
         const base = i * INFO_FLOATS;
-        infos[base + 0] = 0.45 + seed * 0.3;
-        infos[base + 1] = 1.2 + (((i * 17) % 101) / 101) * 1.0;
+        const height = 1.2 + (((i * 17) % 101) / 101) * 1.0;
+        infos[base + 0] = height * CONE_RADIUS_RATIO;   // base radius (1/4 of height, like Havok)
+        infos[base + 1] = height;
         infos[base + 2] = 0.1;
         infos[base + 3] = 0.055;
     }
