@@ -26,7 +26,7 @@ const SUBSTEPS = 5;
 const EHE = [0.215, 0.055, 0.085];  // eraser half-extents (0.43 x 0.11 x 0.17)
 
 // Static colliders (match the Oimo eraser scene): a floor and a 32-degree ramp.
-const GROUND = { center: [0, -0.2, 0], half: [3.5, 0.2, 3.5], angle: 0 };
+const GROUND = { center: [0, -0.2, 0], half: [2, 0.2, 2], angle: 0 };
 const RAMP = { center: [1.3, 0.4, 0], half: [1, 0.15, 1.95], angle: 32 * Math.PI / 180 };
 
 let engine;
@@ -253,7 +253,7 @@ fn satPen(T:vec3<f32>, axA:mat3x3<f32>, heA:vec3<f32>, axB:mat3x3<f32>, heB:vec3
     return obbProj(axA,heA,Ln) + obbProj(axB,heB,Ln) - abs(dot(T,Ln));
 }
 
-struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:vec3<f32>, }
+struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:vec3<f32>, lever:vec3<f32>, }
 
 // Angular response is deliberately scaled down: a faithful inertia tensor makes a thin
 // eraser spin violently, so we keep it gentle to read as a rigid box settling.
@@ -263,9 +263,13 @@ const BAUMGARTE : f32 = 0.55;
 // Sleeping: once a body has been in contact and nearly still for SLEEP_TIME it is frozen
 // (skips integration/response entirely) so a settled pile stops trembling. velocity.w stores
 // the accumulated still-time; SLEEP_TIME (a sentinel) also marks "asleep".
-const WAKE_LIN  : f32 = 0.05;
-const WAKE_ANG  : f32 = 0.45;
-const SLEEP_TIME : f32 = 0.4;
+const WAKE_LIN  : f32 = 0.06;
+const WAKE_ANG  : f32 = 0.6;
+const SLEEP_TIME : f32 = 0.35;
+// Gravity torque about the contact: tips an overhanging / edge-balanced box toward a flat
+// rest and vanishes once balanced, so (unlike a forced "align" nudge) it does not keep a
+// settled pile twitching.
+const GTIP : f32 = 7.0;
 
 // Collide this eraser (A) against another OBB (B). pushFactor/impFactor are 1.0 for an
 // immovable static and 0.5 for an eraser-eraser pair (so each takes half). Only the six
@@ -275,7 +279,7 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
            cB:vec3<f32>, velB:vec3<f32>, axB:mat3x3<f32>, heB:vec3<f32>,
            pushFactor:f32, impFactor:f32, restitution:f32, friction:f32) -> Resp {
     var resp : Resp;
-    resp.dPos = vec3<f32>(0.0); resp.dVel = vec3<f32>(0.0); resp.dAng = vec3<f32>(0.0); resp.hit = 0.0; resp.normal = vec3<f32>(0.0);
+    resp.dPos = vec3<f32>(0.0); resp.dVel = vec3<f32>(0.0); resp.dAng = vec3<f32>(0.0); resp.hit = 0.0; resp.normal = vec3<f32>(0.0); resp.lever = vec3<f32>(0.0);
     let T = cB - pos;
     let bsr = length(EHE) + length(heB);
     if (dot(T,T) > bsr*bsr) { return resp; }
@@ -298,6 +302,7 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
     let cLy = clamp(dot(T, axA[1]), -EHE.y, EHE.y);
     let cLz = clamp(dot(T, axA[2]), -EHE.z, EHE.z);
     let r_i = axA[0]*cLx + axA[1]*cLy + axA[2]*cLz;
+    resp.lever = r_i;
 
     let relV = vel - velB;
     let relVn = dot(relV, n);
@@ -359,14 +364,14 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     );
 
     var contacts = 0.0;
-    var supportN = vec3<f32>(0.0);
+    var leverSum = vec3<f32>(0.0);
 
     // Floor (static).
     var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.5);
-    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
+    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
     // Ramp (static).
     r = collide(pos, vel, angVel, axA, RAMP_C, vec3<f32>(0.0), rampAxes, RAMP_HE, 1.0, 1.0, 0.0, 0.55);
-    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
+    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
 
     // Eraser-eraser (read neighbours from the previous state). Against an already-sleeping
     // neighbour this eraser takes the full push-out (the sleeper acts like a static).
@@ -375,22 +380,21 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         let o = srcStates[j];
         let push = select(0.5, 1.0, o.velocity.w >= SLEEP_TIME);
         r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), EHE, push, 0.5, 0.0, 0.45);
-        pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
+        pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
     }
 
     let speed = length(vel);
     if (speed > 12.0) { vel *= 12.0 / speed; }
     if (length(angVel) > 8.0) { angVel *= 8.0 / length(angVel); }
 
-    // Resting bodies: an OBB with no gravity-torque model would otherwise balance on an edge
-    // or corner forever. Tip the eraser so its thin (flat) face lies on the support normal,
-    // then accumulate a still-timer and freeze once it has been calm long enough.
-    if (contacts > 0.0 && dot(supportN, supportN) > 1e-6) {
-        let sn = normalize(supportN);
-        let ay = axA[1];                       // eraser's thin (Y) axis in world space
-        let tgt = sn * select(-1.0, 1.0, dot(ay, sn) >= 0.0);
-        let align = cross(ay, tgt);            // rotates the flat face onto the surface
-        angVel = angVel * 0.5 + align * 7.0;
+    // Resting bodies: apply a gravity torque about the average contact point. This tips an
+    // overhanging or edge-balanced box toward a flat rest but goes to zero once the box is
+    // balanced, so a settled pile does not keep twitching. Then freeze it once it has been
+    // calm for SLEEP_TIME.
+    if (contacts > 0.0) {
+        let rAvg = leverSum / contacts;
+        angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
+        angVel *= 0.9;
         if (length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG) {
             sleepTimer += params.dt;
         } else {
