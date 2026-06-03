@@ -9,9 +9,11 @@ const wireVertWGSL       = document.getElementById('wvs').textContent;
 const wireFragWGSL       = document.getElementById('wfs').textContent;
 
 // ------------------------------------------------------------------ constants
-const COUNT       = 300;
+// Keep the heap inside the open 13 x 13 plate; more pieces overflow the edges and the spilled
+// ones recycle forever (a "fountain" of pieces raining back down).
+const COUNT       = 150;
 const STATE_FLOATS = 16;   // 4 × vec4<f32>
-const SUBSTEPS    = 4;
+const SUBSTEPS    = 5;
 
 // Piece geometry dimensions (identical to Havok version)
 const DOT_SIZE = 2;
@@ -169,16 +171,16 @@ function hash32(n) {
 }
 function hashF(n) { return (hash32(n) & 0xffffff) / 0xffffff; }
 
+// State layout (matches the eraser solver): position.w = seed (float), velocity.w = sleep timer.
 function createInitialStates() {
     const states = new Float32Array(COUNT * STATE_FLOATS);
-    const statesU = new Uint32Array(states.buffer);
     for (let i = 0; i < COUNT; i++) {
         const base = i * STATE_FLOATS;
         const seed = hash32(i + 1);
-        states[base + 0] = (hashF(seed)     - 0.5) * 15;  // x
+        states[base + 0] = (hashF(seed)     - 0.5) * 8;   // x (kept well inside the plate)
         states[base + 1] = (hashF(seed + 1) + 1.0) * 15;  // y (15..30)
-        states[base + 2] = (hashF(seed + 2) - 0.5) * 15;  // z
-        statesU[base + 3] = seed;                          // seed as uint32 bits
+        states[base + 2] = (hashF(seed + 2) - 0.5) * 8;   // z
+        states[base + 3] = hashF(seed + 6);                // seed (float 0..1)
         // rotation: identity (qw=1)
         states[base + 11] = 1.0;
         // Initial angular velocity: random tumble so pieces tip on landing
@@ -266,6 +268,7 @@ let computePipeline, computeBindGroupA, computeBindGroupB;
 let simParamsBuffer;
 let currentPMatrix = null;
 let ping = 0;
+let startTime = 0;
 
 // ------------------------------------------------------------------ resize
 function resize() {
@@ -281,6 +284,10 @@ function resize() {
 
 // ------------------------------------------------------------------ render loop
 function render() {
+    // Update sim params (elapsedTime drives the recycle salt).
+    const time = (performance.now() - startTime) / 1000;
+    device.queue.writeBuffer(simParamsBuffer, 0, new Float32Array([1 / (60 * SUBSTEPS), 9.8, time, 0]));
+
     const encoder = device.createCommandEncoder();
 
     // --- Compute substeps (ping-pong) ---
@@ -397,7 +404,7 @@ async function init() {
     });
 
     // State buffers (ping-pong)
-    simParamsBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    simParamsBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     const stateBufSize = COUNT * STATE_FLOATS * 4;
     srcBuffer = device.createBuffer({
@@ -433,18 +440,6 @@ async function init() {
         layout: 'auto',
         compute: { module: device.createShaderModule({ code: computeShaderWGSL }), entryPoint: 'main' }
     });
-
-    // Sim params: dt, gravity, groundY (top of floor = -10+0.1), damping, angDamping, restitution, friction, spawnRange
-    device.queue.writeBuffer(simParamsBuffer, 0, new Float32Array([
-        1 / (60 * SUBSTEPS),  // dt per substep (placeholder, fixed at 60fps)
-        9.8,                  // gravity
-        -9.9,                 // groundY  (floor top surface)
-        0.9992,               // linear damping
-        0.992,                // angular damping
-        0.35,                 // restitution
-        0.82,                 // friction
-        15.0,                 // spawnRange (x/z)
-    ]));
 
     computeBindGroupA = device.createBindGroup({
         layout: computePipeline.getBindGroupLayout(0),
@@ -571,6 +566,7 @@ async function init() {
         document.getElementById('hint').textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
 
+    startTime = performance.now();
     requestAnimationFrame(render);
 }
 
