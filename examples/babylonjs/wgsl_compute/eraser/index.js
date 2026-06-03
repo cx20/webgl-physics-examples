@@ -253,7 +253,7 @@ fn satPen(T:vec3<f32>, axA:mat3x3<f32>, heA:vec3<f32>, axB:mat3x3<f32>, heB:vec3
     return obbProj(axA,heA,Ln) + obbProj(axB,heB,Ln) - abs(dot(T,Ln));
 }
 
-struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, }
+struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:vec3<f32>, }
 
 // Angular response is deliberately scaled down: a faithful inertia tensor makes a thin
 // eraser spin violently, so we keep it gentle to read as a rigid box settling.
@@ -269,7 +269,7 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
            cB:vec3<f32>, velB:vec3<f32>, axB:mat3x3<f32>, heB:vec3<f32>,
            pushFactor:f32, impFactor:f32, restitution:f32, friction:f32) -> Resp {
     var resp : Resp;
-    resp.dPos = vec3<f32>(0.0); resp.dVel = vec3<f32>(0.0); resp.dAng = vec3<f32>(0.0); resp.hit = 0.0;
+    resp.dPos = vec3<f32>(0.0); resp.dVel = vec3<f32>(0.0); resp.dAng = vec3<f32>(0.0); resp.hit = 0.0; resp.normal = vec3<f32>(0.0);
     let T = cB - pos;
     let bsr = length(EHE) + length(heB);
     if (dot(T,T) > bsr*bsr) { return resp; }
@@ -284,6 +284,7 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
 
     var n = minAxis;
     if (dot(n, -T) < 0.0) { n = -n; }   // n points from B toward this eraser
+    resp.normal = n;
     resp.dPos = n * (max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE);
 
     // contact lever on this eraser (toward B), clamped to its half-extents
@@ -342,30 +343,38 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     );
 
     var contacts = 0.0;
+    var supportN = vec3<f32>(0.0);
 
     // Floor (static).
     var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.5);
-    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit;
+    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
     // Ramp (static).
     r = collide(pos, vel, angVel, axA, RAMP_C, vec3<f32>(0.0), rampAxes, RAMP_HE, 1.0, 1.0, 0.0, 0.55);
-    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit;
+    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
 
     // Eraser-eraser (read neighbours from the previous state).
     for (var j = 0u; j < COUNT; j++) {
         if (j == i) { continue; }
         let o = srcStates[j];
         r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), EHE, 0.5, 0.5, 0.0, 0.45);
-        pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit;
+        pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
     }
 
     let speed = length(vel);
     if (speed > 12.0) { vel *= 12.0 / speed; }
     if (length(angVel) > 8.0) { angVel *= 8.0 / length(angVel); }
 
-    // Resting bodies: damp hard and then sleep so the pile stops squirming.
-    if (contacts > 0.0) {
-        angVel *= 0.7;
-        if (length(vel) < 0.12 && length(angVel) < 0.6) {
+    // Resting bodies: an OBB with no gravity-torque model would otherwise balance on an edge
+    // or corner forever. Tip the eraser so its thin (flat) face lies on the support normal,
+    // damp the residual spin, then sleep once it is flat and slow.
+    if (contacts > 0.0 && dot(supportN, supportN) > 1e-6) {
+        let sn = normalize(supportN);
+        let ay = axA[1];                       // eraser's thin (Y) axis in world space
+        let tgt = sn * select(-1.0, 1.0, dot(ay, sn) >= 0.0);
+        let align = cross(ay, tgt);            // rotates the flat face onto the surface
+        angVel = angVel * 0.5 + align * 7.0;
+        let flat = abs(dot(ay, sn));
+        if (length(vel) < 0.1 && length(angVel) < 0.5 && flat > 0.97) {
             vel = vec3<f32>(0.0);
             angVel = vec3<f32>(0.0);
         }
