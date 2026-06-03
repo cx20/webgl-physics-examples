@@ -19,40 +19,6 @@ const debugMeshes = [];
 const staticDebugMeshes = [];
 let showWireframe = true;
 
-function createEraserGeometry() {
-    const w = HALF[0], h = HALF[1], d = HALF[2];
-    const positions = [
-        -w, -h, d, w, -h, d, w, h, d, -w, h, d,
-        -w, -h, -d, w, -h, -d, w, h, -d, -w, h, -d,
-        w, h, d, -w, h, d, -w, h, -d, w, h, -d,
-        -w, -h, d, w, -h, d, w, -h, -d, -w, -h, -d,
-        w, -h, d, w, h, d, w, h, -d, w, -h, -d,
-        -w, -h, d, -w, h, d, -w, h, -d, -w, -h, -d,
-    ];
-    const uvs = [
-        0.5, 0.0, 0.75, 0.0, 0.75, 0.5, 0.5, 0.5,
-        0.25, 0.0, 0.5, 0.0, 0.5, 0.5, 0.25, 0.5,
-        0.75, 0.5, 0.5, 0.5, 0.5, 1.0, 0.75, 1.0,
-        0.0, 0.0, 0.25, 0.0, 0.25, 0.5, 0.0, 0.5,
-        0.0, 0.5, 0.0, 1.0, 0.25, 1.0, 0.25, 0.5,
-        0.5, 0.5, 0.5, 1.0, 0.25, 1.0, 0.25, 0.5,
-    ];
-    const indices = [
-        0, 2, 1, 0, 3, 2,
-        4, 5, 6, 4, 6, 7,
-        8, 9, 10, 8, 10, 11,
-        12, 15, 14, 12, 14, 13,
-        16, 17, 18, 16, 18, 19,
-        20, 23, 22, 20, 22, 21,
-    ];
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    return geo;
-}
-
 function createStaticBox(size, pos, mat) {
     const sRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, size);
     const bodyId = HK.HP_Body_Create()[1];
@@ -140,14 +106,18 @@ function initPhysics() {
     ];
     for (const { size, pos } of wallData) createStaticBox(size, pos, wallMat);
 
-    const eraserTex = loader.load('../../../../assets/textures/eraser_001/eraser.png');
-    eraserTex.wrapS = eraserTex.wrapT = THREE.ClampToEdgeWrapping;
-    eraserTex.flipY = false;
-    const eraserMat = new THREE.MeshLambertMaterial({ map: eraserTex, side: THREE.DoubleSide });
+    // Six separate face textures mapped onto a BoxGeometry (one material per face), the same
+    // reliable layout as the three.js + Oimo eraser, so every "MOMO" face reads correctly.
+    const faceNames = ['right', 'left', 'top', 'bottom', 'front', 'back']; // +x,-x,+y,-y,+z,-z
+    const eraserMats = faceNames.map((name) => {
+        const tex = loader.load(`../../../../assets/textures/eraser_003/eraser_${name}.png`);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return new THREE.MeshLambertMaterial({ map: tex });
+    });
 
     const eraserShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [HALF[0] * 2, HALF[1] * 2, HALF[2] * 2])[1];
     const eraserMass = HK.HP_Shape_BuildMassProperties(eraserShape)[1];
-    const eraserGeo = createEraserGeometry();
+    const eraserGeo = new THREE.BoxGeometry(HALF[0] * 2, HALF[1] * 2, HALF[2] * 2);
 
     for (let i = 0; i < ERASER_COUNT; i++) {
         const t = spawnTransform();
@@ -160,7 +130,7 @@ function initPhysics() {
         HK.HP_World_AddBody(worldId, bodyId, false);
         bodyIds.push(bodyId);
 
-        const mesh = new THREE.Mesh(eraserGeo, eraserMat);
+        const mesh = new THREE.Mesh(eraserGeo, eraserMats);
         scene.add(mesh);
         meshes.push(mesh);
 
