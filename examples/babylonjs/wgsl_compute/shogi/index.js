@@ -2,9 +2,14 @@
 
 // Babylon.js (WebGPUEngine) provides the camera, skybox, environment and ground,
 // while the shogi pieces are simulated and drawn entirely on the GPU through custom
-// WGSL compute + render passes that share Babylon's WebGPU device. The physics treats
-// every piece as an oriented bounding box (OBB) and resolves piece-piece contacts with
-// the Separating Axis Theorem, integrated with a ping-pong, sub-stepped solver.
+// WGSL compute + render passes that share Babylon's WebGPU device.
+//
+// The physics is ported from the Babylon.js + WGSL eraser sample: every piece is an
+// oriented bounding box (OBB) resolved by a single shared collide() routine against the
+// floor and every other piece, using only the six face normals as separating axes (no
+// edge cross-products) for a stable contact normal, plus a Baumgarte push-out, a
+// gravity-tip torque about the average contact point (so an edge-balanced piece flattens),
+// and a per-body sleep timer (velocity.w) so a settled pile stops trembling.
 //
 // The pieces are rendered into a RenderTargetTexture and composited over the Babylon
 // scene with a Layer. Press W to toggle a wireframe view of the OBB colliders.
@@ -118,7 +123,13 @@ const PIECE_INDICES = new Uint16Array([
 // ---------------------------------------------------------------- initial states
 const COUNT = 300;
 const STATE_FLOATS = 16;
-const SUBSTEPS = 4;
+const SUBSTEPS = 5;
+
+// Piece OBB half-extents (match the wireframe box + compute shader).
+const SHE = [0.80, 0.96, 0.224];
+// Static floor as an OBB (Babylon ground box: 13 x 1 x 13 centred at y = -10.4, top at -9.9).
+const GROUND_C = [0, -10.4, 0];
+const GROUND_HE = [6.5, 0.5, 6.5];
 
 function hash32(n) {
     let x = ((n >>> 0) ^ (n >>> 17)) >>> 0;
@@ -130,16 +141,16 @@ function hash32(n) {
 }
 function hashF(n) { return (hash32(n) & 0xffffff) / 0xffffff; }
 
+// State layout (matches the eraser sample): position.w = seed (float), velocity.w = sleep timer.
 function createInitialStates() {
     const states = new Float32Array(COUNT * STATE_FLOATS);
-    const statesU = new Uint32Array(states.buffer);
     for (let i = 0; i < COUNT; i++) {
         const base = i * STATE_FLOATS;
         const seed = hash32(i + 1);
         states[base + 0] = (hashF(seed) - 0.5) * 15;        // x
         states[base + 1] = (hashF(seed + 1) + 1.0) * 15;    // y (15..30)
         states[base + 2] = (hashF(seed + 2) - 0.5) * 15;    // z
-        statesU[base + 3] = seed;                            // seed as uint32 bits
+        states[base + 3] = hashF(seed + 6);                  // seed (float 0..1)
         states[base + 11] = 1.0;                             // rotation: identity (qw=1)
         states[base + 12] = (hashF(seed + 3) - 0.5) * 6;     // initial tumble
         states[base + 13] = (hashF(seed + 4) - 0.5) * 2;
@@ -234,50 +245,27 @@ const createScene = async function () {
     };
     const stateBuffers = [mkState(), mkState()];
 
-    const simUbo = device.createBuffer({ size: 8 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const simUbo = device.createBuffer({ size: 4 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const camUbo = device.createBuffer({ size: 16 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-    // Physics: every piece is an oriented bounding box. Ground contact uses the lowest
-    // corner (with contact torque) and piece-piece contact is resolved with the Separating
-    // Axis Theorem (15 candidate axes) plus a bounding-sphere early-out.
+    // Physics (ported from the WGSL eraser sample): every piece is an oriented bounding box
+    // resolved by a single shared collide() routine against the floor and every other piece.
+    // Only the six face normals are used as separating axes (no edge cross-products), giving a
+    // stable face contact normal; a Baumgarte push-out, a gravity-tip torque about the average
+    // contact, and a per-body sleep timer keep a settled pile from trembling.
     const computeWGSL = `
-struct PieceState {
-    position   : vec4<f32>,
-    velocity   : vec4<f32>,
-    rotation   : vec4<f32>,
-    angularVel : vec4<f32>,
-}
-struct SimParams {
-    dt          : f32,
-    gravity     : f32,
-    groundY     : f32,
-    damping     : f32,
-    angDamping  : f32,
-    restitution : f32,
-    friction    : f32,
-    spawnRange  : f32,
-}
+struct PieceState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
+struct SimParams { dt:f32, gravity:f32, elapsedTime:f32, pad:f32, }
 const COUNT : u32 = ${COUNT}u;
-const HW : f32 = 0.80;
-const HH : f32 = 0.96;
-const HD : f32 = 0.224;
+const SHE : vec3<f32> = vec3<f32>(${SHE[0]}, ${SHE[1]}, ${SHE[2]});
+const GROUND_C : vec3<f32> = vec3<f32>(${GROUND_C[0]}, ${GROUND_C[1]}, ${GROUND_C[2]});
+const GROUND_HE : vec3<f32> = vec3<f32>(${GROUND_HE[0]}, ${GROUND_HE[1]}, ${GROUND_HE[2]});
 
 @group(0) @binding(0) var<storage, read>       srcStates : array<PieceState>;
 @group(0) @binding(1) var<storage, read_write> dstStates : array<PieceState>;
 @group(0) @binding(2) var<uniform>             params    : SimParams;
 
-fn hash(n : u32) -> u32 {
-    var x = n ^ (n >> 17u);
-    x = x * 0xbf324c81u;
-    x ^= x >> 11u;
-    x = x * 0x68b665e5u;
-    x ^= x >> 16u;
-    return x;
-}
-fn hashF(n : u32) -> f32 {
-    return f32(hash(n) & 0xffffffu) * (1.0 / f32(0xffffffu));
-}
-fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
+fn quatMul(a:vec4<f32>, b:vec4<f32>) -> vec4<f32> {
     return vec4<f32>(
         a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
         a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
@@ -285,32 +273,82 @@ fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
         a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
     );
 }
-fn rotateQ(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
-    let t = 2.0 * cross(q.xyz, v);
-    return v + q.w * t + cross(q.xyz, t);
-}
-fn normalizeQ(q : vec4<f32>) -> vec4<f32> {
-    let l = length(q);
-    return select(vec4<f32>(0, 0, 0, 1), q / l, l > 0.0001);
-}
-fn quatToAxes(q : vec4<f32>) -> mat3x3<f32> {
-    let x = q.x; let y = q.y; let z = q.z; let w = q.w;
+fn normalizeQ(q:vec4<f32>) -> vec4<f32> { let l = length(q); return select(vec4<f32>(0,0,0,1), q/l, l > 0.0001); }
+fn quatToAxes(q:vec4<f32>) -> mat3x3<f32> {
+    let x=q.x; let y=q.y; let z=q.z; let w=q.w;
     return mat3x3<f32>(
-        vec3<f32>(1.0-2.0*(y*y+z*z),   2.0*(x*y+w*z),   2.0*(x*z-w*y)),
-        vec3<f32>(  2.0*(x*y-w*z), 1.0-2.0*(x*x+z*z),   2.0*(y*z+w*x)),
-        vec3<f32>(  2.0*(x*z+w*y),   2.0*(y*z-w*x), 1.0-2.0*(x*x+y*y))
+        vec3<f32>(1.0-2.0*(y*y+z*z), 2.0*(x*y+w*z), 2.0*(x*z-w*y)),
+        vec3<f32>(2.0*(x*y-w*z), 1.0-2.0*(x*x+z*z), 2.0*(y*z+w*x)),
+        vec3<f32>(2.0*(x*z+w*y), 2.0*(y*z-w*x), 1.0-2.0*(x*x+y*y)),
     );
 }
-fn obbHalfProj(axes : mat3x3<f32>, L : vec3<f32>) -> f32 {
-    return abs(dot(axes[0], L)) * HW
-         + abs(dot(axes[1], L)) * HH
-         + abs(dot(axes[2], L)) * HD;
+fn obbProj(ax:mat3x3<f32>, he:vec3<f32>, L:vec3<f32>) -> f32 {
+    return abs(dot(ax[0],L))*he.x + abs(dot(ax[1],L))*he.y + abs(dot(ax[2],L))*he.z;
 }
-fn satPen(T : vec3<f32>, axA : mat3x3<f32>, axB : mat3x3<f32>, L : vec3<f32>) -> f32 {
-    let lenSq = dot(L, L);
+fn satPen(T:vec3<f32>, axA:mat3x3<f32>, heA:vec3<f32>, axB:mat3x3<f32>, heB:vec3<f32>, L:vec3<f32>) -> f32 {
+    let lenSq = dot(L,L);
     if (lenSq < 1e-8) { return 1e9; }
     let Ln = L * inverseSqrt(lenSq);
-    return obbHalfProj(axA, Ln) + obbHalfProj(axB, Ln) - abs(dot(T, Ln));
+    return obbProj(axA,heA,Ln) + obbProj(axB,heB,Ln) - abs(dot(T,Ln));
+}
+
+struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:vec3<f32>, lever:vec3<f32>, }
+
+const ANG_SCALE : f32 = 0.3;
+const PEN_SLOP  : f32 = 0.01;
+const BAUMGARTE : f32 = 0.5;
+const WAKE_LIN  : f32 = 0.25;
+const WAKE_ANG  : f32 = 0.9;
+const SLEEP_TIME : f32 = 0.4;
+const GTIP : f32 = 7.0;
+
+// Collide this piece (A, half-extents SHE) against another OBB (B). pushFactor/impFactor are
+// 1.0 against an immovable static and 0.5 for a piece-piece pair. Only the six face normals are
+// separating axes, so the contact normal is a stable face direction (no jitter/crawl).
+fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
+           cB:vec3<f32>, velB:vec3<f32>, axB:mat3x3<f32>, heB:vec3<f32>,
+           pushFactor:f32, impFactor:f32, restitution:f32, friction:f32) -> Resp {
+    var resp : Resp;
+    resp.dPos = vec3<f32>(0.0); resp.dVel = vec3<f32>(0.0); resp.dAng = vec3<f32>(0.0); resp.hit = 0.0; resp.normal = vec3<f32>(0.0); resp.lever = vec3<f32>(0.0);
+    let T = cB - pos;
+    let bsr = length(SHE) + length(heB);
+    if (dot(T,T) > bsr*bsr) { return resp; }
+
+    var minPen = 1e9;
+    var minAxis = vec3<f32>(0.0,1.0,0.0);
+    var sep = false;
+    for (var k=0; k<3; k++) { if (sep) { break; } let pen = satPen(T,axA,SHE,axB,heB,axA[k]); if (pen<=0.0){sep=true;break;} if (pen<minPen){minPen=pen;minAxis=axA[k];} }
+    for (var k=0; k<3; k++) { if (sep) { break; } let pen = satPen(T,axA,SHE,axB,heB,axB[k]); if (pen<=0.0){sep=true;break;} if (pen<minPen){minPen=pen;minAxis=axB[k];} }
+    if (sep) { return resp; }
+    resp.hit = 1.0;
+
+    var n = minAxis;
+    if (dot(n, -T) < 0.0) { n = -n; }   // n points from B toward this piece
+    resp.normal = n;
+    resp.dPos = n * (max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE);
+
+    let cLx = clamp(dot(T, axA[0]), -SHE.x, SHE.x);
+    let cLy = clamp(dot(T, axA[1]), -SHE.y, SHE.y);
+    let cLz = clamp(dot(T, axA[2]), -SHE.z, SHE.z);
+    let r_i = axA[0]*cLx + axA[1]*cLy + axA[2]*cLz;
+    resp.lever = r_i;
+
+    let relV = vel - velB;
+    let relVn = dot(relV, n);
+    if (relVn < 0.0) {
+        let Jn = -(relVn * (1.0 + restitution) * impFactor);
+        resp.dVel += n * Jn;
+        resp.dAng += cross(r_i, n * Jn) * (impFactor * ANG_SCALE);
+        let relVt = relV - relVn * n;
+        let vtLen = length(relVt);
+        if (vtLen > 0.001) {
+            let tDir = relVt / vtLen;
+            let Jt = min(friction * abs(Jn), vtLen * impFactor);
+            resp.dVel -= tDir * Jt;
+            resp.dAng += cross(r_i, -tDir * Jt) * (impFactor * ANG_SCALE);
+        }
+    }
+    return resp;
 }
 
 @compute @workgroup_size(64)
@@ -318,141 +356,93 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     let i = id.x;
     if (i >= COUNT) { return; }
 
-    var pos    = srcStates[i].position.xyz;
-    let seedW  = bitcast<u32>(srcStates[i].position.w);
-    var vel    = srcStates[i].velocity.xyz;
-    var rot    = srcStates[i].rotation;
+    var pos = srcStates[i].position.xyz;
+    var vel = srcStates[i].velocity.xyz;
+    var rot = srcStates[i].rotation;
     var angVel = srcStates[i].angularVel.xyz;
+    let seed = srcStates[i].position.w;
+    var sleepTimer = srcStates[i].velocity.w;
 
-    // Respawn when a piece leaves the play area.
-    if (pos.y < -15.0 || abs(pos.x) > 30.0 || abs(pos.z) > 30.0) {
-        let s  = hash(seedW + 1u);
-        pos.x  = (hashF(s)      - 0.5) * params.spawnRange;
-        pos.y  = (hashF(s + 1u) + 1.0) * 15.0;
-        pos.z  = (hashF(s + 2u) - 0.5) * params.spawnRange;
-        let av = vec3<f32>(
-            (hashF(s + 3u) - 0.5) * 6.0,
-            (hashF(s + 4u) - 0.5) * 2.0,
-            (hashF(s + 5u) - 0.5) * 6.0,
-        );
-        dstStates[i].position   = vec4<f32>(pos, bitcast<f32>(s));
-        dstStates[i].velocity   = vec4<f32>(0.0);
-        dstStates[i].rotation   = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-        dstStates[i].angularVel = vec4<f32>(av, 0.0);
+    // Asleep: stay frozen (still collidable by others as a static obstacle).
+    if (sleepTimer >= SLEEP_TIME) {
+        dstStates[i].position = vec4<f32>(pos, seed);
+        dstStates[i].velocity = vec4<f32>(0.0, 0.0, 0.0, sleepTimer);
+        dstStates[i].rotation = rot;
+        dstStates[i].angularVel = vec4<f32>(0.0);
         return;
     }
 
     vel.y -= params.gravity * params.dt;
+    vel *= 0.998;
+    angVel *= 0.96;
     pos += vel * params.dt;
 
-    let hw = angVel * 0.5 * params.dt;
-    let dq = quatMul(vec4<f32>(hw, 0.0), rot);
-    rot = normalizeQ(rot + dq);
-
-    // Ground collision: lowest OBB corner + contact torque.
-    var minY  = 1e9;
-    var cLocal = vec3<f32>(0.0, -HH, 0.0);
-    for (var ix = 0; ix < 2; ix++) {
-        for (var iy = 0; iy < 2; iy++) {
-            for (var iz = 0; iz < 2; iz++) {
-                let lx = select(-HW, HW, ix == 1);
-                let ly = select(-HH, HH, iy == 1);
-                let lz = select(-HD, HD, iz == 1);
-                let local = vec3<f32>(lx, ly, lz);
-                let wy = pos.y + rotateQ(rot, local).y;
-                if (wy < minY) {
-                    minY   = wy;
-                    cLocal = local;
-                }
-            }
-        }
-    }
-    if (minY < params.groundY && abs(pos.x) < 6.5 && abs(pos.z) < 6.5) {
-        pos.y += params.groundY - minY;
-        if (vel.y < 0.0) {
-            let r  = rotateQ(rot, cLocal);
-            let jY = -vel.y * (1.0 + params.restitution);
-            angVel += cross(r, vec3<f32>(0.0, jY, 0.0)) * 0.20;
-            let dVelF = vec3<f32>(vel.x * (params.friction - 1.0), 0.0, vel.z * (params.friction - 1.0));
-            angVel += cross(r, dVelF) * 0.25;
-            vel.y  = -vel.y * params.restitution;
-            vel.x *= params.friction;
-            vel.z *= params.friction;
-        }
-        angVel *= 0.80;
+    let sp = length(angVel);
+    if (sp > 0.0001) {
+        let axis = angVel / sp;
+        let half = sp * params.dt * 0.5;
+        rot = normalizeQ(quatMul(vec4<f32>(axis * sin(half), cos(half)), rot));
     }
 
-    // Piece-to-piece OBB collision (SAT).
-    let axA  = quatToAxes(rot);
-    let BSR2 = 6.76;   // bounding-sphere diameter^2 = (2*1.3)^2
+    let axA = quatToAxes(rot);
+    let identity = mat3x3<f32>(vec3<f32>(1,0,0), vec3<f32>(0,1,0), vec3<f32>(0,0,1));
+
+    var contacts = 0.0;
+    var leverSum = vec3<f32>(0.0);
+
+    // Floor (static).
+    var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.6);
+    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
+
+    // Piece-piece (read neighbours from the previous state). Against an already-sleeping
+    // neighbour this piece takes the full push-out (the sleeper acts like a static).
     for (var j = 0u; j < COUNT; j++) {
         if (j == i) { continue; }
-        let jPos = srcStates[j].position.xyz;
-        let T    = jPos - pos;
-        if (dot(T, T) > BSR2) { continue; }
-        let axB = quatToAxes(srcStates[j].rotation);
-
-        var minPen  = 1e9;
-        var minAxis = vec3<f32>(1.0, 0.0, 0.0);
-        var sep     = false;
-
-        for (var k = 0; k < 3; k++) {
-            if (sep) { break; }
-            let pen = satPen(T, axA, axB, axA[k]);
-            if (pen <= 0.0) { sep = true; break; }
-            if (pen < minPen) { minPen = pen; minAxis = axA[k]; }
-        }
-        for (var k = 0; k < 3; k++) {
-            if (sep) { break; }
-            let pen = satPen(T, axA, axB, axB[k]);
-            if (pen <= 0.0) { sep = true; break; }
-            if (pen < minPen) { minPen = pen; minAxis = axB[k]; }
-        }
-        for (var a = 0; a < 3; a++) {
-            if (sep) { break; }
-            for (var b = 0; b < 3; b++) {
-                if (sep) { break; }
-                let L   = cross(axA[a], axB[b]);
-                let pen = satPen(T, axA, axB, L);
-                if (pen <= 0.0) { sep = true; break; }
-                if (pen < minPen) { minPen = pen; minAxis = L; }
-            }
-        }
-        if (sep) { continue; }
-
-        var n = minAxis;
-        if (dot(n, pos - jPos) < 0.0) { n = -n; }
-        pos += n * (minPen * 0.5);
-
-        let cLx = clamp(dot(T, axA[0]), -HW, HW);
-        let cLy = clamp(dot(T, axA[1]), -HH, HH);
-        let cLz = clamp(dot(T, axA[2]), -HD, HD);
-        let r_i = axA[0]*cLx + axA[1]*cLy + axA[2]*cLz;
-
-        let jVel  = srcStates[j].velocity.xyz;
-        let relV  = vel - jVel;
-        let relVn = dot(relV, n);
-        if (relVn < 0.0) {
-            let Jn = -(relVn * (1.0 + 0.2) * 0.5);
-            vel    += n * Jn;
-            angVel += cross(r_i, n * Jn) * 0.5;
-            let relVt    = relV - relVn * n;
-            let relVtLen = length(relVt);
-            if (relVtLen > 0.001) {
-                let Jt   = min(0.4 * Jn, relVtLen * 0.5);
-                let tDir = relVt / relVtLen;
-                vel    -= tDir * Jt;
-                angVel += cross(r_i, -tDir * Jt) * 1.5;
-            }
-        }
+        let o = srcStates[j];
+        let push = select(0.5, 1.0, o.velocity.w >= SLEEP_TIME);
+        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), SHE, push, 0.5, 0.0, 0.5);
+        pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
     }
 
-    vel    *= params.damping;
-    angVel *= params.angDamping;
+    let speed = length(vel);
+    if (speed > 45.0) { vel *= 45.0 / speed; }
+    if (length(angVel) > 12.0) { angVel *= 12.0 / length(angVel); }
 
-    dstStates[i].position   = vec4<f32>(pos, bitcast<f32>(seedW));
-    dstStates[i].velocity   = vec4<f32>(vel, 0.0);
-    dstStates[i].rotation   = rot;
+    // Resting bodies: gravity torque about the average contact tips an edge-balanced piece
+    // toward a flat rest (and vanishes once balanced); then freeze once calm for SLEEP_TIME.
+    if (contacts > 0.0) {
+        let rAvg = leverSum / contacts;
+        angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
+        angVel *= 0.9;
+        if (length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG) {
+            sleepTimer += params.dt;
+        } else {
+            sleepTimer = 0.0;
+        }
+        if (sleepTimer >= SLEEP_TIME) {
+            vel = vec3<f32>(0.0);
+            angVel = vec3<f32>(0.0);
+        }
+    } else {
+        sleepTimer = 0.0;   // airborne -> never sleeps
+    }
+
+    // Recycle pieces that fall off the floor edge.
+    if (pos.y < -15.0) {
+        let salt = i * 2654435761u + u32(params.elapsedTime * 60.0) * 40503u;
+        let fx = f32((salt >> 0u) & 1023u) / 1023.0;
+        let fy = f32((salt >> 10u) & 1023u) / 1023.0;
+        let fz = f32((salt >> 20u) & 1023u) / 1023.0;
+        pos = vec3<f32>((fx - 0.5) * 15.0, (fy + 1.0) * 15.0, (fz - 0.5) * 15.0);
+        vel = vec3<f32>(0.0, -0.3, 0.0);
+        rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
+        angVel = vec3<f32>(0.0, 0.0, 0.0);
+        sleepTimer = 0.0;
+    }
+
+    dstStates[i].position = vec4<f32>(pos, seed);
+    dstStates[i].velocity = vec4<f32>(vel, sleepTimer);
+    dstStates[i].rotation = rot;
     dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
 }
 `;
@@ -607,16 +597,11 @@ fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.1, 1.0, 0.35, 1.0); }
     }));
 
     const GRAVITY = 9.8;
-    const GROUND_Y = -9.9;
-    const DAMPING = 0.9992;
-    const ANG_DAMPING = 0.992;
-    const RESTITUTION = 0.35;
-    const FRICTION = 0.82;
-    const SPAWN_RANGE = 15.0;
 
     const hint = document.getElementById('hint');
     let frameCount = 0, lastFpsT = performance.now(), fps = 0;
     let ping = 0;
+    const startTime = performance.now();
 
     scene.onBeforeRenderObservable.add(() => {
         const internalTex = pieceRtt.getInternalTexture();
@@ -631,9 +616,8 @@ fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.1, 1.0, 0.35, 1.0); }
 
         const dtFrame = Math.min(engine.getDeltaTime() / 1000, 1 / 30);
         const dtSub = dtFrame / SUBSTEPS;
-        device.queue.writeBuffer(simUbo, 0, new Float32Array([
-            dtSub, GRAVITY, GROUND_Y, DAMPING, ANG_DAMPING, RESTITUTION, FRICTION, SPAWN_RANGE,
-        ]));
+        const time = (performance.now() - startTime) / 1000;
+        device.queue.writeBuffer(simUbo, 0, new Float32Array([dtSub, GRAVITY, time, 0]));
 
         const ce = device.createCommandEncoder();
 
@@ -646,7 +630,8 @@ fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.1, 1.0, 0.35, 1.0); }
             ping ^= 1;
         }
 
-        // After an even number of substeps, the latest state is back in stateBuffers[ping].
+        // Each substep flips ping to point at the buffer just written, so the latest state is
+        // always in stateBuffers[ping] after the loop (regardless of the substep count parity).
         const latest = ping;
         {
             const pass = ce.beginRenderPass({
