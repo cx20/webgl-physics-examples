@@ -26,7 +26,7 @@ const SUBSTEPS = 5;
 const EHE = [0.215, 0.055, 0.085];  // eraser half-extents (0.43 x 0.11 x 0.17)
 
 // Static colliders (match the Oimo eraser scene): a floor and a 32-degree ramp.
-const GROUND = { center: [0, -0.2, 0], half: [2, 0.2, 2], angle: 0 };
+const GROUND = { center: [0, -0.2, 0], half: [3.5, 0.2, 3.5], angle: 0 };
 const RAMP = { center: [1.3, 0.4, 0], half: [1, 0.15, 1.95], angle: 32 * Math.PI / 180 };
 
 let engine;
@@ -260,6 +260,12 @@ struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:ve
 const ANG_SCALE : f32 = 0.3;
 const PEN_SLOP  : f32 = 0.004;
 const BAUMGARTE : f32 = 0.55;
+// Sleeping: once a body has been in contact and nearly still for SLEEP_TIME it is frozen
+// (skips integration/response entirely) so a settled pile stops trembling. velocity.w stores
+// the accumulated still-time; SLEEP_TIME (a sentinel) also marks "asleep".
+const WAKE_LIN  : f32 = 0.05;
+const WAKE_ANG  : f32 = 0.45;
+const SLEEP_TIME : f32 = 0.4;
 
 // Collide this eraser (A) against another OBB (B). pushFactor/impFactor are 1.0 for an
 // immovable static and 0.5 for an eraser-eraser pair (so each takes half). Only the six
@@ -321,6 +327,16 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     var rot = srcStates[i].rotation;
     var angVel = srcStates[i].angularVel.xyz;
     let seed = srcStates[i].position.w;
+    var sleepTimer = srcStates[i].velocity.w;
+
+    // Asleep: stay frozen (still collidable by others as a static obstacle).
+    if (sleepTimer >= SLEEP_TIME) {
+        dstStates[i].position = vec4<f32>(pos, seed);
+        dstStates[i].velocity = vec4<f32>(0.0, 0.0, 0.0, sleepTimer);
+        dstStates[i].rotation = rot;
+        dstStates[i].angularVel = vec4<f32>(0.0);
+        return;
+    }
 
     vel.y -= params.gravity * params.dt;
     vel *= 0.998;
@@ -352,11 +368,13 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     r = collide(pos, vel, angVel, axA, RAMP_C, vec3<f32>(0.0), rampAxes, RAMP_HE, 1.0, 1.0, 0.0, 0.55);
     pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
 
-    // Eraser-eraser (read neighbours from the previous state).
+    // Eraser-eraser (read neighbours from the previous state). Against an already-sleeping
+    // neighbour this eraser takes the full push-out (the sleeper acts like a static).
     for (var j = 0u; j < COUNT; j++) {
         if (j == i) { continue; }
         let o = srcStates[j];
-        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), EHE, 0.5, 0.5, 0.0, 0.45);
+        let push = select(0.5, 1.0, o.velocity.w >= SLEEP_TIME);
+        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), EHE, push, 0.5, 0.0, 0.45);
         pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; supportN += r.normal;
     }
 
@@ -366,22 +384,29 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
 
     // Resting bodies: an OBB with no gravity-torque model would otherwise balance on an edge
     // or corner forever. Tip the eraser so its thin (flat) face lies on the support normal,
-    // damp the residual spin, then sleep once it is flat and slow.
+    // then accumulate a still-timer and freeze once it has been calm long enough.
     if (contacts > 0.0 && dot(supportN, supportN) > 1e-6) {
         let sn = normalize(supportN);
         let ay = axA[1];                       // eraser's thin (Y) axis in world space
         let tgt = sn * select(-1.0, 1.0, dot(ay, sn) >= 0.0);
         let align = cross(ay, tgt);            // rotates the flat face onto the surface
         angVel = angVel * 0.5 + align * 7.0;
-        let flat = abs(dot(ay, sn));
-        if (length(vel) < 0.1 && length(angVel) < 0.5 && flat > 0.97) {
+        if (length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG) {
+            sleepTimer += params.dt;
+        } else {
+            sleepTimer = 0.0;
+        }
+        if (sleepTimer >= SLEEP_TIME) {
             vel = vec3<f32>(0.0);
             angVel = vec3<f32>(0.0);
         }
+    } else {
+        sleepTimer = 0.0;   // airborne -> never sleeps
     }
 
-    // Recycle erasers that fall off the play area.
-    if (pos.y < -1.5 || abs(pos.x) > 5.0 || abs(pos.z) > 5.0) {
+    // Recycle only erasers that somehow fall through the floor (the wide ground keeps the
+    // pile contained, so after the initial drop everything settles and stays put).
+    if (pos.y < -2.0) {
         let salt = i * 2654435761u + u32(params.elapsedTime * 60.0) * 40503u;
         let fx = f32((salt >> 0u) & 1023u) / 1023.0;
         let fz = f32((salt >> 10u) & 1023u) / 1023.0;
@@ -389,10 +414,11 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         vel = vec3<f32>(0.0, -0.3, 0.0);
         rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
         angVel = vec3<f32>(0.0, 0.0, 0.0);
+        sleepTimer = 0.0;
     }
 
     dstStates[i].position = vec4<f32>(pos, seed);
-    dstStates[i].velocity = vec4<f32>(vel, 0.0);
+    dstStates[i].velocity = vec4<f32>(vel, sleepTimer);
     dstStates[i].rotation = rot;
     dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
 }
