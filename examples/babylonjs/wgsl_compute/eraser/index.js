@@ -1,0 +1,594 @@
+'use strict';
+
+// Babylon.js (WebGPUEngine) provides the camera, skybox, environment, ground and a tilted
+// ramp, while the erasers are simulated and drawn entirely on the GPU through custom WGSL
+// compute + render passes that share Babylon's WebGPU device. Box-shaped (MONO-style) erasers
+// fall onto the ramp, slide down and pile on the ground; the physics is an oriented-bounding-
+// box solver using the Separating Axis Theorem for eraser-eraser and eraser-static contacts.
+//
+// The erasers are rendered into a RenderTargetTexture and composited over the Babylon scene
+// with a Layer. Press W to toggle the collider wireframe.
+
+const BASE_URL = 'https://cx20.github.io/gltf-test';
+// Six faces of a MONO-style eraser (order: +x, -x, +y, -y, +z, -z).
+const ERASER_TEXTURES = [
+    '../../../../assets/textures/eraser_003/eraser_right.png',
+    '../../../../assets/textures/eraser_003/eraser_left.png',
+    '../../../../assets/textures/eraser_003/eraser_top.png',
+    '../../../../assets/textures/eraser_003/eraser_bottom.png',
+    '../../../../assets/textures/eraser_003/eraser_front.png',
+    '../../../../assets/textures/eraser_003/eraser_back.png',
+];
+
+const ERASER_COUNT = 120;
+const STATE_FLOATS = 16;
+const SUBSTEPS = 5;
+const EHE = [0.215, 0.055, 0.085];  // eraser half-extents (0.43 x 0.11 x 0.17)
+
+// Static colliders (match the Oimo eraser scene): a floor and a 32-degree ramp.
+const GROUND = { center: [0, -0.2, 0], half: [2, 0.2, 2], angle: 0 };
+const RAMP = { center: [1.3, 0.4, 0], half: [1, 0.15, 1.95], angle: 32 * Math.PI / 180 };
+
+let engine;
+let scene;
+let canvas;
+let showWireframe = true;
+
+window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.code === 'KeyW' || e.key === 'w' || e.key === 'W') {
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    }
+});
+
+const waitForReady = (t) => new Promise((resolve) => {
+    if (t.isReady()) resolve();
+    else t.onLoadObservable.addOnce(() => resolve());
+});
+
+async function loadEraserAtlas(device) {
+    const cell = 256;
+    const images = await Promise.all(ERASER_TEXTURES.map(async (src) => {
+        const img = document.createElement('img');
+        img.src = src;
+        await img.decode();
+        return img;
+    }));
+    const atlas = document.createElement('canvas');
+    atlas.width = cell * images.length;
+    atlas.height = cell;
+    const ctx = atlas.getContext('2d');
+    for (let i = 0; i < images.length; i++) ctx.drawImage(images[i], i * cell, 0, cell, cell);
+    const tex = device.createTexture({
+        size: [atlas.width, atlas.height, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    device.queue.copyExternalImageToTexture({ source: atlas }, { texture: tex }, [atlas.width, atlas.height]);
+    return tex;
+}
+
+// Unit box (half-extent 1) with per-face normals and atlas UVs (face f -> column f of 6).
+function buildEraserBox() {
+    const faces = [
+        { n: [1, 0, 0], u: [0, 0, -1], v: [0, 1, 0] },
+        { n: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
+        { n: [0, 1, 0], u: [1, 0, 0], v: [0, 0, -1] },
+        { n: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1] },
+        { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] },
+        { n: [0, 0, -1], u: [-1, 0, 0], v: [0, 1, 0] },
+    ];
+    const positions = [], normals = [], uvs = [], indices = [];
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    const localUV = [[0, 1], [1, 1], [1, 0], [0, 0]];
+    faces.forEach((f, fi) => {
+        const base = positions.length / 3;
+        for (let c = 0; c < 4; c++) {
+            const [su, sv] = corners[c];
+            positions.push(
+                f.n[0] + f.u[0] * su + f.v[0] * sv,
+                f.n[1] + f.u[1] * su + f.v[1] * sv,
+                f.n[2] + f.u[2] * su + f.v[2] * sv,
+            );
+            normals.push(...f.n);
+            uvs.push((localUV[c][0] + fi) / 6, localUV[c][1]);
+        }
+        indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    });
+    return { positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), indices: new Uint16Array(indices) };
+}
+
+function quatFromEuler(x, y, z) {
+    const cx = Math.cos(x * 0.5), sx = Math.sin(x * 0.5);
+    const cy = Math.cos(y * 0.5), sy = Math.sin(y * 0.5);
+    const cz = Math.cos(z * 0.5), sz = Math.sin(z * 0.5);
+    return [sx * cy * cz + cx * sy * sz, cx * sy * cz - sx * cy * sz, cx * cy * sz + sx * sy * cz, cx * cy * cz - sx * sy * sz];
+}
+
+function createInitialStates() {
+    const states = new Float32Array(ERASER_COUNT * STATE_FLOATS);
+    for (let i = 0; i < ERASER_COUNT; i++) {
+        const seed = ((i * 37) % 101) / 101;
+        const seed2 = ((i * 53) % 97) / 97;
+        const base = i * STATE_FLOATS;
+        states[base + 0] = 0.9 + seed * 0.8;                 // x near the ramp top
+        states[base + 1] = 2.0 + i * 0.12 + seed * 0.5;      // staggered height
+        states[base + 2] = (seed2 - 0.5) * 2.4;
+        states[base + 3] = seed;
+        const q = quatFromEuler((seed - 0.5) * 1.2, seed2 * 6.28, (0.5 - seed2) * 1.0);
+        states[base + 8] = q[0];
+        states[base + 9] = q[1];
+        states[base + 10] = q[2];
+        states[base + 11] = q[3];
+    }
+    return states;
+}
+
+const createScene = async function () {
+    const scene = new BABYLON.Scene(engine);
+    const camera = new BABYLON.ArcRotateCamera('camera',
+        -Math.PI / 180 * 65, Math.PI / 180 * 68, 7,
+        BABYLON.Vector3.Zero(), scene);
+    camera.setTarget(new BABYLON.Vector3(0, 0.2, 0));
+    camera.attachControl(canvas, true);
+    camera.minZ = 0.05;
+    camera.maxZ = 100;
+
+    const cubeTexture = new BABYLON.CubeTexture(
+        BASE_URL + '/textures/env/papermillSpecularHDR.env', scene);
+    scene.createDefaultSkybox(cubeTexture, true);
+    scene.environmentTexture = cubeTexture;
+    new BABYLON.HemisphericLight('light0', new BABYLON.Vector3(0.4, 1, 0.3), scene);
+
+    await waitForReady(cubeTexture);
+
+    const staticMat = new BABYLON.PBRMaterial('staticMat', scene);
+    staticMat.metallic = 0;
+    staticMat.roughness = 0.9;
+    staticMat.albedoColor = new BABYLON.Color3(0.24, 0.25, 0.28);
+
+    const ground = BABYLON.MeshBuilder.CreateBox('ground', { width: GROUND.half[0] * 2, height: GROUND.half[1] * 2, depth: GROUND.half[2] * 2 }, scene);
+    ground.position.set(GROUND.center[0], GROUND.center[1], GROUND.center[2]);
+    ground.material = staticMat;
+
+    const ramp = BABYLON.MeshBuilder.CreateBox('ramp', { width: RAMP.half[0] * 2, height: RAMP.half[1] * 2, depth: RAMP.half[2] * 2 }, scene);
+    ramp.position.set(RAMP.center[0], RAMP.center[1], RAMP.center[2]);
+    ramp.rotation.z = RAMP.angle;
+    ramp.material = staticMat;
+
+    // ============================================================
+    // Custom WebGPU path (shares Babylon's device)
+    // ============================================================
+    const device = engine._device;
+
+    const atlasTex = await loadEraserAtlas(device);
+    const atlasView = atlasTex.createView();
+    const texSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+
+    const mkVB = (data) => {
+        const buf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.VERTEX, mappedAtCreation: true });
+        new Float32Array(buf.getMappedRange()).set(data);
+        buf.unmap();
+        return buf;
+    };
+    const mkIB = (data) => {
+        const buf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.INDEX, mappedAtCreation: true });
+        new Uint16Array(buf.getMappedRange()).set(data);
+        buf.unmap();
+        return buf;
+    };
+
+    const box = buildEraserBox();
+    const positionBuffer = mkVB(box.positions);
+    const normalBuffer = mkVB(box.normals);
+    const uvBuffer = mkVB(box.uvs);
+    const indexBuffer = mkIB(box.indices);
+
+    // Box edge wireframe (unit box).
+    const wirePos = new Float32Array([
+        -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1,
+        -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1,
+    ]);
+    const wireIdx = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]);
+    const wireVB = mkVB(wirePos);
+    const wireIB = mkIB(wireIdx);
+    const wireCount = wireIdx.length;
+
+    const initStates = createInitialStates();
+    const stateBuffers = [0, 1].map(() => {
+        const buf = device.createBuffer({ size: ERASER_COUNT * STATE_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+        new Float32Array(buf.getMappedRange()).set(initStates);
+        buf.unmap();
+        return buf;
+    });
+
+    const camUbo = device.createBuffer({ size: 16 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const simUbo = device.createBuffer({ size: 4 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+    const rampC = RAMP.center, rampHE = RAMP.half;
+    const rc = Math.cos(RAMP.angle).toFixed(6), rs = Math.sin(RAMP.angle).toFixed(6);
+
+    // Physics: oriented bounding boxes resolved with the Separating Axis Theorem. Each eraser
+    // is integrated, then collided against the floor, the ramp and every other eraser.
+    const computeWGSL = `
+struct EraserState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
+struct SimParams { dt:f32, gravity:f32, elapsedTime:f32, pad:f32, }
+const COUNT : u32 = ${ERASER_COUNT}u;
+const EHE : vec3<f32> = vec3<f32>(${EHE[0]}, ${EHE[1]}, ${EHE[2]});
+const GROUND_C : vec3<f32> = vec3<f32>(${GROUND.center[0]}, ${GROUND.center[1]}, ${GROUND.center[2]});
+const GROUND_HE : vec3<f32> = vec3<f32>(${GROUND.half[0]}, ${GROUND.half[1]}, ${GROUND.half[2]});
+const RAMP_C : vec3<f32> = vec3<f32>(${rampC[0]}, ${rampC[1]}, ${rampC[2]});
+const RAMP_HE : vec3<f32> = vec3<f32>(${rampHE[0]}, ${rampHE[1]}, ${rampHE[2]});
+
+@group(0) @binding(0) var<storage, read>       srcStates : array<EraserState>;
+@group(0) @binding(1) var<storage, read_write> dstStates : array<EraserState>;
+@group(0) @binding(2) var<uniform>             params    : SimParams;
+
+fn quatMul(a:vec4<f32>, b:vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+fn normalizeQ(q:vec4<f32>) -> vec4<f32> { let l = length(q); return select(vec4<f32>(0,0,0,1), q/l, l > 0.0001); }
+fn quatToAxes(q:vec4<f32>) -> mat3x3<f32> {
+    let x=q.x; let y=q.y; let z=q.z; let w=q.w;
+    return mat3x3<f32>(
+        vec3<f32>(1.0-2.0*(y*y+z*z), 2.0*(x*y+w*z), 2.0*(x*z-w*y)),
+        vec3<f32>(2.0*(x*y-w*z), 1.0-2.0*(x*x+z*z), 2.0*(y*z+w*x)),
+        vec3<f32>(2.0*(x*z+w*y), 2.0*(y*z-w*x), 1.0-2.0*(x*x+y*y)),
+    );
+}
+fn obbProj(ax:mat3x3<f32>, he:vec3<f32>, L:vec3<f32>) -> f32 {
+    return abs(dot(ax[0],L))*he.x + abs(dot(ax[1],L))*he.y + abs(dot(ax[2],L))*he.z;
+}
+fn satPen(T:vec3<f32>, axA:mat3x3<f32>, heA:vec3<f32>, axB:mat3x3<f32>, heB:vec3<f32>, L:vec3<f32>) -> f32 {
+    let lenSq = dot(L,L);
+    if (lenSq < 1e-8) { return 1e9; }
+    let Ln = L * inverseSqrt(lenSq);
+    return obbProj(axA,heA,Ln) + obbProj(axB,heB,Ln) - abs(dot(T,Ln));
+}
+
+struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, }
+
+// Collide this eraser (A) against another OBB (B). pushFactor/impFactor are 1.0 for an
+// immovable static and 0.5 for an eraser-eraser pair (so each takes half).
+fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
+           cB:vec3<f32>, velB:vec3<f32>, axB:mat3x3<f32>, heB:vec3<f32>,
+           pushFactor:f32, impFactor:f32, restitution:f32, friction:f32) -> Resp {
+    var resp : Resp;
+    resp.dPos = vec3<f32>(0.0); resp.dVel = vec3<f32>(0.0); resp.dAng = vec3<f32>(0.0);
+    let T = cB - pos;
+    let bsr = length(EHE) + length(heB);
+    if (dot(T,T) > bsr*bsr) { return resp; }
+
+    var minPen = 1e9;
+    var minAxis = vec3<f32>(1.0,0.0,0.0);
+    var sep = false;
+    for (var k=0; k<3; k++) { if (sep) { break; } let pen = satPen(T,axA,EHE,axB,heB,axA[k]); if (pen<=0.0){sep=true;break;} if (pen<minPen){minPen=pen;minAxis=axA[k];} }
+    for (var k=0; k<3; k++) { if (sep) { break; } let pen = satPen(T,axA,EHE,axB,heB,axB[k]); if (pen<=0.0){sep=true;break;} if (pen<minPen){minPen=pen;minAxis=axB[k];} }
+    for (var a=0; a<3; a++) { if (sep) { break; } for (var b=0; b<3; b++) { if (sep) { break; } let L = cross(axA[a],axB[b]); let pen = satPen(T,axA,EHE,axB,heB,L); if (pen<=0.0){sep=true;break;} if (pen<minPen){minPen=pen;minAxis=L;} } }
+    if (sep) { return resp; }
+
+    var n = minAxis;
+    if (dot(n, -T) < 0.0) { n = -n; }   // n points from B toward this eraser
+    resp.dPos = n * (minPen * pushFactor);
+
+    // contact lever on this eraser (toward B), clamped to its half-extents
+    let cLx = clamp(dot(T, axA[0]), -EHE.x, EHE.x);
+    let cLy = clamp(dot(T, axA[1]), -EHE.y, EHE.y);
+    let cLz = clamp(dot(T, axA[2]), -EHE.z, EHE.z);
+    let r_i = axA[0]*cLx + axA[1]*cLy + axA[2]*cLz;
+
+    let relV = vel - velB;
+    let relVn = dot(relV, n);
+    if (relVn < 0.0) {
+        let Jn = -(relVn * (1.0 + restitution) * impFactor);
+        resp.dVel += n * Jn;
+        resp.dAng += cross(r_i, n * Jn) * impFactor;
+        let relVt = relV - relVn * n;
+        let vtLen = length(relVt);
+        if (vtLen > 0.001) {
+            let tDir = relVt / vtLen;
+            let Jt = min(friction * abs(Jn), vtLen * impFactor);
+            resp.dVel -= tDir * Jt;
+            resp.dAng += cross(r_i, -tDir * Jt) * impFactor;
+        }
+    }
+    return resp;
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) { return; }
+
+    var pos = srcStates[i].position.xyz;
+    var vel = srcStates[i].velocity.xyz;
+    var rot = srcStates[i].rotation;
+    var angVel = srcStates[i].angularVel.xyz;
+    let seed = srcStates[i].position.w;
+
+    vel.y -= params.gravity * params.dt;
+    vel *= 0.999;
+    angVel *= 0.99;
+    pos += vel * params.dt;
+
+    let sp = length(angVel);
+    if (sp > 0.0001) {
+        let axis = angVel / sp;
+        let half = sp * params.dt * 0.5;
+        rot = normalizeQ(quatMul(vec4<f32>(axis * sin(half), cos(half)), rot));
+    }
+
+    let axA = quatToAxes(rot);
+    let identity = mat3x3<f32>(vec3<f32>(1,0,0), vec3<f32>(0,1,0), vec3<f32>(0,0,1));
+    let rampAxes = mat3x3<f32>(
+        vec3<f32>(${rc}, ${rs}, 0.0),
+        vec3<f32>(${-rs}, ${rc}, 0.0),
+        vec3<f32>(0.0, 0.0, 1.0),
+    );
+
+    // Floor (static).
+    var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.12, 0.45);
+    pos += r.dPos; vel += r.dVel; angVel += r.dAng;
+    // Ramp (static).
+    r = collide(pos, vel, angVel, axA, RAMP_C, vec3<f32>(0.0), rampAxes, RAMP_HE, 1.0, 1.0, 0.12, 0.5);
+    pos += r.dPos; vel += r.dVel; angVel += r.dAng;
+
+    // Eraser-eraser (read neighbours from the previous state).
+    for (var j = 0u; j < COUNT; j++) {
+        if (j == i) { continue; }
+        let o = srcStates[j];
+        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), EHE, 0.5, 0.5, 0.1, 0.4);
+        pos += r.dPos; vel += r.dVel; angVel += r.dAng;
+    }
+
+    let speed = length(vel);
+    if (speed > 12.0) { vel *= 12.0 / speed; }
+    if (length(angVel) > 12.0) { angVel *= 12.0 / length(angVel); }
+
+    // Recycle erasers that fall off the play area.
+    if (pos.y < -1.5 || abs(pos.x) > 5.0 || abs(pos.z) > 5.0) {
+        let salt = i * 2654435761u + u32(params.elapsedTime * 60.0) * 40503u;
+        let fx = f32((salt >> 0u) & 1023u) / 1023.0;
+        let fz = f32((salt >> 10u) & 1023u) / 1023.0;
+        pos = vec3<f32>(0.9 + fx * 0.8, 4.0 + seed * 1.5, (fz - 0.5) * 2.4);
+        vel = vec3<f32>(0.0, -0.3, 0.0);
+        rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
+        angVel = vec3<f32>(0.0, 0.0, 0.0);
+    }
+
+    dstStates[i].position = vec4<f32>(pos, seed);
+    dstStates[i].velocity = vec4<f32>(vel, 0.0);
+    dstStates[i].rotation = rot;
+    dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+}
+`;
+
+    const renderWGSL = `
+struct Camera { viewProjection : mat4x4<f32>, }
+struct EraserState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
+struct VSOut {
+    @builtin(position) position : vec4<f32>,
+    @location(0) normal : vec3<f32>,
+    @location(1) uv : vec2<f32>,
+}
+const EHE : vec3<f32> = vec3<f32>(${EHE[0]}, ${EHE[1]}, ${EHE[2]});
+@group(0) @binding(0) var<uniform>       camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<EraserState>;
+@group(0) @binding(2) var                texSampler : sampler;
+@group(0) @binding(3) var                atlasTex : texture_2d<f32>;
+fn rotByQuat(v:vec3<f32>, q:vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+@vertex
+fn vs(@location(0) position:vec3<f32>, @location(1) normal:vec3<f32>, @location(2) uv:vec2<f32>, @builtin(instance_index) instance:u32) -> VSOut {
+    var out : VSOut;
+    let s = states[instance];
+    let worldPos = rotByQuat(position * EHE, s.rotation) + s.position.xyz;
+    out.normal = normalize(rotByQuat(normal, s.rotation));
+    out.uv = uv;
+    let clip = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    out.position = vec4<f32>(clip.x, -clip.y, clip.z, clip.w);
+    return out;
+}
+@fragment
+fn fs(@location(0) normal:vec3<f32>, @location(1) uv:vec2<f32>) -> @location(0) vec4<f32> {
+    let lightDir = normalize(vec3<f32>(0.5, 0.9, 0.35));
+    let diffuse = max(dot(normalize(normal), lightDir), 0.28);
+    let tex = textureSample(atlasTex, texSampler, uv).rgb;
+    return vec4<f32>(pow(tex * diffuse, vec3<f32>(0.85)), 1.0);
+}
+`;
+
+    const wireWGSL = `
+struct Camera { viewProjection : mat4x4<f32>, }
+struct EraserState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
+const EHE : vec3<f32> = vec3<f32>(${EHE[0]}, ${EHE[1]}, ${EHE[2]});
+@group(0) @binding(0) var<uniform>       camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<EraserState>;
+fn rotByQuat(v:vec3<f32>, q:vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+@vertex
+fn vs(@location(0) position:vec3<f32>, @builtin(instance_index) instance:u32) -> @builtin(position) vec4<f32> {
+    let s = states[instance];
+    let worldPos = rotByQuat(position * EHE, s.rotation) + s.position.xyz;
+    let clip = camera.viewProjection * vec4<f32>(worldPos, 1.0);
+    return vec4<f32>(clip.x, -clip.y, clip.z, clip.w);
+}
+@fragment
+fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 0.85, 0.1, 1.0); }
+`;
+
+    const computeModule = device.createShaderModule({ code: computeWGSL });
+    const renderModule = device.createShaderModule({ code: renderWGSL });
+    const wireModule = device.createShaderModule({ code: wireWGSL });
+
+    const computePipeline = device.createComputePipeline({ layout: 'auto', compute: { module: computeModule, entryPoint: 'main' } });
+
+    const rttSize = { width: engine.getRenderWidth(), height: engine.getRenderHeight() };
+    const eraserRtt = new BABYLON.RenderTargetTexture('eraserRTT', rttSize, scene, {
+        generateMipMaps: false,
+        type: BABYLON.Constants.TEXTURETYPE_UNSIGNED_BYTE,
+        format: BABYLON.Constants.TEXTUREFORMAT_RGBA,
+    });
+    const eraserLayer = new BABYLON.Layer('eraserLayer', null, scene, false);
+    eraserLayer.texture = eraserRtt;
+    eraserLayer.alphaBlendingMode = BABYLON.Engine.ALPHA_COMBINE;
+
+    const depthTex = device.createTexture({
+        size: [rttSize.width, rttSize.height],
+        format: 'depth24plus',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    const renderPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: renderModule, entryPoint: 'vs',
+            buffers: [
+                { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+                { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
+                { arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
+            ],
+        },
+        fragment: { module: renderModule, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' },
+    });
+
+    const wirePipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: wireModule, entryPoint: 'vs',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }],
+        },
+        fragment: { module: wireModule, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
+        primitive: { topology: 'line-list' },
+        depthStencil: { depthWriteEnabled: false, depthCompare: 'less-equal', format: 'depth24plus' },
+    });
+
+    const computeBindGroups = [0, 1].map((s) => device.createBindGroup({
+        layout: computePipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: stateBuffers[s] } },
+            { binding: 1, resource: { buffer: stateBuffers[1 - s] } },
+            { binding: 2, resource: { buffer: simUbo } },
+        ],
+    }));
+    const renderBindGroups = [0, 1].map((s) => device.createBindGroup({
+        layout: renderPipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: camUbo } },
+            { binding: 1, resource: { buffer: stateBuffers[s] } },
+            { binding: 2, resource: texSampler },
+            { binding: 3, resource: atlasView },
+        ],
+    }));
+    const wireBindGroups = [0, 1].map((s) => device.createBindGroup({
+        layout: wirePipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: camUbo } },
+            { binding: 1, resource: { buffer: stateBuffers[s] } },
+        ],
+    }));
+
+    const hint = document.getElementById('hint');
+    let frameCount = 0, lastFpsT = performance.now(), fps = 0;
+    let currentState = 0;
+    const startTime = performance.now();
+
+    scene.onBeforeRenderObservable.add(() => {
+        const internalTex = eraserRtt.getInternalTexture();
+        if (!internalTex || !internalTex._hardwareTexture) return;
+        const gpuTex = internalTex._hardwareTexture.underlyingResource;
+        if (!gpuTex) return;
+
+        const viewProj = camera.getViewMatrix().multiply(camera.getProjectionMatrix());
+        device.queue.writeBuffer(camUbo, 0, new Float32Array(viewProj.toArray()));
+
+        const dt = Math.min(engine.getDeltaTime() / 1000, 1 / 30);
+        const time = (performance.now() - startTime) / 1000;
+        device.queue.writeBuffer(simUbo, 0, new Float32Array([dt / SUBSTEPS, 9.8, time, 0]));
+
+        const ce = device.createCommandEncoder();
+        const wg = Math.ceil(ERASER_COUNT / 64);
+        for (let s = 0; s < SUBSTEPS; s++) {
+            const cp = ce.beginComputePass();
+            cp.setPipeline(computePipeline);
+            cp.setBindGroup(0, computeBindGroups[currentState]);
+            cp.dispatchWorkgroups(wg);
+            cp.end();
+            currentState = 1 - currentState;
+        }
+
+        {
+            const pass = ce.beginRenderPass({
+                colorAttachments: [{
+                    view: gpuTex.createView(),
+                    clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                }],
+                depthStencilAttachment: {
+                    view: depthTex.createView(),
+                    depthClearValue: 1.0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
+            });
+            pass.setPipeline(renderPipeline);
+            pass.setBindGroup(0, renderBindGroups[currentState]);
+            pass.setVertexBuffer(0, positionBuffer);
+            pass.setVertexBuffer(1, normalBuffer);
+            pass.setVertexBuffer(2, uvBuffer);
+            pass.setIndexBuffer(indexBuffer, 'uint16');
+            pass.drawIndexed(box.indices.length, ERASER_COUNT);
+            if (showWireframe) {
+                pass.setPipeline(wirePipeline);
+                pass.setBindGroup(0, wireBindGroups[currentState]);
+                pass.setVertexBuffer(0, wireVB);
+                pass.setIndexBuffer(wireIB, 'uint16');
+                pass.drawIndexed(wireCount, ERASER_COUNT);
+            }
+            pass.end();
+        }
+
+        device.queue.submit([ce.finish()]);
+
+        frameCount++;
+        const now = performance.now();
+        if (now - lastFpsT > 500) {
+            fps = (frameCount * 1000 / (now - lastFpsT)) | 0;
+            frameCount = 0; lastFpsT = now;
+            if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF') + ' · ' + fps + ' FPS';
+        }
+    });
+
+    scene.onDisposeObservable.add(() => { depthTex.destroy(); });
+
+    return scene;
+};
+
+async function init() {
+    canvas = document.getElementById('c');
+    if (!navigator.gpu) {
+        document.getElementById('hint').textContent = 'WebGPU is not available in this browser.';
+        return;
+    }
+    engine = new BABYLON.WebGPUEngine(canvas);
+    await engine.initAsync();
+    scene = await createScene();
+    engine.runRenderLoop(() => scene.render());
+    window.addEventListener('resize', () => engine.resize());
+}
+
+init().catch((error) => console.error(error));
