@@ -20,7 +20,7 @@ const ERASER_TEXTURES = [
     '../../../../assets/textures/eraser_003/eraser_back.png',
 ];
 
-const ERASER_COUNT = 120;
+const ERASER_COUNT = 500;
 const STATE_FLOATS = 16;
 const SUBSTEPS = 5;
 const EHE = [0.215, 0.055, 0.085];  // eraser half-extents (0.43 x 0.11 x 0.17)
