@@ -12,7 +12,8 @@ const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/m
 const GROUND_Y = 0.0;
 const SUBSTEPS = 6;
 const STATE_FLOATS = 16;
-const BODY_PARAM_FLOATS = 16;
+const BODY_PARAM_FLOATS = 20;   // 5 x vec4: halfExtents, material, initialPos, initialRot, shapeInfo
+const RIM_SEGMENTS = 8;         // sample points around each cylinder/cone rim
 const RENDER_UBO_SIZE = 160;
 const GROUND_UBO_SIZE = 144;
 const WIRE_UBO_SIZE = 160;
@@ -26,7 +27,7 @@ let device, context, format, depthTexture;
 let renderPipeline, groundPipeline, wirePipeline, computePipeline;
 let sampler, whiteTextureView;
 let modelAsset, groundMesh, wireMesh;
-let stateBuffer, bodyParamsBuffer, simParamsBuffer, groundUniformBuffer, staticTriangleBuffer;
+let stateBuffer, bodyParamsBuffer, simParamsBuffer, groundUniformBuffer, staticTriangleBuffer, samplePointBuffer;
 let computeBindGroup, groundBindGroup;
 let renderBindGroups = new Map();
 let wireUniformBuffers = [];
@@ -378,6 +379,63 @@ async function buildModel(url) {
     return { gltf, nodes, meshes, roots };
 }
 
+// Sample points (local-space, cone axis = +Y) approximating a collider's lowest surface as a
+// set of spheres [x, y, z, radius]. Box -> 8 corners (radius 0); sphere -> 1 sphere; capsule ->
+// 2 end spheres (per-cap radii, so a tapered capsule works); cylinder/cone -> top & bottom rim
+// rings (radius 0) plus cap centres, with per-cap radii so a tapered cylinder reads as a cone.
+function implicitShapeSamples(shape) {
+    if (!shape) return null;
+    const pts = [];
+    if (shape.type === 'sphere') {
+        const r = (shape.sphere && shape.sphere.radius) || 0.5;
+        pts.push([0, 0, 0, r]);
+        return { points: pts, halfExtents: [r, r, r] };
+    }
+    if (shape.type === 'box') {
+        const s = (shape.box && shape.box.size) || [1, 1, 1];
+        const hx = s[0] * 0.5, hy = s[1] * 0.5, hz = s[2] * 0.5;
+        for (let m = 0; m < 8; m++) {
+            pts.push([(m & 1) ? hx : -hx, (m & 2) ? hy : -hy, (m & 4) ? hz : -hz, 0]);
+        }
+        return { points: pts, halfExtents: [hx, hy, hz] };
+    }
+    if (shape.type === 'capsule') {
+        const c = shape.capsule || {};
+        const h = c.height || 1;
+        const rT = c.radiusTop !== undefined ? c.radiusTop : (c.radius || 0.25);
+        const rB = c.radiusBottom !== undefined ? c.radiusBottom : (c.radius || 0.25);
+        pts.push([0, -h * 0.5, 0, rB]);
+        pts.push([0, h * 0.5, 0, rT]);
+        const rMax = Math.max(rT, rB);
+        return { points: pts, halfExtents: [rMax, h * 0.5 + rMax, rMax] };
+    }
+    if (shape.type === 'cylinder') {
+        const c = shape.cylinder || {};
+        const h = c.height || 1;
+        const rT = c.radiusTop !== undefined ? c.radiusTop : (c.radius || 0.25);
+        const rB = c.radiusBottom !== undefined ? c.radiusBottom : (c.radius || 0.25);
+        for (let k = 0; k < RIM_SEGMENTS; k++) {
+            const a = (k / RIM_SEGMENTS) * Math.PI * 2;
+            const cs = Math.cos(a), sn = Math.sin(a);
+            pts.push([rB * cs, -h * 0.5, rB * sn, 0]);   // bottom rim
+            pts.push([rT * cs, h * 0.5, rT * sn, 0]);    // top rim
+        }
+        pts.push([0, -h * 0.5, 0, 0]);   // bottom cap centre
+        pts.push([0, h * 0.5, 0, 0]);    // top cap centre
+        return { points: pts, halfExtents: [Math.max(rT, rB), h * 0.5, Math.max(rT, rB)] };
+    }
+    return null;
+}
+
+function getImplicitShape(asset, node) {
+    const collider = node.physicsExt && node.physicsExt.collider;
+    const geometry = collider && collider.geometry;
+    if (!geometry || geometry.shape === undefined) return null;
+    const shapes = asset.gltf.extensions && asset.gltf.extensions.KHR_implicit_shapes
+        && asset.gltf.extensions.KHR_implicit_shapes.shapes;
+    return (shapes && shapes[geometry.shape]) || null;
+}
+
 function setupBodies(asset) {
     bodyRecords = [];
     for (let i = 0; i < asset.nodes.length; i++) {
@@ -425,6 +483,21 @@ function setupBodies(asset) {
         body.initialPosition = getTranslation(bodyNode.restWorldMatrix);
         body.initialPosition[1] += START_HEIGHT_OFFSET;
         body.initialRotation = getRotation(bodyNode.restWorldMatrix);
+
+        // Prefer the real implicit shape (sphere/box/capsule/cylinder/cone) for the collider; fall
+        // back to the 8 bounding-box corners for convex-hull / mesh / compound bodies.
+        const shape = getImplicitShape(asset, bodyNode);
+        const shapeSamples = implicitShapeSamples(shape);
+        if (shapeSamples) {
+            body.samplePoints = shapeSamples.points;
+            body.halfExtents = [
+                Math.max(shapeSamples.halfExtents[0], 0.05),
+                Math.max(shapeSamples.halfExtents[1], 0.05),
+                Math.max(shapeSamples.halfExtents[2], 0.05),
+            ];
+        } else {
+            body.samplePoints = bboxCorners(localBbox).map((c) => [c[0], c[1], c[2], 0]);
+        }
     }
 }
 
@@ -743,6 +816,18 @@ async function init() {
     }
     stateBuffer.unmap();
 
+    // Flatten every body's sample points into one buffer; each body stores its [start, count].
+    const allSamples = [];
+    for (const body of bodyRecords) {
+        body.sampleStart = allSamples.length;
+        const samples = body.samplePoints || [[0, 0, 0, 0]];
+        for (const s of samples) allSamples.push(s[0], s[1], s[2], s[3]);
+        body.sampleCount = samples.length;
+    }
+    samplePointBuffer = device.createBuffer({ size: Math.max(allSamples.length, 4) * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+    new Float32Array(samplePointBuffer.getMappedRange()).set(allSamples.length ? allSamples : [0, 0, 0, 0]);
+    samplePointBuffer.unmap();
+
     bodyParamsBuffer = device.createBuffer({ size: bodyCount * BODY_PARAM_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
     const bodyParamData = new Float32Array(bodyParamsBuffer.getMappedRange());
     for (let i = 0; i < bodyRecords.length; i++) {
@@ -756,6 +841,7 @@ async function init() {
         bodyParamData.set([0.2, 0.6, mass, inertiaInv], o + 4);
         bodyParamData.set([body.initialPosition[0], body.initialPosition[1], body.initialPosition[2], 0], o + 8);
         bodyParamData.set(body.initialRotation, o + 12);
+        bodyParamData.set([body.sampleStart, body.sampleCount, 0, 0], o + 16);
     }
     bodyParamsBuffer.unmap();
 
@@ -785,6 +871,7 @@ async function init() {
             { binding: 1, resource: { buffer: bodyParamsBuffer } },
             { binding: 2, resource: { buffer: simParamsBuffer } },
             { binding: 3, resource: { buffer: staticTriangleBuffer } },
+            { binding: 4, resource: { buffer: samplePointBuffer } },
         ],
     });
     groundBindGroup = device.createBindGroup({

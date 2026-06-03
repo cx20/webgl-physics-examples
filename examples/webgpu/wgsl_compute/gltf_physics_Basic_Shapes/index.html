@@ -18,6 +18,7 @@ struct BodyParams {
     material    : vec4<f32>,
     initialPos  : vec4<f32>,
     initialRot  : vec4<f32>,
+    shapeInfo   : vec4<f32>,   // x = sample start, y = sample count
 }
 struct SimParams {
     dt        : f32,
@@ -40,6 +41,7 @@ struct StaticTriangle {
 @group(0) @binding(1) var<storage, read> bodyParams : array<BodyParams>;
 @group(0) @binding(2) var<uniform> sim : SimParams;
 @group(0) @binding(3) var<storage, read> staticTriangles : array<StaticTriangle>;
+@group(0) @binding(4) var<storage, read> samplePoints : array<vec4<f32>>;   // xyz = local offset, w = radius
 
 fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
     return vec4<f32>(
@@ -110,27 +112,34 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         rot = normalize(quatMul(dq, rot));
     }
 
+    // Collide the shape's sample spheres (box corners / sphere / capsule / cylinder-cone rims)
+    // against the static terrain. Each sample's lowest point is its centre minus its radius along
+    // the (near-vertical) terrain normal, so a cone rests on its slanted side, a sphere on its
+    // belly, etc. — instead of every shape resting on its bounding box.
+    let sampleStart = u32(params.shapeInfo.x);
+    let sampleCount = u32(params.shapeInfo.y);
     var contactCount = 0u;
     var minWorldY = 0.0;
     var maxSurfaceY = sim.groundY;
     var contactNormal = vec3<f32>(0.0, 1.0, 0.0);
     var sumR = vec3<f32>(0.0);
-    for (var mask = 0u; mask < 8u; mask++) {
-        let lx = select(-half.x, half.x, (mask & 1u) != 0u);
-        let ly = select(-half.y, half.y, (mask & 2u) != 0u);
-        let lz = select(-half.z, half.z, (mask & 4u) != 0u);
-        let r = rotByQuat(vec3<f32>(lx, ly, lz), rot);
-        let worldY = pos.y + r.y;
+    for (var s = 0u; s < sampleCount; s++) {
+        let sample = samplePoints[sampleStart + s];
+        let radius = sample.w;
+        let r0 = rotByQuat(sample.xyz, rot);
+        let worldCenter = pos + r0;
         var surfaceY = sim.groundY;
         var surfaceNormal = vec3<f32>(0.0, 1.0, 0.0);
-        let worldXZ = (pos + r).xz;
         for (var triIndex = 0u; triIndex < sim.triangleCount; triIndex++) {
-            let triHit = triangleHeightAtXZ(staticTriangles[triIndex], worldXZ);
+            let triHit = triangleHeightAtXZ(staticTriangles[triIndex], worldCenter.xz);
             if (triHit.x > surfaceY) {
                 surfaceY = triHit.x;
                 surfaceNormal = normalize(triHit.yzw);
             }
         }
+        // Contact point = sphere centre pushed down by its radius along the surface normal.
+        let r = r0 - radius * surfaceNormal;
+        let worldY = pos.y + r.y;
         if (worldY < surfaceY) {
             if (contactCount == 0u || worldY < minWorldY) {
                 minWorldY = worldY;
