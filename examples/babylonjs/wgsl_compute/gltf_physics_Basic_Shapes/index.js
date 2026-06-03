@@ -42,6 +42,7 @@ let computeBindGroup, groundBindGroup;
 let renderBindGroups = new Map();
 let wireUniformBuffers = [];
 let wireBindGroups = [];
+let colliderWireBuffers = [];
 let meshWireItems = [];
 let bodyRecords = [];
 let staticTriangleCount = 0;
@@ -431,6 +432,60 @@ function implicitShapeSamples(shape) {
     return null;
 }
 
+// Line-list wireframe (local-space, cone axis = +Y) outlining the real collider shape, so the W
+// debug view shows a sphere / capsule / cylinder / cone instead of a generic bounding box.
+function circleLines(radius, y, segs, out) {
+    for (let k = 0; k < segs; k++) {
+        const a0 = (k / segs) * Math.PI * 2, a1 = ((k + 1) / segs) * Math.PI * 2;
+        out.push(radius * Math.cos(a0), y, radius * Math.sin(a0), radius * Math.cos(a1), y, radius * Math.sin(a1));
+    }
+}
+function arcLines(radius, cy, segs, a0, a1, plane, out) {
+    for (let k = 0; k < segs; k++) {
+        const t0 = a0 + (a1 - a0) * (k / segs), t1 = a0 + (a1 - a0) * ((k + 1) / segs);
+        const p = (t) => plane === 'xy'
+            ? [radius * Math.cos(t), cy + radius * Math.sin(t), 0]
+            : [0, cy + radius * Math.sin(t), radius * Math.cos(t)];
+        out.push(...p(t0), ...p(t1));
+    }
+}
+function implicitShapeWireframe(shape) {
+    if (!shape) return null;
+    const segs = 20, out = [];
+    if (shape.type === 'sphere') {
+        const r = shape.sphere.radius;
+        circleLines(r, 0, segs, out);
+        arcLines(r, 0, segs, 0, Math.PI * 2, 'xy', out);
+        arcLines(r, 0, segs, 0, Math.PI * 2, 'yz', out);
+        return new Float32Array(out);
+    }
+    if (shape.type === 'box') {
+        const s = shape.box.size, hx = s[0] * 0.5, hy = s[1] * 0.5, hz = s[2] * 0.5;
+        const c = [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz], [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]];
+        for (const [a, b] of [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]) out.push(...c[a], ...c[b]);
+        return new Float32Array(out);
+    }
+    const c = shape.capsule || shape.cylinder;
+    if (c) {
+        const h = c.height, rT = c.radiusTop !== undefined ? c.radiusTop : (c.radius || 0.25), rB = c.radiusBottom !== undefined ? c.radiusBottom : (c.radius || 0.25);
+        circleLines(rB, -h * 0.5, segs, out);
+        circleLines(rT, h * 0.5, segs, out);
+        const nv = 8;
+        for (let k = 0; k < nv; k++) {
+            const a = (k / nv) * Math.PI * 2;
+            out.push(rB * Math.cos(a), -h * 0.5, rB * Math.sin(a), rT * Math.cos(a), h * 0.5, rT * Math.sin(a));
+        }
+        if (shape.type === 'capsule') {   // rounded caps
+            arcLines(rB, -h * 0.5, segs, Math.PI, Math.PI * 2, 'xy', out);
+            arcLines(rB, -h * 0.5, segs, Math.PI, Math.PI * 2, 'yz', out);
+            arcLines(rT, h * 0.5, segs, 0, Math.PI, 'xy', out);
+            arcLines(rT, h * 0.5, segs, 0, Math.PI, 'yz', out);
+        }
+        return new Float32Array(out);
+    }
+    return null;
+}
+
 function getImplicitShape(asset, node) {
     const collider = node.physicsExt && node.physicsExt.collider;
     const geometry = collider && collider.geometry;
@@ -499,6 +554,7 @@ function setupBodies(asset) {
                 Math.max(shapeSamples.halfExtents[1], 0.05),
                 Math.max(shapeSamples.halfExtents[2], 0.05),
             ];
+            body.colliderWire = implicitShapeWireframe(shape);   // real-shape debug wireframe
         } else {
             body.samplePoints = bboxCorners(localBbox).map((c) => [c[0], c[1], c[2], 0]);
         }
@@ -713,6 +769,16 @@ function frame() {
         }
         for (let i = 0; i < bodyRecords.length; i++) {
             const body = bodyRecords[i];
+            const colliderWire = colliderWireBuffers[i];
+            if (colliderWire) {
+                // Real implicit-shape outline (sphere / capsule / cylinder / cone), driven by the
+                // body's physics state, in its own local frame (model = identity).
+                writeGroundUniforms(wireUniformBuffers[i], identityMatrix, [0, 1, 0, 1], [1, i, 0, 0]);
+                renderPass.setBindGroup(0, wireBindGroups[i]);
+                renderPass.setVertexBuffer(0, colliderWire.buffer);
+                renderPass.draw(colliderWire.count);
+                continue;
+            }
             if (body.hasMeshWire) {
                 continue;
             }
@@ -882,6 +948,13 @@ async function init() {
     groundBindGroup = device.createBindGroup({
         layout: groundPipeline.getBindGroupLayout(0),
         entries: [{ binding: 0, resource: { buffer: groundUniformBuffer } }],
+    });
+    colliderWireBuffers = bodyRecords.map((body) => {
+        if (!body.colliderWire || body.colliderWire.length === 0) return null;
+        const buf = device.createBuffer({ size: body.colliderWire.byteLength, usage: GPUBufferUsage.VERTEX, mappedAtCreation: true });
+        new Float32Array(buf.getMappedRange()).set(body.colliderWire);
+        buf.unmap();
+        return { buffer: buf, count: body.colliderWire.length / 3 };
     });
     wireUniformBuffers = bodyRecords.map(() => device.createBuffer({ size: WIRE_UBO_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     wireBindGroups = wireUniformBuffers.map((uniformBuffer) => device.createBindGroup({
