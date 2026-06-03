@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WebGPU + WGSL Compute Shader Basic Shapes glTF Physics Example</title>
+  <title>Babylon.js + WGSL Compute Shader Basic Shapes glTF Physics Example</title>
   <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="https://cx20.github.io/gltf-test/libs/babylonjs/dev/babylon.js"></script>
 </head>
 <body>
 
@@ -240,7 +241,8 @@ fn main(@location(0) position : vec3<f32>, @location(1) normal : vec3<f32>, @loc
         world = rotByQuat(local.xyz, state.rotation) + state.position.xyz;
         worldNormal = normalize(rotByQuat(localNormal, state.rotation));
     }
-    out.position = uniforms.viewProj * vec4<f32>(world, 1.0);
+    let clip = uniforms.viewProj * vec4<f32>(world, 1.0);
+    out.position = vec4<f32>(clip.x, -clip.y, clip.z, clip.w);   // flip Y: output goes into an RTT
     out.normal = worldNormal;
     out.uv = uv;
     return out;
@@ -277,7 +279,8 @@ struct VSOut { @builtin(position) position : vec4<f32>, @location(0) normal : ve
 @vertex
 fn main(@location(0) position : vec3<f32>, @location(1) normal : vec3<f32>) -> VSOut {
     var out : VSOut;
-    out.position = uniforms.viewProj * uniforms.model * vec4<f32>(position, 1.0);
+    let clip = uniforms.viewProj * uniforms.model * vec4<f32>(position, 1.0);
+    out.position = vec4<f32>(clip.x, -clip.y, clip.z, clip.w);   // flip Y: output goes into an RTT
     out.normal = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
     return out;
 }
@@ -327,7 +330,8 @@ fn main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
         let state = states[u32(uniforms.mode.y + 0.5)];
         world = rotByQuat(local.xyz, state.rotation) + state.position.xyz;
     }
-    return uniforms.viewProj * vec4<f32>(world, 1.0);
+    let clip = uniforms.viewProj * vec4<f32>(world, 1.0);
+    return vec4<f32>(clip.x, -clip.y, clip.z, clip.w);   // flip Y: output goes into an RTT
 }
 </script>
 

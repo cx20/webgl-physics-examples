@@ -1,5 +1,14 @@
 'use strict';
 
+// Babylon.js (WebGPUEngine) provides the camera, skybox and environment, while the glTF Basic
+// Shapes model and its physics are simulated and drawn entirely on the GPU through custom WGSL
+// compute + render passes that share Babylon's WebGPU device. Each dynamic body uses its real
+// KHR_implicit_shapes collider (box / sphere / capsule / cylinder / cone / tapered capsule),
+// approximated by sample spheres and collided against the static terrain. The shapes are rendered
+// into a RenderTargetTexture and composited over the Babylon scene with a Layer. Press W to toggle
+// the collider wireframe.
+
+const BASE_URL = 'https://cx20.github.io/gltf-test';
 const computeShaderWGSL = document.getElementById('cs').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
@@ -23,7 +32,8 @@ const SHOW_STATIC_MESHES = true;
 const START_HEIGHT_OFFSET = 5.0;
 
 const canvas = document.getElementById('c');
-let device, context, format, depthTexture;
+let device, format, depthTexture;
+let engine, scene, camera, rttTexture;
 let renderPipeline, groundPipeline, wirePipeline, computePipeline;
 let sampler, whiteTextureView;
 let modelAsset, groundMesh, wireMesh;
@@ -43,16 +53,10 @@ const viewMatrix = new Float32Array(16);
 const viewProjectionMatrix = new Float32Array(16);
 const identityMatrix = mat4Identity();
 
-function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.floor(window.innerWidth * dpr));
-    canvas.height = Math.max(1, Math.floor(window.innerHeight * dpr));
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-    context.configure({ device, format, alphaMode: 'opaque' });
+function createDepthTexture(width, height) {
     if (depthTexture) depthTexture.destroy();
     depthTexture = device.createTexture({
-        size: { width: canvas.width, height: canvas.height },
+        size: { width: Math.max(1, width), height: Math.max(1, height) },
         format: 'depth24plus',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
@@ -643,12 +647,15 @@ function drawNode(pass, nodeIndex) {
     for (const child of node.children) drawNode(pass, child);
 }
 
-function frame(timeMs) {
-    if (lastTime < 0) lastTime = timeMs;
-    const dt = Math.min((timeMs - lastTime) / 1000, 1 / 30);
-    lastTime = timeMs;
+function frame() {
+    const internalTex = rttTexture.getInternalTexture();
+    if (!internalTex || !internalTex._hardwareTexture) return;
+    const gpuTex = internalTex._hardwareTexture.underlyingResource;
+    if (!gpuTex) return;
 
-    writeCamera(timeMs);
+    const dt = Math.min(engine.getDeltaTime() / 1000, 1 / 30);
+
+    writeCamera();
     const simData = new ArrayBuffer(SIM_PARAMS_SIZE);
     const simFloats = new Float32Array(simData);
     const simUints = new Uint32Array(simData);
@@ -672,8 +679,8 @@ function frame(timeMs) {
 
     const renderPass = encoder.beginRenderPass({
         colorAttachments: [{
-            view: context.getCurrentTexture().createView(),
-            clearValue: { r: 0.97, g: 0.97, b: 0.98, a: 1 },
+            view: gpuTex.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },   // transparent: composited over the Babylon skybox
             loadOp: 'clear',
             storeOp: 'store',
         }],
@@ -725,24 +732,22 @@ function frame(timeMs) {
 
     renderPass.end();
     device.queue.submit([encoder.finish()]);
-    requestAnimationFrame(frame);
 }
 
-function writeCamera(timeMs) {
-    const t = timeMs * 0.00022;
-    const eye = [Math.sin(t) * 18, 8, Math.cos(t) * 18];
-    mat4Perspective(projectionMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 160);
-    mat4LookAt(viewMatrix, eye, [0, 4, 0], [0, 1, 0]);
-    viewProjectionMatrix.set(mat4Multiply(projectionMatrix, viewMatrix));
+function writeCamera() {
+    const vp = camera.getViewMatrix().multiply(camera.getProjectionMatrix());
+    viewProjectionMatrix.set(vp.m);
 }
 
 async function init() {
-    if (!navigator.gpu) throw new Error('WebGPU not supported.');
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error('No GPU adapter found.');
-    device = await adapter.requestDevice();
-    context = canvas.getContext('webgpu');
-    format = navigator.gpu.getPreferredCanvasFormat();
+    if (!navigator.gpu) {
+        document.getElementById('hint').textContent = 'WebGPU is not available in this browser.';
+        return;
+    }
+    engine = new BABYLON.WebGPUEngine(canvas);
+    await engine.initAsync();
+    device = engine._device;
+    format = 'rgba8unorm';   // the custom passes render into an RGBA8 RenderTargetTexture
 
     sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear' });
     whiteTextureView = createSolidTextureView(255, 255, 255, 255);
@@ -896,15 +901,46 @@ async function init() {
         });
     }
 
-    resize();
-    window.addEventListener('resize', resize);
+    // ---- Babylon scene: camera, skybox/environment, and the RTT the WGSL passes render into ----
+    scene = new BABYLON.Scene(engine);
+    scene.useRightHandedSystem = true;   // match the glTF (right-handed) geometry we render ourselves
+    camera = new BABYLON.ArcRotateCamera('camera', -Math.PI / 180 * 55, Math.PI / 180 * 62, 24,
+        BABYLON.Vector3.Zero(), scene);
+    camera.setTarget(new BABYLON.Vector3(0, 1.5, 0));
+    camera.attachControl(canvas, true);
+    camera.minZ = 0.1;
+    camera.maxZ = 300;
+    camera.wheelPrecision = 20;
+
+    const cubeTexture = new BABYLON.CubeTexture(BASE_URL + '/textures/env/papermillSpecularHDR.env', scene);
+    scene.createDefaultSkybox(cubeTexture, true);
+    scene.environmentTexture = cubeTexture;
+    await new Promise((resolve) => {
+        if (cubeTexture.isReady()) resolve();
+        else cubeTexture.onLoadObservable.addOnce(() => resolve());
+    });
+
+    const rw = engine.getRenderWidth(), rh = engine.getRenderHeight();
+    rttTexture = new BABYLON.RenderTargetTexture('shapesRTT', { width: rw, height: rh }, scene, {
+        generateMipMaps: false,
+        type: BABYLON.Constants.TEXTURETYPE_UNSIGNED_BYTE,
+        format: BABYLON.Constants.TEXTUREFORMAT_RGBA,
+    });
+    const layer = new BABYLON.Layer('shapesLayer', null, scene, false);
+    layer.texture = rttTexture;
+    layer.alphaBlendingMode = BABYLON.Engine.ALPHA_COMBINE;
+    createDepthTexture(rw, rh);
+
     window.addEventListener('keydown', event => {
         const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
         if (!isWKey || event.repeat) return;
         showWireframe = !showWireframe;
         document.getElementById('hint').textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
     });
-    requestAnimationFrame(frame);
+
+    scene.onBeforeRenderObservable.add(() => { frame(); });
+    engine.runRenderLoop(() => scene.render());
+    window.addEventListener('resize', () => engine.resize());
 }
 
 function getNodeLocalMatrix(node) {
