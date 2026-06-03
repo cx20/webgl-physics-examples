@@ -76,9 +76,10 @@ function createInitialStates() {
         states[base + 0] = (col - (GRID - 1) * 0.5) * SPACING;
         states[base + 1] = BH;
         states[base + 2] = ((GRID - 1) * 0.5 - row) * SPACING;
-        states[base + 4] = row === 0 ? -0.18 : 0.0;  // angle
-        states[base + 5] = row === 0 ? -1.6 : 0.0;    // angular velocity
-        states[base + 6] = row === 0 ? 1.0 : 0.0;     // phase (1 = falling)
+        const starter = row === GRID - 1;
+        states[base + 4] = starter ? -0.18 : 0.0;  // angle
+        states[base + 5] = starter ? -1.6 : 0.0;   // angular velocity
+        states[base + 6] = starter ? 1.0 : 0.0;    // phase (1 = falling)
     }
     return states;
 }
@@ -86,7 +87,11 @@ function createInitialStates() {
 function createColors() {
     const colors = new Float32Array(COUNT * 4);
     for (let i = 0; i < COUNT; i++) {
-        colors.set(palette[sprite[i]], i * 4);
+        // Mirror the picture left-to-right (the row axis maps to the horizontal screen axis).
+        const col = Math.floor(i / GRID);
+        const row = i % GRID;
+        const mirrored = col * GRID + (GRID - 1 - row);
+        colors.set(palette[sprite[mirrored]], i * 4);
     }
     return colors;
 }
@@ -207,8 +212,8 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     var phase  = states[i].motion.z;
     let row    = i % GRID;
 
-    if (phase < 0.5 && row > 0u) {
-        let prev = states[i - 1u].motion;
+    if (phase < 0.5 && row < GRID - 1u) {
+        let prev = states[i + 1u].motion;
         if (prev.x < -0.78) {
             phase = 1.0;
             angle = min(angle, -0.04);
@@ -255,10 +260,10 @@ fn vs(@location(0) position : vec3<f32>, @location(1) normal : vec3<f32>, @built
     let state = states[instance];
     let angle = state.motion.x;
     let local = position * vec3<f32>(BW * 2.0, BH * 2.0, BD * 2.0);
-    let pivotLocal = vec3<f32>(0.0, -BH, -BD);
-    let pivotWorld = vec3<f32>(state.base.x, 0.0, state.base.z - BD);
-    let worldPos = pivotWorld + rotateX(local - pivotLocal, angle);
-    let worldNormal = normalize(rotateX(normal, angle));
+    let pivotLocal = vec3<f32>(0.0, -BH, BD);
+    let pivotWorld = vec3<f32>(state.base.x, 0.0, state.base.z + BD);
+    let worldPos = pivotWorld + rotateX(local - pivotLocal, -angle);
+    let worldNormal = normalize(rotateX(normal, -angle));
     let light = normalize(vec3<f32>(0.45, 0.9, 0.35));
     let shade = max(dot(worldNormal, light), 0.28);
     out.color = colors[instance].rgb * shade;
@@ -290,9 +295,9 @@ fn vs(@location(0) position : vec3<f32>, @builtin(instance_index) instance : u32
     let state = states[instance];
     let angle = state.motion.x;
     let local = position * vec3<f32>(BW * 2.0, BH * 2.0, BD * 2.0);
-    let pivotLocal = vec3<f32>(0.0, -BH, -BD);
-    let pivotWorld = vec3<f32>(state.base.x, 0.0, state.base.z - BD);
-    let worldPos = pivotWorld + rotateX(local - pivotLocal, angle);
+    let pivotLocal = vec3<f32>(0.0, -BH, BD);
+    let pivotWorld = vec3<f32>(state.base.x, 0.0, state.base.z + BD);
+    let worldPos = pivotWorld + rotateX(local - pivotLocal, -angle);
     let clip = camera.viewProjection * vec4<f32>(worldPos, 1.0);
     return vec4<f32>(clip.x, -clip.y, clip.z, clip.w);
 }
