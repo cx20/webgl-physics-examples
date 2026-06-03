@@ -93,7 +93,9 @@ function buildEraserBox() {
                 f.n[2] + f.u[2] * su + f.v[2] * sv,
             );
             normals.push(...f.n);
-            uvs.push((localUV[c][0] + fi) / 6, localUV[c][1]);
+            // Mirror the local U within the face's atlas column: Babylon's left-handed viewProj
+            // flips X, so without this the face text reads back-to-front.
+            uvs.push(((1.0 - localUV[c][0]) + fi) / 6, localUV[c][1]);
         }
         indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
     });
