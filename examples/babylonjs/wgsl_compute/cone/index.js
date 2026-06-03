@@ -3,8 +3,9 @@
 // Babylon.js (WebGPUEngine) provides the camera, skybox and environment, while the cones and
 // their basket are simulated and drawn entirely on the GPU through custom WGSL compute +
 // render passes that share Babylon's WebGPU device. 160 carrot-textured cones fall into a
-// basket; the physics is O(N^2) collision (cones approximated by their bounding sphere) plus
-// floor/wall contacts, integrated with a ping-pong, sub-stepped solver.
+// basket; the physics is O(N^2) collision (each cone approximated by an oriented two-sphere
+// capsule that matches its slender shape) plus floor/wall contacts, integrated with a
+// ping-pong, sub-stepped solver.
 //
 // The cones and basket are rendered into a RenderTargetTexture and composited over the
 // Babylon scene with a Layer. Press W to toggle the collider wireframe.
@@ -150,7 +151,8 @@ function createInitialStates() {
         const col = i % 16;
         const row = Math.floor(i / 16);
         const angle = seed * Math.PI * 2 + i * 0.37;
-        const rotation = quatFromEuler((seed - 0.5) * 0.45, angle, (0.5 - seed) * 0.35);
+        // Tumbled orientation so cones land tipped and pile on their sides (not standing upright).
+        const rotation = quatFromEuler((seed - 0.5) * 2.4, angle, (0.5 - seed) * 2.0);
         states[base + 0] = (col - 7.5) * 0.28 + Math.cos(angle) * 0.2;
         states[base + 1] = 6 + row * 0.55 + seed * 8;
         states[base + 2] = Math.sin(angle * 1.7) * BASKET_HALF * 0.7;
@@ -284,8 +286,10 @@ const createScene = async function () {
     const camUbo = device.createBuffer({ size: 16 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const simUbo = device.createBuffer({ size: 8 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-    // Physics: cones approximated by their bounding sphere (max(radius, height/2)) for
-    // collision; gravity, floor + basket-wall contacts, O(N^2) pair collisions and rolling.
+    // Physics: each cone is an oriented two-sphere capsule (radius = cone base radius, the two
+    // spheres tiling a capsule of length = height) so collisions match the slender cone shape;
+    // gravity, floor + basket-wall contacts and O(N^2) capsule-capsule pair collisions with
+    // off-centre contact torque so cones topple and pile naturally.
     const computeWGSL = `
 struct ConeState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
 struct ConeInfo { data : vec4<f32>, }   // radius, height, restitution, friction
@@ -294,6 +298,7 @@ struct SimParams {
     basketTop:f32, damping:f32, elapsedTime:f32, groundHalf:f32,
 }
 const COUNT : u32 = ${CONE_COUNT}u;
+const ANG_SCALE : f32 = 0.28;   // how much off-centre contacts torque the cone (toppling)
 @group(0) @binding(0) var<storage, read>       srcStates : array<ConeState>;
 @group(0) @binding(1) var<storage, read_write> dstStates : array<ConeState>;
 @group(0) @binding(2) var<storage, read>       infos     : array<ConeInfo>;
@@ -306,6 +311,10 @@ fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
         a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
         a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
     );
+}
+fn rotByQuat(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
 }
 fn resetPosition(i : u32, seed : f32) -> vec3<f32> {
     let col = f32(i % 16u);
@@ -328,7 +337,14 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     let height = info.y;
     let restitution = info.z;
     let friction = info.w;
-    let collisionRadius = max(radius, height * 0.5);
+    // Oriented "2-sphere capsule": radius = the cone base radius, two end-spheres centred at
+    // +/- hs along the cone axis so they tile a capsule of length = height. This fits the slender
+    // cone far better than a fat bounding sphere, so cones rest at the right height, topple via
+    // off-centre contacts and pack tightly instead of standing apart like balls. collisionRadius
+    // (used by the thin basket walls) is the slim capsule radius.
+    let rc = radius;
+    let hs = max(height * 0.5 - rc, 0.0);
+    let collisionRadius = rc;
     let seed = srcStates[i].position.w;
 
     var pos = srcStates[i].position.xyz;
@@ -342,19 +358,36 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     pos += vel * params.dt;
     angVel *= 0.996;
 
-    let bottom = height * 0.5;
-    let onGroundPlane = abs(pos.x) + radius < params.groundHalf && abs(pos.z) + radius < params.groundHalf;
-    if (onGroundPlane && pos.y - bottom < params.groundY) {
-        let impactSpeed = max(-vel.y, 0.0);
-        pos.y = params.groundY + bottom;
-        if (impactSpeed > 0.0) { vel.y = impactSpeed * restitution; }
-        let tangentDecay = max(1.0 - friction, 0.0);
-        vel.x *= tangentDecay;
-        vel.z *= tangentDecay;
-        let rolling = vec3<f32>(-vel.z / max(radius, 0.0001), angVel.y * 0.8, vel.x / max(radius, 0.0001));
-        angVel = mix(angVel, rolling, 0.22);
-        contacts++;
-        if (abs(vel.y) < 0.025) { vel.y = 0.0; }
+    let axis0 = rotByQuat(rot, vec3<f32>(0.0, 1.0, 0.0));
+
+    // Floor: each capsule end-sphere collides with the ground plane (an off-centre hit torques
+    // the cone so it topples onto its side, like a real cone).
+    for (var k = 0u; k < 2u; k++) {
+        let sgn = select(-1.0, 1.0, k == 0u);
+        let c = pos + axis0 * (sgn * hs);
+        if (abs(c.x) < params.groundHalf && abs(c.z) < params.groundHalf && c.y - rc < params.groundY) {
+            let pen = params.groundY - (c.y - rc);
+            pos.y += pen;
+            let n = vec3<f32>(0.0, 1.0, 0.0);
+            let lever = axis0 * (sgn * hs);
+            let cvel = vel + cross(angVel, lever);
+            let vn = dot(cvel, n);
+            if (vn < 0.0) {
+                let jn = -(1.0 + restitution) * vn;
+                vel += n * (jn * 0.5);
+                angVel += cross(lever, n * jn) * ANG_SCALE;
+                let tv = cvel - n * vn;
+                let tl = length(tv);
+                if (tl > 1e-4) {
+                    let td = tv / tl;
+                    let jt = min(friction * jn, tl);
+                    vel -= td * (jt * 0.5);
+                    angVel += cross(lever, -td * jt) * ANG_SCALE;
+                }
+            }
+            contacts++;
+            if (abs(vel.y) < 0.02) { vel.y = 0.0; }
+        }
     }
 
     let wallHalfThickness = 0.25;
@@ -417,42 +450,66 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         }
     }
 
+    // Cone-cone: capsule vs capsule via the four end-sphere pairs. Contacts apply an off-centre
+    // impulse (torque), so cones interlock and topple onto each other instead of standing apart.
+    let myReach = hs + rc;
     for (var j = 0u; j < COUNT; j++) {
         if (j == i) { continue; }
         let other = srcStates[j];
         let otherInfo = infos[j].data;
-        let otherRadius = max(otherInfo.x, otherInfo.y * 0.5);
-        var delta = pos - other.position.xyz;
-        var dist = length(delta);
-        if (dist < 0.0001) {
-            let a = params.elapsedTime + seed * 6.28318;
-            delta = vec3<f32>(cos(a), 0.2, sin(a)) * 0.001;
-            dist = length(delta);
-        }
-        let minDist = collisionRadius + otherRadius;
-        if (dist < minDist) {
-            let n = delta / dist;
-            let penetration = minDist - dist;
-            pos += n * penetration * 0.5;
-            let relVel = vel - other.velocity.xyz;
-            let vn = dot(relVel, n);
-            if (vn < 0.0) {
-                let pairRestitution = (restitution + otherInfo.z) * 0.5;
-                vel += n * (-(1.0 + pairRestitution) * vn * 0.55);
+        let orc = otherInfo.x;
+        let ohs = max(otherInfo.y * 0.5 - orc, 0.0);
+        let centerDelta = pos - other.position.xyz;
+        let reach = myReach + ohs + orc;
+        if (dot(centerDelta, centerDelta) > reach * reach) { continue; }
+        let oaxis = rotByQuat(other.rotation, vec3<f32>(0.0, 1.0, 0.0));
+        let minDist = rc + orc;
+
+        for (var ka = 0u; ka < 2u; ka++) {
+            let sgnA = select(-1.0, 1.0, ka == 0u);
+            let lever = axis0 * (sgnA * hs);
+            for (var kb = 0u; kb < 2u; kb++) {
+                let sgnB = select(-1.0, 1.0, kb == 0u);
+                let mc = pos + lever;
+                let oc = other.position.xyz + oaxis * (sgnB * ohs);
+                var delta = mc - oc;
+                var dist = length(delta);
+                if (dist < 0.0001) {
+                    let a = params.elapsedTime + seed * 6.28318 + f32(ka * 2u + kb);
+                    delta = vec3<f32>(cos(a), 0.2, sin(a)) * 0.001;
+                    dist = length(delta);
+                }
+                if (dist < minDist) {
+                    let n = delta / dist;
+                    pos += n * ((minDist - dist) * 0.5);
+                    let relVel = vel + cross(angVel, lever) - other.velocity.xyz;
+                    let vn = dot(relVel, n);
+                    if (vn < 0.0) {
+                        let pairRestitution = (restitution + otherInfo.z) * 0.5;
+                        let jn = -(1.0 + pairRestitution) * vn;
+                        vel += n * (jn * 0.5);
+                        angVel += cross(lever, n * jn) * ANG_SCALE;
+                        let tangent = relVel - n * vn;
+                        let tangentLen = length(tangent);
+                        if (tangentLen > 0.0001) {
+                            let pairFriction = (friction + otherInfo.w) * 0.5;
+                            let t = tangent / tangentLen;
+                            let jt = min(pairFriction * jn, tangentLen);
+                            vel -= t * (jt * 0.5);
+                            angVel += cross(lever, -t * jt) * ANG_SCALE;
+                        }
+                    }
+                    contacts++;
+                }
             }
-            let tangent = relVel - n * vn;
-            let tangentLen = length(tangent);
-            if (tangentLen > 0.0001) {
-                let pairFriction = (friction + otherInfo.w) * 0.5;
-                let t = tangent / tangentLen;
-                vel -= t * min(tangentLen * pairFriction, 0.1);
-                angVel += cross(n, t) * tangentLen * 0.04;
-            }
-            contacts++;
         }
     }
 
-    if (contacts > 0u) { angVel *= pow(0.83, f32(contacts)); }
+    if (contacts > 0u) { angVel *= 0.86; }
+    let angSpeed = length(angVel);
+    if (angSpeed > 9.0) { angVel *= 9.0 / angSpeed; }
+    let linSpeed = length(vel);
+    if (linSpeed > 25.0) { vel *= 25.0 / linSpeed; }
 
     let speed = length(angVel);
     if (speed > 0.0001) {
@@ -465,7 +522,8 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     if (pos.y < params.groundY - 18.0 || abs(pos.x) > params.groundHalf + 8.0 || abs(pos.z) > params.groundHalf + 8.0) {
         pos = resetPosition(i, seed);
         vel = vec3<f32>((seed - 0.5) * 0.12, -0.05, (0.5 - seed) * 0.12);
-        rot = normalize(vec4<f32>(sin(seed * 3.14) * 0.12, sin(seed * 6.28) * 0.18, 0.0, 0.975));
+        let ra = params.elapsedTime * 0.9 + seed * 6.28318;
+        rot = normalize(vec4<f32>(sin(ra) * 0.6, cos(ra * 1.3) * 0.6, sin(ra * 0.7) * 0.5, 0.7));
         angVel = vec3<f32>(seed * 0.7, seed * 0.3, -seed * 0.6);
     }
 
