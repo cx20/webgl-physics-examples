@@ -3,6 +3,8 @@ const clearGridShaderWGSL = document.getElementById('cs-clear').textContent;
 const buildGridShaderWGSL = document.getElementById('cs-build').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
+const groundVertexShaderWGSL = document.getElementById('ground-vs').textContent;
+const groundFragmentShaderWGSL = document.getElementById('ground-fs').textContent;
 const skyboxVertexShaderWGSL = document.getElementById('skybox-vs').textContent;
 const skyboxFragmentShaderWGSL = document.getElementById('skybox-fs').textContent;
 const lineVertexShaderWGSL = document.getElementById('vs-line').textContent;
@@ -13,12 +15,14 @@ const canvas = document.getElementById('c');
 const MARBLES_GLTF_URL = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
 const GROUND_TEXTURE_FILE = '../../../../assets/textures/grass.jpg';
 const ENV_HDR_URL = 'https://cx20.github.io/gltf-test/textures/hdr/papermill.hdr';
-const MARBLE_COUNT = 600;
+const MARBLE_COUNT = 1500;
 const STATIC_COUNT = 1;
 const STATE_FLOATS = 16;
 const INFO_FLOATS = 4;
 const STATIC_FLOATS = 12;
-const SUBSTEPS = 8;
+// The grid broad-phase keeps contacts stable, so far fewer sub-steps are needed than the
+// old O(N^2) version (which used 8).
+const SUBSTEPS = 2;
 const GROUND_Y = -3.0;
 const GROUND_HALF = 40.0;
 const SPAWN_RANGE = 8.5;
@@ -32,14 +36,17 @@ const CELL_CAPACITY = 12;
 const GRID_SLOTS = GRID_X * GRID_Y * GRID_Z * (CELL_CAPACITY + 1);
 
 let device, context, format, depthTexture;
-let renderPipeline, computePipeline, skyboxPipeline, linePipeline;
+let renderPipeline, computePipeline, skyboxPipeline, linePipeline, groundPipeline;
 let clearGridPipeline, buildGridPipeline;
-let cubeMesh;
+let cubeMesh, sphereMesh;
+let paletteBuffer, groundTextureView;
+let groundBindGroup;
+let marblePalette = [];
+let marbleBaseRadius = 0.5;
 let skyboxVertexBuffer, debugSphereVertexBuffer, debugSphereIndexBuffer, debugBoxVertexBuffer, debugBoxIndexBuffer;
 let cameraBuffer, skyboxUniformBuffer, marbleInfoBuffer, staticBuffer, simParamsBuffer, gridBuffer;
-let sampler, whiteTextureView, blackCubeTextureView, envCubeTextureView, groundMaterial;
+let sampler, whiteTextureView, blackCubeTextureView, envCubeTextureView;
 let skyboxBindGroup, clearGridBindGroup;
-let marbleTemplates = [];
 let stateBuffers = [];
 let renderBindGroups = [];
 let computeBindGroups = [];
@@ -510,136 +517,84 @@ function expandToTriangles(positions, normals, uvs, indices) {
     return { positions: outPositions, normals: outNormals, uvs: outUvs };
 }
 
-async function loadMarbleTemplates() {
-    const { gltf, buffers, baseUrl } = await loadGLTF(MARBLES_GLTF_URL);
-    const textureViewCache = new Map();
+// Load one normalised sphere geometry plus a palette of distinct marble materials. Every
+// marble is then drawn in a single instanced call, the per-instance material being chosen
+// by an index into the palette (instead of one draw + material bind group per marble).
+async function loadMarbleAssets() {
+    const { gltf, buffers } = await loadGLTF(MARBLES_GLTF_URL);
 
-    async function getTextureView(textureIndex) {
-        if (textureIndex === undefined || !gltf.textures || !gltf.images) {
-            return whiteTextureView;
-        }
-        if (textureViewCache.has(textureIndex)) {
-            return textureViewCache.get(textureIndex);
-        }
-
-        const texDef = gltf.textures[textureIndex];
-        const imgDef = gltf.images[texDef.source];
-        if (!imgDef || !imgDef.uri) {
-            return whiteTextureView;
-        }
-        const textureView = await createTextureViewFromUrl(new URL(imgDef.uri, baseUrl).href);
-        textureViewCache.set(textureIndex, textureView);
-        return textureView;
-    }
-
-    const meshRecords = [];
-    for (const meshDef of gltf.meshes) {
-        const primitives = [];
-        let meshExtent = 0;
-
-        for (const primitive of meshDef.primitives) {
-            const attrs = primitive.attributes;
-            const positions = getAccessorData(gltf, buffers, attrs.POSITION);
-            const indices = primitive.indices !== undefined ? getAccessorData(gltf, buffers, primitive.indices) : null;
-            const normals = attrs.NORMAL !== undefined
-                ? getAccessorData(gltf, buffers, attrs.NORMAL)
-                : computeFlatNormals(positions, indices);
-            const uvs = attrs.TEXCOORD_0 !== undefined
-                ? getAccessorData(gltf, buffers, attrs.TEXCOORD_0)
-                : new Float32Array((positions.length / 3) * 2);
-
-            const bbox = calculateBoundingBox(positions);
-            meshExtent = Math.max(meshExtent, getMaxExtent(bbox));
-            const expanded = expandToTriangles(positions, normals, uvs, indices);
-            const mesh = createMesh(expanded.positions, expanded.normals, expanded.uvs);
-
-            let textureView = whiteTextureView;
-            let iridescenceTextureView = whiteTextureView;
-            let iridescenceThicknessTextureView = whiteTextureView;
-            let baseColor = [1, 1, 1, 1];
-            let hasTexture = 0;
-            let ior = 1.5;
-            let iridescenceFactor = 0.0;
-            let iridescenceIor = 1.3;
-            let iridescenceThicknessMin = 100.0;
-            let iridescenceThicknessMax = 400.0;
-            let hasIridescenceMap = 0.0;
-            let hasIridescenceThicknessMap = 0.0;
-            let metallic = 1.0;
-            let roughness = 0.2;
-
-            if (primitive.material !== undefined && gltf.materials) {
-                const material = gltf.materials[primitive.material];
-                if (material && material.pbrMetallicRoughness) {
-                    const pbr = material.pbrMetallicRoughness;
-                    if (pbr.baseColorFactor) baseColor = pbr.baseColorFactor;
-                    if (pbr.metallicFactor !== undefined) metallic = pbr.metallicFactor;
-                    if (pbr.roughnessFactor !== undefined) roughness = pbr.roughnessFactor;
-                    if (pbr.baseColorTexture) {
-                        textureView = await getTextureView(pbr.baseColorTexture.index);
-                        hasTexture = 1;
-                    }
-                }
-
-                const iorExt = material && material.extensions ? material.extensions.KHR_materials_ior : null;
-                if (iorExt && iorExt.ior !== undefined) {
-                    ior = iorExt.ior;
-                }
-
-                const irExt = material && material.extensions ? material.extensions.KHR_materials_iridescence : null;
-                if (irExt) {
-                    if (irExt.iridescenceFactor !== undefined) iridescenceFactor = irExt.iridescenceFactor;
-                    if (irExt.iridescenceIor !== undefined) iridescenceIor = irExt.iridescenceIor;
-                    if (irExt.iridescenceThicknessMinimum !== undefined) iridescenceThicknessMin = irExt.iridescenceThicknessMinimum;
-                    if (irExt.iridescenceThicknessMaximum !== undefined) iridescenceThicknessMax = irExt.iridescenceThicknessMaximum;
-
-                    if (irExt.iridescenceTexture !== undefined) {
-                        iridescenceTextureView = await getTextureView(irExt.iridescenceTexture.index);
-                        hasIridescenceMap = 1.0;
-                    }
-                    if (irExt.iridescenceThicknessTexture !== undefined) {
-                        iridescenceThicknessTextureView = await getTextureView(irExt.iridescenceThicknessTexture.index);
-                        hasIridescenceThicknessMap = 1.0;
-                    }
-                }
-            }
-
-            primitives.push({
-                mesh,
-                material: {
-                    textureView,
-                    iridescenceTextureView,
-                    iridescenceThicknessTextureView,
-                    baseColor,
-                    params0: [ior, iridescenceFactor, iridescenceIor, hasIridescenceMap],
-                    params1: [iridescenceThicknessMin, iridescenceThicknessMax, hasIridescenceThicknessMap, 1.0],
-                    params2: [1.0, 1.0, metallic, roughness],
-                    flags: [hasTexture, 0.0, 0.0, 0.0],
-                },
-            });
-        }
-        meshRecords.push({ primitives, meshExtent });
-    }
-
-    const sphereNodes = (gltf.nodes || []).filter(node => node.mesh !== undefined && node.name && node.name.indexOf('Sphere') === 0);
-    const selectedNodes = sphereNodes.length ? sphereNodes.slice(0, MARBLE_COUNT) : (gltf.nodes || []).filter(node => node.mesh !== undefined).slice(0, MARBLE_COUNT);
-    const templates = selectedNodes.map((node) => {
-        const meshRec = meshRecords[node.mesh];
-        const scale = node.scale || [1, 1, 1];
-        const maxScale = Math.max(scale[0], scale[1], scale[2]) * MARBLE_SCALE;
-        const radius = Math.max(0.05, meshRec.meshExtent * 0.5 * maxScale);
-        return {
-            primitives: meshRec.primitives,
-            radius,
-            renderScale: maxScale,
-        };
-    });
-
-    if (!templates.length) {
+    const sphereNodes = (gltf.nodes || []).filter((n) => n.mesh !== undefined && n.name && n.name.indexOf('Sphere') === 0);
+    const nodes = sphereNodes.length ? sphereNodes : (gltf.nodes || []).filter((n) => n.mesh !== undefined);
+    if (!nodes.length) {
         throw new Error('No marble meshes were found in the glTF file.');
     }
 
-    return templates;
+    // Geometry: take the first sphere primitive and normalise it to a unit radius.
+    const geomNode = nodes[0];
+    const prim = gltf.meshes[geomNode.mesh].primitives[0];
+    const positions = getAccessorData(gltf, buffers, prim.attributes.POSITION);
+    const indices = prim.indices !== undefined ? getAccessorData(gltf, buffers, prim.indices) : null;
+    const normals = prim.attributes.NORMAL !== undefined
+        ? getAccessorData(gltf, buffers, prim.attributes.NORMAL)
+        : computeFlatNormals(positions, indices);
+    const uvs = prim.attributes.TEXCOORD_0 !== undefined
+        ? getAccessorData(gltf, buffers, prim.attributes.TEXCOORD_0)
+        : new Float32Array((positions.length / 3) * 2);
+    const expanded = expandToTriangles(positions, normals, uvs, indices);
+
+    const vcount = expanded.positions.length / 3;
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < vcount; i++) {
+        cx += expanded.positions[i * 3]; cy += expanded.positions[i * 3 + 1]; cz += expanded.positions[i * 3 + 2];
+    }
+    cx /= vcount; cy /= vcount; cz /= vcount;
+    let rad = 0;
+    for (let i = 0; i < vcount; i++) {
+        const dx = expanded.positions[i * 3] - cx, dy = expanded.positions[i * 3 + 1] - cy, dz = expanded.positions[i * 3 + 2] - cz;
+        rad = Math.max(rad, Math.hypot(dx, dy, dz));
+    }
+    if (rad < 1e-6) rad = 1;
+    const normPositions = new Float32Array(vcount * 3);
+    for (let i = 0; i < vcount; i++) {
+        normPositions[i * 3] = (expanded.positions[i * 3] - cx) / rad;
+        normPositions[i * 3 + 1] = (expanded.positions[i * 3 + 1] - cy) / rad;
+        normPositions[i * 3 + 2] = (expanded.positions[i * 3 + 2] - cz) / rad;
+    }
+
+    // Representative world radius, matching the original per-node sizing.
+    const meshExtent = getMaxExtent(calculateBoundingBox(positions));
+    const scale = geomNode.scale || [1, 1, 1];
+    const maxScale = Math.max(scale[0], scale[1], scale[2]) * MARBLE_SCALE;
+    const baseRadius = Math.max(0.05, meshExtent * 0.5 * maxScale);
+
+    // Palette: one entry per distinct material referenced by the sphere nodes.
+    const palette = [];
+    const seen = new Map();
+    for (const node of nodes) {
+        const matIdx = gltf.meshes[node.mesh].primitives[0].material;
+        if (matIdx === undefined || seen.has(matIdx)) continue;
+        seen.set(matIdx, palette.length);
+        const material = (gltf.materials || [])[matIdx] || {};
+        const pbr = material.pbrMetallicRoughness || {};
+        const baseColor = pbr.baseColorFactor || [1, 1, 1, 1];
+        const metallic = pbr.metallicFactor !== undefined ? pbr.metallicFactor : 1.0;
+        const roughness = pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 0.2;
+        const ext = material.extensions || {};
+        const ior = (ext.KHR_materials_ior && ext.KHR_materials_ior.ior !== undefined) ? ext.KHR_materials_ior.ior : 1.5;
+        let irFactor = 0.0, irIor = 1.3, thickness = 400.0;
+        const ir = ext.KHR_materials_iridescence;
+        if (ir) {
+            if (ir.iridescenceFactor !== undefined) irFactor = ir.iridescenceFactor;
+            if (ir.iridescenceIor !== undefined) irIor = ir.iridescenceIor;
+            if (ir.iridescenceThicknessMaximum !== undefined) thickness = ir.iridescenceThicknessMaximum;
+        }
+        palette.push({ baseColor, ior, irFactor, irIor, thickness, metallic, roughness });
+    }
+    if (!palette.length) {
+        palette.push({ baseColor: [0.8, 0.8, 0.85, 1], ior: 1.5, irFactor: 1.0, irIor: 1.3, thickness: 400.0, metallic: 1.0, roughness: 0.2 });
+    }
+
+    return { positions: normPositions, normals: expanded.normals, uvs: expanded.uvs, palette, baseRadius };
 }
 
 function createInitialStates() {
@@ -668,13 +623,13 @@ function createInitialStates() {
 }
 
 function createMarbleInfos() {
+    // data = (radius, materialIndex, restitution, friction)
     const infos = new Float32Array(MARBLE_COUNT * INFO_FLOATS);
     for (let i = 0; i < MARBLE_COUNT; i++) {
-        const template = marbleTemplates[i % marbleTemplates.length];
         const seed = ((i * 37) % 101) / 101;
         const base = i * INFO_FLOATS;
-        infos[base + 0] = template.radius;
-        infos[base + 1] = template.renderScale;
+        infos[base + 0] = marbleBaseRadius * (0.9 + seed * 0.25);
+        infos[base + 1] = i % marblePalette.length;
         infos[base + 2] = 0.46 + seed * 0.14;
         infos[base + 3] = 0.006 + seed * 0.006;
     }
@@ -693,45 +648,6 @@ function createStaticItems() {
         items.set(data[i].color, base + 8);
     }
     return items;
-}
-
-function createMaterialBindGroup(material) {
-    const buffer = device.createBuffer({
-        size: 80,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const data = new Float32Array(20);
-    data.set(material.baseColor, 0);
-    data.set(material.params0, 4);
-    data.set(material.params1, 8);
-    data.set(material.params2, 12);
-    data.set(material.flags, 16);
-    device.queue.writeBuffer(buffer, 0, data);
-    return {
-        buffer,
-        bindGroup: device.createBindGroup({
-            layout: renderPipeline.getBindGroupLayout(1),
-            entries: [
-                { binding: 0, resource: { buffer } },
-                { binding: 1, resource: sampler },
-                { binding: 2, resource: material.textureView || whiteTextureView },
-                { binding: 3, resource: material.iridescenceTextureView || whiteTextureView },
-                { binding: 4, resource: material.iridescenceThicknessTextureView || whiteTextureView },
-                { binding: 5, resource: envCubeTextureView || blackCubeTextureView },
-            ],
-        }),
-    };
-}
-
-function assignMaterialBindGroups() {
-    for (const template of marbleTemplates) {
-        for (const primitive of template.primitives) {
-            if (!primitive.material.bindGroup) {
-                Object.assign(primitive.material, createMaterialBindGroup(primitive.material));
-            }
-        }
-    }
-    Object.assign(groundMaterial, createMaterialBindGroup(groundMaterial));
 }
 
 function writeCamera(timeMs) {
@@ -888,17 +804,14 @@ function frame(timeMs) {
         },
     });
 
+    // All marbles in a single instanced draw call (material chosen per-instance from the palette).
     renderPass.setPipeline(renderPipeline);
     renderPass.setBindGroup(0, renderBindGroups[currentState]);
-    for (let i = 0; i < MARBLE_COUNT; i++) {
-        const template = marbleTemplates[i % marbleTemplates.length];
-        for (const primitive of template.primitives) {
-            renderPass.setBindGroup(1, primitive.material.bindGroup);
-            drawMesh(renderPass, primitive.mesh, 1, i);
-        }
-    }
-    renderPass.setBindGroup(1, groundMaterial.bindGroup);
-    drawMesh(renderPass, cubeMesh, STATIC_COUNT, MARBLE_COUNT);
+    drawMesh(renderPass, sphereMesh, MARBLE_COUNT);
+
+    renderPass.setPipeline(groundPipeline);
+    renderPass.setBindGroup(0, groundBindGroup);
+    drawMesh(renderPass, cubeMesh, STATIC_COUNT, 0);
 
     if (showWireframe) {
         renderPass.setPipeline(linePipeline);
@@ -942,26 +855,40 @@ async function init() {
         envCubeTextureView = null;
     }
     cubeMesh = createBoxGeometry();
-    marbleTemplates = await loadMarbleTemplates();
+    const marbleAssets = await loadMarbleAssets();
+    marblePalette = marbleAssets.palette;
+    marbleBaseRadius = marbleAssets.baseRadius;
+    sphereMesh = createMesh(marbleAssets.positions, marbleAssets.normals, marbleAssets.uvs);
+    groundTextureView = await createTextureViewFromUrl(GROUND_TEXTURE_FILE);
 
     // Grid cell size must cover the largest marble diameter so the 3x3x3 neighbour scan
     // catches every overlapping pair; inject it (and the marble count) into the shaders.
-    const maxMarbleRadius = Math.max(...marbleTemplates.map((t) => t.radius));
+    const maxMarbleRadius = marbleBaseRadius * 1.15;
     const cellSize = Math.max(1.2, maxMarbleRadius * 2 * 1.15).toFixed(4);
     const computeCode = computeShaderWGSL.replaceAll('__COUNT__', MARBLE_COUNT + 'u').replaceAll('__CELL_SIZE__', cellSize);
     const vertexCode = vertexShaderWGSL.replaceAll('__COUNT__', MARBLE_COUNT + 'u');
     const buildGridCode = buildGridShaderWGSL.replaceAll('__CELL_SIZE__', cellSize);
 
-    groundMaterial = {
-        textureView: await createTextureViewFromUrl(GROUND_TEXTURE_FILE),
-        iridescenceTextureView: whiteTextureView,
-        iridescenceThicknessTextureView: whiteTextureView,
-        baseColor: [1, 1, 1, 1],
-        params0: [1.5, 0.0, 1.3, 0.0],
-        params1: [100.0, 400.0, 0.0, 0.55],
-        params2: [0.92, 0.18, 0.0, 1.0],
-        flags: [1, 1, 0, 0],
-    };
+    // Material palette (3 vec4 per entry): baseColor, (ior, irFactor, irIor, thickness),
+    // (metallic, roughness, _, _).
+    const paletteData = new Float32Array(marblePalette.length * 12);
+    for (let i = 0; i < marblePalette.length; i++) {
+        const p = marblePalette[i];
+        const o = i * 12;
+        paletteData[o + 0] = p.baseColor[0];
+        paletteData[o + 1] = p.baseColor[1];
+        paletteData[o + 2] = p.baseColor[2];
+        paletteData[o + 3] = p.baseColor[3] !== undefined ? p.baseColor[3] : 1;
+        paletteData[o + 4] = p.ior;
+        paletteData[o + 5] = p.irFactor;
+        paletteData[o + 6] = p.irIor;
+        paletteData[o + 7] = p.thickness;
+        paletteData[o + 8] = p.metallic;
+        paletteData[o + 9] = p.roughness;
+    }
+    paletteBuffer = device.createBuffer({ size: paletteData.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+    new Float32Array(paletteBuffer.getMappedRange()).set(paletteData);
+    paletteBuffer.unmap();
 
     const initialStates = createInitialStates();
     for (let i = 0; i < 2; i++) {
@@ -1066,7 +993,31 @@ async function init() {
         layout: clearGridPipeline.getBindGroupLayout(0),
         entries: [{ binding: 0, resource: { buffer: gridBuffer } }],
     });
-    assignMaterialBindGroups();
+
+    groundPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: device.createShaderModule({ code: groundVertexShaderWGSL }),
+            entryPoint: 'main',
+            buffers: [
+                { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+                { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
+                { arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
+            ],
+        },
+        fragment: { module: device.createShaderModule({ code: groundFragmentShaderWGSL }), entryPoint: 'main', targets: [{ format }] },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    });
+    groundBindGroup = device.createBindGroup({
+        layout: groundPipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: cameraBuffer } },
+            { binding: 1, resource: { buffer: staticBuffer } },
+            { binding: 2, resource: sampler },
+            { binding: 3, resource: groundTextureView },
+        ],
+    });
 
     const skyboxVerts = new Float32Array([
         -1, -1, -1,  1, -1, -1,  1,  1, -1,
@@ -1105,7 +1056,9 @@ async function init() {
                 { binding: 0, resource: { buffer: cameraBuffer } },
                 { binding: 1, resource: { buffer: stateBuffers[i] } },
                 { binding: 2, resource: { buffer: marbleInfoBuffer } },
-                { binding: 3, resource: { buffer: staticBuffer } },
+                { binding: 3, resource: { buffer: paletteBuffer } },
+                { binding: 4, resource: sampler },
+                { binding: 5, resource: envCubeTextureView || blackCubeTextureView },
             ],
         }));
 
