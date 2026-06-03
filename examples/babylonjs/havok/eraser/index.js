@@ -7,8 +7,17 @@ const ERASER_COUNT = 200;
 const SCALE = 2;
 // Eraser box half-extents (base mesh half-extents x SCALE): 2.0 x 0.4 x 1.0.
 const MESH_W = 1.0, MESH_H = 0.2, MESH_D = 0.5;
-const ERASER_TEXTURE = '../../../../assets/textures/eraser_001/eraser.png';
+const EHALF = [MESH_W * SCALE, MESH_H * SCALE, MESH_D * SCALE];
 const GRASS_TEXTURE = '../../../../assets/textures/grass.jpg';
+// Six eraser faces in atlas-column order: +x, -x, +y, -y, +z, -z (right, left, top, bottom, front, back).
+const ERASER_FACE_TEXTURES = [
+    '../../../../assets/textures/eraser_003/eraser_right.png',
+    '../../../../assets/textures/eraser_003/eraser_left.png',
+    '../../../../assets/textures/eraser_003/eraser_top.png',
+    '../../../../assets/textures/eraser_003/eraser_bottom.png',
+    '../../../../assets/textures/eraser_003/eraser_front.png',
+    '../../../../assets/textures/eraser_003/eraser_back.png',
+];
 
 let showWireframe = true;
 let physicsViewer = null;
@@ -74,7 +83,8 @@ async function init() {
     });
 
     engine = new BABYLON.Engine(canvas, true);
-    scene = createScene();
+    const eraserAtlasUrl = await buildEraserAtlasDataUrl();
+    scene = createScene(eraserAtlasUrl);
     engine.runRenderLoop(function () {
         scene.render();
     });
@@ -83,41 +93,59 @@ async function init() {
     });
 }
 
-// Eraser box: same vertex/UV layout as the other eraser examples so eraser.png maps the same.
+// Eraser box: 24 vertices (6 faces) with per-face UVs into a 6-column atlas (+x,-x,+y,-y,+z,-z),
+// the same reliable layout the other eraser examples use, so every face reads "MOMO".
 function createEraserVertexData() {
-    const w = MESH_W * SCALE, h = MESH_H * SCALE, d = MESH_D * SCALE;
-    const positions = [
-        -w, -h, d, w, -h, d, w, h, d, -w, h, d,
-        -w, -h, -d, w, -h, -d, w, h, -d, -w, h, -d,
-        w, h, d, -w, h, d, -w, h, -d, w, h, -d,
-        -w, -h, d, w, -h, d, w, -h, -d, -w, -h, -d,
-        w, -h, d, w, h, d, w, h, -d, w, -h, -d,
-        -w, -h, d, -w, h, d, -w, h, -d, -w, -h, -d,
+    const faces = [
+        { n: [1, 0, 0], u: [0, 0, -1], v: [0, 1, 0] },
+        { n: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
+        { n: [0, 1, 0], u: [1, 0, 0], v: [0, 0, -1] },
+        { n: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1] },
+        { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] },
+        { n: [0, 0, -1], u: [-1, 0, 0], v: [0, 1, 0] },
     ];
-    const uvs = [
-        0.5, 0.0, 0.75, 0.0, 0.75, 0.5, 0.5, 0.5,
-        0.25, 0.0, 0.5, 0.0, 0.5, 0.5, 0.25, 0.5,
-        0.75, 0.5, 0.5, 0.5, 0.5, 1.0, 0.75, 1.0,
-        0.0, 0.0, 0.25, 0.0, 0.25, 0.5, 0.0, 0.5,
-        0.0, 0.5, 0.0, 1.0, 0.25, 1.0, 0.25, 0.5,
-        0.5, 0.5, 0.5, 1.0, 0.25, 1.0, 0.25, 0.5,
-    ];
-    const indices = [
-        0, 2, 1, 0, 3, 2,
-        4, 5, 6, 4, 6, 7,
-        8, 9, 10, 8, 10, 11,
-        12, 15, 14, 12, 14, 13,
-        16, 17, 18, 16, 18, 19,
-        20, 23, 22, 20, 22, 21,
-    ];
-    const normals = [];
-    BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    const localUV = [[0, 1], [1, 1], [1, 0], [0, 0]];
+    const positions = [], normals = [], uvs = [], indices = [];
+    const dotHalf = (a) => Math.abs(a[0]) * EHALF[0] + Math.abs(a[1]) * EHALF[1] + Math.abs(a[2]) * EHALF[2];
+    faces.forEach((f, fi) => {
+        const base = positions.length / 3;
+        const halfU = dotHalf(f.u), halfV = dotHalf(f.v);
+        for (let ci = 0; ci < 4; ci++) {
+            const [su, sv] = corners[ci];
+            positions.push(
+                f.n[0] * EHALF[0] + f.u[0] * su * halfU + f.v[0] * sv * halfV,
+                f.n[1] * EHALF[1] + f.u[1] * su * halfU + f.v[1] * sv * halfV,
+                f.n[2] * EHALF[2] + f.u[2] * su * halfU + f.v[2] * sv * halfV,
+            );
+            normals.push(f.n[0], f.n[1], f.n[2]);
+            uvs.push((localUV[ci][0] + fi) / 6, localUV[ci][1]);
+        }
+        indices.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    });
     const vertexData = new BABYLON.VertexData();
     vertexData.positions = positions;
     vertexData.indices = indices;
     vertexData.normals = normals;
     vertexData.uvs = uvs;
     return vertexData;
+}
+
+// Build a 6-cell atlas (right,left,top,bottom,front,back) PNG data URL from the eraser_003 images.
+async function buildEraserAtlasDataUrl() {
+    const cell = 256;
+    const images = await Promise.all(ERASER_FACE_TEXTURES.map(async (s) => {
+        const im = new Image();
+        im.src = s;
+        await im.decode();
+        return im;
+    }));
+    const atlas = document.createElement('canvas');
+    atlas.width = cell * 6;
+    atlas.height = cell;
+    const ctx = atlas.getContext('2d');
+    for (let i = 0; i < 6; i++) ctx.drawImage(images[i], i * cell, 0, cell, cell);
+    return atlas.toDataURL('image/png');
 }
 
 function randomRange(min, max) {
@@ -128,7 +156,7 @@ function randomSpawn() {
     return new BABYLON.Vector3(randomRange(-5, 5), randomRange(20, 30), randomRange(-5, 5));
 }
 
-function createScene() {
+function createScene(eraserAtlasUrl) {
     const scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), new BABYLON.HavokPlugin());
     setupPhysicsDebugWireframe(scene);
@@ -173,9 +201,12 @@ function createScene() {
         new BABYLON.PhysicsAggregate(wall, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.4, restitution: 0.2 }, scene);
     }
 
-    // Eraser base mesh.
+    // Eraser base mesh. Babylon's default invertY keeps the runtime atlas upright (top/bottom
+    // faces read "MOMO"); per-face UVs into the 6-cell atlas fix the previous left-right mirroring.
     const eraserMat = new BABYLON.StandardMaterial('eraserMat', scene);
-    const eraserTex = new BABYLON.Texture(ERASER_TEXTURE, scene);
+    const eraserTex = new BABYLON.Texture(eraserAtlasUrl, scene, false, true);
+    eraserTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    eraserTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
     eraserMat.diffuseTexture = eraserTex;
     eraserMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
     eraserMat.backFaceCulling = false;
