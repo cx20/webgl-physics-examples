@@ -8,8 +8,8 @@ import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
 
 const PIECE_W = 1.6;
 const PIECE_H = 1.6;
-const PIECE_D = 0.45;
-const PIECE_COUNT = 220;
+const PIECE_D = 0.32;
+const PIECE_COUNT = 300;
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
 const SHOGI_TEX = 'https://cx20.github.io/webgl-physics-examples/assets/textures/shogi_001/shogi.png';
@@ -139,47 +139,26 @@ function randomQuaternion() {
 
 function initPhysics() {
     worldId = HK.HP_World_Create()[1];
-    HK.HP_World_SetGravity(worldId, [0, -9.81, 0]);
+    HK.HP_World_SetGravity(worldId, [0, -9.8, 0]);
     HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP);
 
     const floorMat = new pc.StandardMaterial();
     floorMat.diffuseMap = getTexture(GRASS_TEX, 72, 72);
     floorMat.update();
 
-    const wallMat = new pc.StandardMaterial();
-    wallMat.diffuse = new pc.Color(1, 1, 1);
-    wallMat.opacity = 0.3;
-    wallMat.blendType = pc.BLEND_NORMAL;
-    wallMat.update();
-
     const shogiMat = new pc.StandardMaterial();
     shogiMat.diffuseMap = getTexture(SHOGI_TEX, 1024, 512, false);
     shogiMat.cull = pc.CULLFACE_NONE;
     shogiMat.update();
 
-    // Floor (static)
-    createStaticBox(0, -2, 0, 20, 2, 20);
+    // Small, low floor (no walls), matching the WebGL/WebGPU + Havok shogi samples: a
+    // 13 x 0.1 x 13 slab at y = -10 that the heap overflows.
+    createStaticBox(0, -10, 0, 6.5, 0.05, 6.5);
     const floor = new pc.Entity();
     floor.addComponent('model', { type: 'box', material: floorMat });
-    floor.setLocalScale(40, 4, 40);
-    floor.setPosition(0, -2, 0);
+    floor.setLocalScale(13, 0.1, 13);
+    floor.setPosition(0, -10, 0);
     app.root.addChild(floor);
-
-    // Walls (static)
-    const wallData = [
-        { size: [10, 10, 1], pos: [0, 5, -5] },
-        { size: [10, 10, 1], pos: [0, 5,  5] },
-        { size: [1, 10, 10], pos: [-5, 5, 0] },
-        { size: [1, 10, 10], pos: [5, 5,  0] }
-    ];
-    for (const w of wallData) {
-        createStaticBox(w.pos[0], w.pos[1], w.pos[2], w.size[0] / 2, w.size[1] / 2, w.size[2] / 2);
-        const wall = new pc.Entity();
-        wall.addComponent('model', { type: 'box', material: wallMat });
-        wall.setLocalScale(w.size[0], w.size[1], w.size[2]);
-        wall.setPosition(w.pos[0], w.pos[1], w.pos[2]);
-        app.root.addChild(wall);
-    }
 
     // Shared shogi mesh + box collider.
     const geo = buildShogiGeometry(PIECE_W, PIECE_H, PIECE_D);
@@ -190,13 +169,14 @@ function initPhysics() {
     shogiMesh.setIndices(geo.indices);
     shogiMesh.update();
 
-    const hw = PIECE_W / 2, hh = PIECE_H / 2, hd = PIECE_D * 0.7;
+    // Collider matches the other Havok samples' SHOGI_PHYSICS_SIZE = [w, h*1.2, d*1.4].
+    const hw = PIECE_W / 2, hh = PIECE_H * 0.6, hd = PIECE_D * 0.7;
     // HP_Shape_CreateBox takes full side lengths, so pass 2x the half-extents.
     const pieceShape = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [hw * 2, hh * 2, hd * 2])[1];
     const pieceMass  = HK.HP_Shape_BuildMassProperties(pieceShape)[1];
 
     for (let i = 0; i < PIECE_COUNT; i++) {
-        const spawn = [(Math.random() - 0.5) * 8, 2 + Math.random() * 36, (Math.random() - 0.5) * 8];
+        const spawn = [(Math.random() - 0.5) * 15, (Math.random() + 1.0) * 15, (Math.random() - 0.5) * 15];
 
         const bodyId = HK.HP_Body_Create()[1];
         HK.HP_Body_SetShape(bodyId, pieceShape);
@@ -222,8 +202,8 @@ function updatePhysics() {
         p.entity.setPosition(pos[0], pos[1], pos[2]);
         p.entity.setRotation(new pc.Quat(ori[0], ori[1], ori[2], ori[3]));
 
-        if (pos[1] < -10) {
-            HK.HP_Body_SetPosition(p.bodyId, [(Math.random() - 0.5) * 8, 12 + Math.random() * 26, (Math.random() - 0.5) * 8]);
+        if (pos[1] < -15) {
+            HK.HP_Body_SetPosition(p.bodyId, [(Math.random() - 0.5) * 15, (Math.random() + 1.0) * 15, (Math.random() - 0.5) * 15]);
             HK.HP_Body_SetOrientation(p.bodyId, randomQuaternion());
             HK.HP_Body_SetLinearVelocity(p.bodyId, [0, 0, 0]);
             HK.HP_Body_SetAngularVelocity(p.bodyId, [0, 0, 0]);
@@ -249,12 +229,13 @@ async function main() {
     app.root.addChild(light);
 
     camera = new pc.Entity('camera');
-    camera.addComponent('camera', { clearColor: new pc.Color(0.13, 0.14, 0.16), nearClip: 0.01, farClip: 1000, fov: 60 });
+    camera.addComponent('camera', { clearColor: new pc.Color(0.13, 0.14, 0.16), nearClip: 0.1, farClip: 1000, fov: 45 });
     camera.addComponent('script');
     app.root.addChild(camera);
     const cc = camera.script.create(CameraControls);
     cc.enableFly = false;
-    cc.reset(new pc.Vec3(0, 4, 0), new pc.Vec3(0, 14, 28));
+    // Head-on view matching the WebGL/WebGPU + Havok shogi samples (eye at (0,0,40), origin).
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 0, 40));
 
     initPhysics();
     setInterval(updatePhysics, 1000 / 60);
