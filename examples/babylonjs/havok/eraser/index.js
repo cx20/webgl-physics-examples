@@ -153,17 +153,23 @@ function randomRange(min, max) {
 }
 
 function randomSpawn() {
-    return new BABYLON.Vector3(randomRange(-5, 5), randomRange(20, 30), randomRange(-5, 5));
+    return new BABYLON.Vector3(randomRange(-6, 6), randomRange(14, 28), randomRange(-6, 6));
 }
 
 function createScene(eraserAtlasUrl) {
     const scene = new BABYLON.Scene(engine);
-    scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), new BABYLON.HavokPlugin());
+    scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.HavokPlugin());
     setupPhysicsDebugWireframe(scene);
     scene.clearColor = new BABYLON.Color4(0.5, 0.5, 0.8, 1.0);
 
-    const camera = new BABYLON.ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 180 * 68, 48,
-        new BABYLON.Vector3(0, 3, 0), scene);
+    // Fixed head-on camera matching the WebGL/WebGPU + Havok eraser samples (eye at (0,0,40)
+    // looking at the origin, 45 deg FOV).
+    const camera = new BABYLON.ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 2, 40, BABYLON.Vector3.Zero(), scene);
+    camera.setPosition(new BABYLON.Vector3(0, 0, 40));
+    camera.setTarget(BABYLON.Vector3.Zero());
+    camera.fov = 45 * Math.PI / 180;
+    camera.minZ = 0.1;
+    camera.maxZ = 1000;
     camera.attachControl(canvas, true);
 
     const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.3, 1, 0.2), scene);
@@ -178,28 +184,13 @@ function createScene(eraserAtlasUrl) {
     grass.uScale = grass.vScale = 4;
     floorMat.diffuseTexture = grass;
     floorMat.specularColor = BABYLON.Color3.Black();
-    const floor = BABYLON.MeshBuilder.CreateBox('floor', { width: 40, height: 4, depth: 40 }, scene);
-    floor.position.y = -2;
+    // Small low floor (no walls), matching the WebGL/WebGPU + Havok eraser samples: a
+    // 20 x 0.1 x 20 slab at y = -10 that the heap overflows.
+    const floor = BABYLON.MeshBuilder.CreateBox('floor', { width: 20, height: 0.1, depth: 20 }, scene);
+    floor.position.y = -10;
     floor.material = floorMat;
     floor.receiveShadows = true;
     new BABYLON.PhysicsAggregate(floor, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.6, restitution: 0.1 }, scene);
-
-    // Walls (static, translucent) forming a basket.
-    const wallMat = new BABYLON.StandardMaterial('wallMat', scene);
-    wallMat.diffuseColor = new BABYLON.Color3(1, 1, 1);
-    wallMat.alpha = 0.45;
-    const wallData = [
-        { size: [10, 10, 1], pos: [0, 5, -5] },
-        { size: [10, 10, 1], pos: [0, 5, 5] },
-        { size: [1, 10, 10], pos: [-5, 5, 0] },
-        { size: [1, 10, 10], pos: [5, 5, 0] },
-    ];
-    for (const w of wallData) {
-        const wall = BABYLON.MeshBuilder.CreateBox('wall', { width: w.size[0], height: w.size[1], depth: w.size[2] }, scene);
-        wall.position.set(w.pos[0], w.pos[1], w.pos[2]);
-        wall.material = wallMat;
-        new BABYLON.PhysicsAggregate(wall, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.4, restitution: 0.2 }, scene);
-    }
 
     // Eraser base mesh. Babylon's default invertY keeps the runtime atlas upright (top/bottom
     // faces read "MOMO"); per-face UVs into the 6-cell atlas fix the previous left-right mirroring.
@@ -231,7 +222,7 @@ function createScene(eraserAtlasUrl) {
 
     scene.onBeforeRenderObservable.add(() => {
         for (const e of erasers) {
-            if (e.mesh.position.y < -10) {
+            if (e.mesh.position.y < -15) {
                 const body = e.aggregate.body;
                 const spawn = randomSpawn();
                 body.disablePreStep = false;
