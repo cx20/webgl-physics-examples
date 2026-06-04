@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
-const PIECE_COUNT = 220;
+const PIECE_COUNT = 300;
 
 let HK, worldId;
 let scene, camera, renderer, controls;
@@ -118,8 +118,10 @@ function initThree() {
   scene.add(new THREE.HemisphereLight(0xbfd6ff, 0x2a2a2a, 0.9));
   scene.add(new THREE.AmbientLight(0x666666, 1.3));
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-  camera.position.set(18, 24, 34);
+  // Head-on camera matching the WebGL/WebGPU + Havok shogi samples (eye at (0,0,40) looking at
+  // the origin, 45 deg FOV).
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 0, 40);
 
   const light = new THREE.DirectionalLight(0xffffff, 2.1);
   light.position.set(30, 100, 50);
@@ -134,7 +136,7 @@ function initThree() {
   container.appendChild(renderer.domElement);
 
   controls = new OrbitControls(camera, renderer.domElement);
-  controls.autoRotate = true;
+  controls.autoRotate = false;
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -147,7 +149,7 @@ function initPhysics() {
   const worldRes = HK.HP_World_Create();
   checkResult(worldRes[0], 'HP_World_Create');
   worldId = worldRes[1];
-  checkResult(HK.HP_World_SetGravity(worldId, [0, -10, 0]), 'HP_World_SetGravity');
+  checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
 
   const loader = new THREE.TextureLoader();
@@ -158,41 +160,26 @@ function initPhysics() {
 
   const shogiMat = new THREE.MeshLambertMaterial({ map: shogiTex, side: THREE.DoubleSide });
   const groundMat = new THREE.MeshLambertMaterial({ color: 0x3D4143 });
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0x3D4143, transparent: true, opacity: 0.4 });
 
-  createStaticBox([40, 4, 40], [0, -2, 0], groundMat);
+  // Small, low floor (no walls), matching the WebGL/WebGPU + Havok shogi samples: a
+  // 13 x 0.1 x 13 slab at y = -10 that the heap overflows.
+  createStaticBox([13, 0.1, 13], [0, -10, 0], groundMat);
   const groundDbg = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.BoxGeometry(40, 4, 40)),
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(13, 0.1, 13)),
     new THREE.LineBasicMaterial({ color: 0x44ee88 })
   );
-  groundDbg.position.set(0, -2, 0);
+  groundDbg.position.set(0, -10, 0);
   groundDbg.visible = showWireframe;
   scene.add(groundDbg);
   staticDebugMeshes.push(groundDbg);
 
-  const wallData = [
-    { size: [10, 10,  1], pos: [ 0, 5, -5] },
-    { size: [10, 10,  1], pos: [ 0, 5,  5] },
-    { size: [ 1, 10, 10], pos: [-5, 5,  0] },
-    { size: [ 1, 10, 10], pos: [ 5, 5,  0] },
-  ];
-  for (const { size, pos } of wallData) {
-    createStaticBox(size, pos, wallMat);
-    const wallDbg = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0], size[1], size[2])),
-      new THREE.LineBasicMaterial({ color: 0x44ee88 })
-    );
-    wallDbg.position.set(pos[0], pos[1], pos[2]);
-    wallDbg.visible = showWireframe;
-    scene.add(wallDbg);
-    staticDebugMeshes.push(wallDbg);
-  }
-
   const pieceW = 1.6;
   const pieceH = 1.6;
-  const pieceD = 0.45;
+  const pieceD = 0.32;
+  // Collider matches the other Havok samples' SHOGI_PHYSICS_SIZE = [w, h*1.2, d*1.4].
+  const colliderSize = [pieceW, pieceH * 1.2, pieceD * 1.4];
 
-  const psRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [pieceW, pieceH, pieceD * 1.4]);
+  const psRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, colliderSize);
   checkResult(psRes[0], 'HP_Shape_CreateBox shogi');
   const pieceShapeId = psRes[1];
   const pmRes = HK.HP_Shape_BuildMassProperties(pieceShapeId);
@@ -202,9 +189,9 @@ function initPhysics() {
   const pieceGeo = createShogiGeometry(pieceW, pieceH, pieceD);
 
   for (let i = 0; i < PIECE_COUNT; i++) {
-    const x = (Math.random() - 0.5) * 8;
-    const y = 12 + Math.random() * 26;
-    const z = (Math.random() - 0.5) * 8;
+    const x = (Math.random() - 0.5) * 15;
+    const y = (Math.random() + 1.0) * 15;
+    const z = (Math.random() - 0.5) * 15;
     const q = randomQuaternion();
 
     const bRes = HK.HP_Body_Create();
@@ -224,7 +211,7 @@ function initPhysics() {
     scene.add(mesh);
     meshes.push(mesh);
     const dbg = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(pieceW, pieceH, pieceD * 1.4)),
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(colliderSize[0], colliderSize[1], colliderSize[2])),
       new THREE.LineBasicMaterial({ color: 0xff8844 })
     );
     dbg.visible = showWireframe;
@@ -245,10 +232,10 @@ function updatePhysics() {
       debugMeshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
     }
 
-    if (pos[1] < -10) {
-      const x = (Math.random() - 0.5) * 8;
-      const y = 12 + Math.random() * 26;
-      const z = (Math.random() - 0.5) * 8;
+    if (pos[1] < -15) {
+      const x = (Math.random() - 0.5) * 15;
+      const y = (Math.random() + 1.0) * 15;
+      const z = (Math.random() - 0.5) * 15;
       const q = randomQuaternion();
       HK.HP_Body_SetPosition(bodyIds[i], [x, y, z]);
       HK.HP_Body_SetOrientation(bodyIds[i], [q.x, q.y, q.z, q.w]);

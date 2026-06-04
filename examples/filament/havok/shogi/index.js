@@ -20,25 +20,22 @@ const IBL_URL = 'https://cx20.github.io/gltf-test/textures/ktx/papermill/papermi
 const GRASS_URL = '../../../../assets/textures/grass.jpg';
 const SHOGI_URL = '../../../../assets/textures/shogi_001/shogi.png';
 
-const PIECE_COUNT = 220;
+const PIECE_COUNT = 300;
 const PIECE_W = 1.6;
 const PIECE_H = 1.6;
-const PIECE_D = 0.45;
-const COLLIDER_SIZE = [PIECE_W, PIECE_H, PIECE_D * 1.4]; // box fallback only
+const PIECE_D = 0.32;
+// Matches the other Havok samples' SHOGI_PHYSICS_SIZE = [w, h*1.2, d*1.4].
+const COLLIDER_SIZE = [PIECE_W, PIECE_H * 1.2, PIECE_D * 1.4];
 const PIECE_ROUGHNESS = 0.65; // lacquered-wood look
 const WIREFRAME_OUTSET = 1.005;
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
-const RESET_Y_THRESHOLD = -10;
-const GROUND = { size: [40, 4, 40], pos: [0, -2, 0] };
-const GROUND_TILES = 16;
-const WALLS = [
-  { size: [10, 10, 1], pos: [0, 5, -5] },
-  { size: [10, 10, 1], pos: [0, 5, 5] },
-  { size: [1, 10, 10], pos: [-5, 5, 0] },
-  { size: [1, 10, 10], pos: [5, 5, 0] },
-];
+const RESET_Y_THRESHOLD = -15;
+// Small, low floor (no walls), matching the WebGL/WebGPU + Havok shogi samples.
+const GROUND = { size: [13, 0.1, 13], pos: [0, -10, 0] };
+const GROUND_TILES = 5;
+const WALLS = [];
 
 const COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
@@ -371,7 +368,7 @@ function randomQuat() {
 }
 
 function randomDrop() {
-  return [(Math.random() - 0.5) * 8, 12 + Math.random() * 26, (Math.random() - 0.5) * 8];
+  return [(Math.random() - 0.5) * 15, (Math.random() + 1.0) * 15, (Math.random() - 0.5) * 15];
 }
 
 function addPieceBody(shapeId, entity, wireframeEntity, pos, rot) {
@@ -493,7 +490,7 @@ async function main() {
   HK = await HavokPhysics();
   const w = HK.HP_World_Create();
   worldId = w[1];
-  checkResult(HK.HP_World_SetGravity(worldId, [0, -10, 0]), 'HP_World_SetGravity');
+  checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
   createStaticBox(GROUND.size, GROUND.pos);
   for (const wd of WALLS) createStaticBox(wd.size, wd.pos);
@@ -544,10 +541,11 @@ async function main() {
   }
   console.log('[Filament+Havok] pieces ready:', pieces.length, 'static wires:', staticWireframeEntities.length);
 
-  const camTarget = [0, 2, 0];
-  let camTheta  = 0.5;   // azimuth (rad)
-  let camPhi    = 0.49;   // elevation (rad)
-  let camRadius = 34.0;
+  // Head-on view matching the WebGL/WebGPU + Havok shogi samples (eye at (0,0,40), origin).
+  const camTarget = [0, 0, 0];
+  let camTheta  = 0.0;   // azimuth (rad)
+  let camPhi    = 0.0;   // elevation (rad)
+  let camRadius = 40.0;
 
   let aspect = 1;
   function resize() {
@@ -557,7 +555,7 @@ async function main() {
     aspect = width / height;
     view.setViewport([0, 0, width, height]);
     const fovAxis = aspect < 1 ? Fov.HORIZONTAL : Fov.VERTICAL;
-    camera.setProjectionFov(75, aspect, 0.1, 1000.0, fovAxis);
+    camera.setProjectionFov(45, aspect, 0.1, 1000.0, fovAxis);
   }
   window.addEventListener('resize', resize);
   resize();
