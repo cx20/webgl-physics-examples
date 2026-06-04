@@ -492,9 +492,16 @@ struct BallState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, a
 const RADIUS : f32 = ${RADIUS};
 @group(0) @binding(0) var<uniform>       camera : Camera;
 @group(0) @binding(1) var<storage, read> states : array<BallState>;
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
 @vertex
 fn vs(@location(0) position : vec3<f32>, @builtin(instance_index) instance : u32) -> @builtin(position) vec4<f32> {
-    let worldPos = position * RADIUS + states[instance].position.xyz;
+    let state = states[instance];
+    // Apply the ball's rotation so the collider wireframe shows the rigid body's orientation
+    // (and makes the spin visible) rather than staying axis-aligned.
+    let worldPos = rotByQuat(position * RADIUS, state.rotation) + state.position.xyz;
     let clip = camera.viewProjection * vec4<f32>(worldPos, 1.0);
     return vec4<f32>(clip.x, -clip.y, clip.z, clip.w);
 }
