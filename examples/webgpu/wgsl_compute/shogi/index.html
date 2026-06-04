@@ -29,12 +29,14 @@ struct PieceState {
 }
 struct SimParams { dt : f32, gravity : f32, elapsedTime : f32, pad : f32, }
 
-const COUNT : u32 = 200u;
+const COUNT : u32 = __COUNT__;
 // Half-extents matching SHOGI_PHYSICS_SIZE = [pw, ph*1.2, pd*1.4] (pw=ph=1.6, pd=0.32).
 const SHE : vec3<f32> = vec3<f32>(0.80, 0.96, 0.224);
 // Static floor OBB (thin plate, top surface at y = -9.95).
-const GROUND_C : vec3<f32> = vec3<f32>(0.0, -10.0, 0.0);
-const GROUND_HE : vec3<f32> = vec3<f32>(6.5, 0.05, 6.5);
+// Thick floor OBB so fast pieces cannot tunnel through (a too-thin slab lets a piece sink past
+// the box centre, flipping the SAT push-out normal downward). The top surface stays at -9.95.
+const GROUND_C : vec3<f32> = vec3<f32>(0.0, -11.45, 0.0);
+const GROUND_HE : vec3<f32> = vec3<f32>(6.5, 1.5, 6.5);
 
 const ANG_SCALE : f32 = 0.18;
 const PEN_SLOP  : f32 = 0.006;
@@ -43,7 +45,12 @@ const MAX_PUSH  : f32 = 0.06;
 const WAKE_LIN  : f32 = 0.15;
 const WAKE_ANG  : f32 = 0.6;
 const SLEEP_TIME : f32 = 0.4;
-const GTIP : f32 = 2.5;
+// Gravity torque about the average contact tips a piece flat quickly (fast, like real
+// toppling). Only applied while a piece is still moving (see below).
+const GTIP : f32 = 4.5;
+// Small extra bias toward lying flat, so a piece balanced perfectly on edge (where the gravity
+// torque vanishes) still starts to topple instead of freezing upright.
+const GTIP_FLAT : f32 = 1.5;
 const PUSH_REST : f32 = 0.03;
 const POKE_SPEED : f32 = 0.3;
 
@@ -209,13 +216,23 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     if (speed > 18.0) { vel *= 18.0 / speed; }
     if (length(angVel) > 8.0) { angVel *= 8.0 / length(angVel); }
 
-    // Resting bodies: gravity torque about the average contact tips an edge-balanced piece flat
-    // (and vanishes once balanced). Sleep only on a stable support, when slow and once the
-    // push-out has converged, so jammed/penetrating pieces never freeze in mid-air.
+    // Resting bodies: gravity torque about the average contact topples a piece quickly, like
+    // real toppling. But once a piece is slow on a stable support it is left alone (no more
+    // tipping), so settled and buried pieces come to rest and stay put instead of being nudged
+    // forever. A small bias toward flat is kept only for near-upright pieces, to break the
+    // metastable on-edge balance. Pieces may sleep at whatever angle they wedge at (a jumble).
     if (contacts > 0.0) {
-        let rAvg = leverSum / contacts;
-        angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
-        angVel *= 0.9;
+        let zaxis = axA[2];
+        let settledSupport = stableSupport && length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG;
+        if (!settledSupport) {
+            let rAvg = leverSum / contacts;
+            angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
+        }
+        if (abs(zaxis.y) < 0.35) {   // near upright (tilt > ~70deg): nudge so it cannot balance
+            let upTarget = select(vec3<f32>(0.0, -1.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), zaxis.y >= 0.0);
+            angVel += cross(zaxis, upTarget) * (params.dt * GTIP_FLAT);
+        }
+        angVel *= 0.93;
         if (stableSupport && length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG && pushMag < PUSH_REST) {
             sleepTimer += params.dt;
         } else {
@@ -235,10 +252,11 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         let fx = f32((salt >> 0u) & 1023u) / 1023.0;
         let fy = f32((salt >> 10u) & 1023u) / 1023.0;
         let fz = f32((salt >> 20u) & 1023u) / 1023.0;
-        pos = vec3<f32>((fx - 0.5) * 8.0, (fy + 1.0) * 15.0, (fz - 0.5) * 8.0);
+        pos = vec3<f32>((fx - 0.5) * 15.0, (fy + 1.0) * 15.0, (fz - 0.5) * 15.0);
         vel = vec3<f32>(0.0, -0.3, 0.0);
+        // Respawn at a random orientation and tumble so recycled pieces land in a jumble too.
         rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
-        angVel = vec3<f32>(0.0, 0.0, 0.0);
+        angVel = vec3<f32>((fx - 0.5) * 6.0, (fz - 0.5) * 2.0, (seed - 0.5) * 6.0);
         sleepTimer = 0.0;
     }
 

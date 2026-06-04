@@ -9,9 +9,9 @@ const wireVertWGSL       = document.getElementById('wvs').textContent;
 const wireFragWGSL       = document.getElementById('wfs').textContent;
 
 // ------------------------------------------------------------------ constants
-// Keep the heap inside the open 13 x 13 plate; more pieces overflow the edges and the spilled
-// ones recycle forever (a "fountain" of pieces raining back down).
-const COUNT       = 150;
+// 300 pieces rain onto the 13 x 13 plate and overflow the edges; the spilled ones recycle from
+// the top (a "fountain"), matching the WebGL/WebGPU + Havok shogi samples.
+const COUNT       = 300;
 const STATE_FLOATS = 16;   // 4 × vec4<f32>
 const SUBSTEPS    = 5;
 
@@ -177,13 +177,13 @@ function createInitialStates() {
     for (let i = 0; i < COUNT; i++) {
         const base = i * STATE_FLOATS;
         const seed = hash32(i + 1);
-        states[base + 0] = (hashF(seed)     - 0.5) * 8;   // x (kept well inside the plate)
+        states[base + 0] = (hashF(seed)     - 0.5) * 15;  // x (matches the other Havok samples)
         states[base + 1] = (hashF(seed + 1) + 1.0) * 15;  // y (15..30)
-        states[base + 2] = (hashF(seed + 2) - 0.5) * 8;   // z
+        states[base + 2] = (hashF(seed + 2) - 0.5) * 15;  // z
         states[base + 3] = hashF(seed + 6);                // seed (float 0..1)
-        // rotation: identity (qw=1)
+        // rotation: identity (qw = 1). The strong random tumble below makes pieces rotate during
+        // the fall and land at varied angles, so the heap settles in a Havok-like jumble.
         states[base + 11] = 1.0;
-        // Initial angular velocity: random tumble so pieces tip on landing
         states[base + 12] = (hashF(seed + 3) - 0.5) * 6;
         states[base + 13] = (hashF(seed + 4) - 0.5) * 2;
         states[base + 14] = (hashF(seed + 5) - 0.5) * 6;
@@ -438,7 +438,9 @@ async function init() {
 
     computePipeline = device.createComputePipeline({
         layout: 'auto',
-        compute: { module: device.createShaderModule({ code: computeShaderWGSL }), entryPoint: 'main' }
+        // Inject COUNT so the shader's piece-piece loop never reads past the state buffer (a
+        // hardcoded mismatch would create phantom colliders at the origin).
+        compute: { module: device.createShaderModule({ code: computeShaderWGSL.replaceAll('__COUNT__', COUNT + 'u') }), entryPoint: 'main' }
     });
 
     computeBindGroupA = device.createBindGroup({
