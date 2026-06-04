@@ -3,6 +3,8 @@ const clearGridShaderWGSL = document.getElementById('cs-clear').textContent;
 const buildGridShaderWGSL = document.getElementById('cs-build').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
+const lineVertexShaderWGSL = document.getElementById('vs-line').textContent;
+const lineFragmentShaderWGSL = document.getElementById('fs-line').textContent;
 
 const canvas = document.getElementById('c');
 
@@ -38,8 +40,7 @@ const GROUND_HALF = 15.0;
 const SPAWN_Y_OFFSET = 4.0;
 const RESTITUTION = 0.68;
 // Moderate rolling resistance: low enough that balls keep horizontal velocity and visibly
-// roll after landing, high enough that they come to rest within the containment walls
-// instead of sloshing forever.
+// roll after landing, high enough that they settle instead of sliding indefinitely.
 const FRICTION = 0.02;
 const LINEAR_DAMPING = 0.999;
 
@@ -50,17 +51,20 @@ const CELL_CAPACITY = 12;
 const GRID_SLOTS = GRID_X * GRID_Y * GRID_Z * (CELL_CAPACITY + 1);
 
 let device, context, format, depthTexture;
-let renderPipeline, computePipeline, clearGridPipeline, buildGridPipeline;
+let renderPipeline, computePipeline, clearGridPipeline, buildGridPipeline, linePipeline;
 let sphereMesh, groundMesh;
+let wireVertexBuffer, wireVertexCount = 0;
 let cameraBuffer, colorBuffer, simParamsBuffer, gridBuffer;
 let sampler, textureView;
 let stateBuffers = [];
 let renderBindGroups = [];
 let computeBindGroups = [];
 let buildGridBindGroups = [];
+let lineBindGroups = [];
 let clearGridBindGroup;
 let currentState = 0;
 let lastTime = -1;
+let showWireframe = true;
 
 const projectionMatrix = new Float32Array(16);
 const viewMatrix = new Float32Array(16);
@@ -147,6 +151,26 @@ function createGroundGeometry() {
     ]);
     const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
     return createMesh(positions, normals, uvs, indices);
+}
+
+// Three great circles (a unit-radius sphere collider outline) as a line list.
+function createWireframeGeometry(segments = 32) {
+    const verts = [];
+    const ring = (axis) => {
+        for (let k = 0; k < segments; k++) {
+            const a0 = (k / segments) * Math.PI * 2;
+            const a1 = ((k + 1) / segments) * Math.PI * 2;
+            const p = (a) => {
+                const c = Math.cos(a), s = Math.sin(a);
+                if (axis === 0) return [0, c, s];
+                if (axis === 1) return [c, 0, s];
+                return [c, s, 0];
+            };
+            verts.push(...p(a0), ...p(a1));
+        }
+    };
+    ring(0); ring(1); ring(2);
+    return new Float32Array(verts);
 }
 
 function createMesh(positions, normals, uvs, indices) {
@@ -316,6 +340,13 @@ function frame(timeMs) {
     renderPass.setBindGroup(0, renderBindGroups[currentState]);
     drawMesh(renderPass, sphereMesh, COUNT);
     drawMesh(renderPass, groundMesh, 1, COUNT);
+
+    if (showWireframe) {
+        renderPass.setPipeline(linePipeline);
+        renderPass.setBindGroup(0, lineBindGroups[currentState]);
+        renderPass.setVertexBuffer(0, wireVertexBuffer);
+        renderPass.draw(wireVertexCount, COUNT);
+    }
     renderPass.end();
 
     device.queue.submit([encoder.finish()]);
@@ -332,6 +363,9 @@ async function init() {
 
     sphereMesh = createSphereGeometry();
     groundMesh = createGroundGeometry();
+    const wireData = createWireframeGeometry();
+    wireVertexBuffer = createVertexBuffer(wireData);
+    wireVertexCount = wireData.length / 3;
 
     const initialStates = createInitialStates();
     for (let i = 0; i < 2; i++) {
@@ -392,6 +426,22 @@ async function init() {
         depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
 
+    linePipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: device.createShaderModule({ code: lineVertexShaderWGSL }),
+            entryPoint: 'main',
+            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }],
+        },
+        fragment: {
+            module: device.createShaderModule({ code: lineFragmentShaderWGSL }),
+            entryPoint: 'main',
+            targets: [{ format }],
+        },
+        primitive: { topology: 'line-list' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
+    });
+
     computePipeline = device.createComputePipeline({
         layout: 'auto',
         compute: {
@@ -441,10 +491,25 @@ async function init() {
                 { binding: 1, resource: { buffer: gridBuffer } },
             ],
         }));
+
+        lineBindGroups.push(device.createBindGroup({
+            layout: linePipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: cameraBuffer } },
+                { binding: 1, resource: { buffer: stateBuffers[i] } },
+            ],
+        }));
     }
 
     resize();
     window.addEventListener('resize', resize);
+    window.addEventListener('keydown', (event) => {
+        const isWKey = event.code === 'KeyW' || event.key === 'w' || event.key === 'W';
+        if (!isWKey || event.repeat) return;
+        showWireframe = !showWireframe;
+        const hint = document.getElementById('hint');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+    });
 
     requestAnimationFrame(frame);
 }

@@ -322,7 +322,48 @@ fn main(
 }
 </script>
 
+<script id="vs-line" type="x-shader/x-vertex">
+struct Camera {
+    viewProjection : mat4x4<f32>,
+}
+
+struct BallState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+
+const RADIUS : f32 = 0.5;
+
+@group(0) @binding(0) var<uniform> camera : Camera;
+@group(0) @binding(1) var<storage, read> states : array<BallState>;
+
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn main(@location(0) position : vec3<f32>, @builtin(instance_index) instance : u32) -> @builtin(position) vec4<f32> {
+    let state = states[instance];
+    // Apply the ball's rotation so the collider wireframe shows the rigid body's orientation
+    // (and makes the spin visible) rather than staying axis-aligned.
+    let worldPos = rotByQuat(position * RADIUS, state.rotation) + state.position.xyz;
+    return camera.viewProjection * vec4<f32>(worldPos, 1.0);
+}
+</script>
+
+<script id="fs-line" type="x-shader/x-fragment">
+@fragment
+fn main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.1, 1.0, 0.35, 1.0);
+}
+</script>
+
 <canvas id="c" width="465" height="465"></canvas>
+
+<div id="hint">W: wireframe ON</div>
 
 <script src="index.js"></script>
 </body>
