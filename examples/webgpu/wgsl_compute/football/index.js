@@ -1,4 +1,6 @@
 const computeShaderWGSL = document.getElementById('cs').textContent;
+const clearGridShaderWGSL = document.getElementById('cs-clear').textContent;
+const buildGridShaderWGSL = document.getElementById('cs-build').textContent;
 const vertexShaderWGSL = document.getElementById('vs').textContent;
 const fragmentShaderWGSL = document.getElementById('fs').textContent;
 
@@ -26,23 +28,37 @@ const ROWS = [
 const COUNT = 256;
 const INSTANCE_COUNT = COUNT + 1;
 const STATE_FLOATS = 16;
-const SUBSTEPS = 4;
+// The grid broad-phase keeps contacts stable. Restitution is kept moderate so dense piles
+// settle without exploding, while damping stays light (~0.995/frame after SUBSTEPS) so the
+// balls keep a lively bounce instead of feeling viscous.
+const SUBSTEPS = 5;
 const RADIUS = 0.5;
 const GROUND_Y = -2.0;
 const GROUND_HALF = 15.0;
 const SPAWN_Y_OFFSET = 4.0;
-const RESTITUTION = 0.82;
-const FRICTION = 0.035;
+const RESTITUTION = 0.68;
+// Moderate rolling resistance: low enough that balls keep horizontal velocity and visibly
+// roll after landing, high enough that they come to rest within the containment walls
+// instead of sloshing forever.
+const FRICTION = 0.02;
 const LINEAR_DAMPING = 0.999;
 
+// Uniform spatial grid for broad-phase collision (mirrors the WGSL constants in index.html;
+// CELL_SIZE is computed from the ball radius and injected into the shaders).
+const GRID_X = 64, GRID_Y = 64, GRID_Z = 64;
+const CELL_CAPACITY = 12;
+const GRID_SLOTS = GRID_X * GRID_Y * GRID_Z * (CELL_CAPACITY + 1);
+
 let device, context, format, depthTexture;
-let renderPipeline, computePipeline;
+let renderPipeline, computePipeline, clearGridPipeline, buildGridPipeline;
 let sphereMesh, groundMesh;
-let cameraBuffer, colorBuffer, simParamsBuffer;
+let cameraBuffer, colorBuffer, simParamsBuffer, gridBuffer;
 let sampler, textureView;
 let stateBuffers = [];
 let renderBindGroups = [];
 let computeBindGroups = [];
+let buildGridBindGroups = [];
+let clearGridBindGroup;
 let currentState = 0;
 let lastTime = -1;
 
@@ -257,11 +273,26 @@ function frame(timeMs) {
     ]));
 
     const encoder = device.createCommandEncoder();
+    const ballWorkgroups = Math.ceil(COUNT / 64);
+    const gridWorkgroups = Math.ceil(GRID_SLOTS / 64);
     for (let s = 0; s < SUBSTEPS; s++) {
+        // Rebuild the spatial grid from the current (src) state, then step the physics.
+        const clearPass = encoder.beginComputePass();
+        clearPass.setPipeline(clearGridPipeline);
+        clearPass.setBindGroup(0, clearGridBindGroup);
+        clearPass.dispatchWorkgroups(gridWorkgroups);
+        clearPass.end();
+
+        const buildPass = encoder.beginComputePass();
+        buildPass.setPipeline(buildGridPipeline);
+        buildPass.setBindGroup(0, buildGridBindGroups[currentState]);
+        buildPass.dispatchWorkgroups(ballWorkgroups);
+        buildPass.end();
+
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(computePipeline);
         computePass.setBindGroup(0, computeBindGroups[currentState]);
-        computePass.dispatchWorkgroups(Math.ceil(COUNT / 64));
+        computePass.dispatchWorkgroups(ballWorkgroups);
         computePass.end();
         currentState = 1 - currentState;
     }
@@ -324,6 +355,13 @@ async function init() {
 
     cameraBuffer = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     simParamsBuffer = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    gridBuffer = device.createBuffer({ size: GRID_SLOTS * 4, usage: GPUBufferUsage.STORAGE });
+
+    // Grid cell size must cover the ball diameter so the 3x3x3 neighbour scan catches every
+    // overlapping pair; inject it into the compute and grid-build shaders.
+    const cellSize = Math.max(1.2, RADIUS * 2 * 1.15).toFixed(4);
+    const computeCode = computeShaderWGSL.replaceAll('__CELL_SIZE__', cellSize);
+    const buildGridCode = buildGridShaderWGSL.replaceAll('__CELL_SIZE__', cellSize);
 
     sampler = device.createSampler({
         addressModeU: 'repeat',
@@ -357,9 +395,21 @@ async function init() {
     computePipeline = device.createComputePipeline({
         layout: 'auto',
         compute: {
-            module: device.createShaderModule({ code: computeShaderWGSL }),
+            module: device.createShaderModule({ code: computeCode }),
             entryPoint: 'main',
         },
+    });
+    clearGridPipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: device.createShaderModule({ code: clearGridShaderWGSL }), entryPoint: 'main' },
+    });
+    buildGridPipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: device.createShaderModule({ code: buildGridCode }), entryPoint: 'main' },
+    });
+    clearGridBindGroup = device.createBindGroup({
+        layout: clearGridPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: gridBuffer } }],
     });
 
     for (let i = 0; i < 2; i++) {
@@ -380,6 +430,15 @@ async function init() {
                 { binding: 0, resource: { buffer: stateBuffers[i] } },
                 { binding: 1, resource: { buffer: stateBuffers[1 - i] } },
                 { binding: 2, resource: { buffer: simParamsBuffer } },
+                { binding: 3, resource: { buffer: gridBuffer } },
+            ],
+        }));
+
+        buildGridBindGroups.push(device.createBindGroup({
+            layout: buildGridPipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: stateBuffers[i] } },
+                { binding: 1, resource: { buffer: gridBuffer } },
             ],
         }));
     }
