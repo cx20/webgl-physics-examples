@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// three.js (rendering) + Havok low-level API (physics). Textured box erasers rain into a
-// walled basket on a grass floor; each collider is a box matching the eraser's extents.
+// three.js (rendering) + Havok low-level API (physics). Textured box erasers rain onto a small
+// grass floor and overflow the edges; each collider is a box matching the eraser's extents.
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
@@ -48,7 +48,7 @@ function randomQuaternion() {
 
 function spawnTransform() {
     return {
-        pos: [(Math.random() - 0.5) * 10, 20 + Math.random() * 12, (Math.random() - 0.5) * 10],
+        pos: [(Math.random() - 0.5) * 12, 14 + Math.random() * 14, (Math.random() - 0.5) * 12],
         q: randomQuaternion(),
     };
 }
@@ -60,8 +60,10 @@ function initThree() {
     scene.add(new THREE.HemisphereLight(0xbfd6ff, 0x444444, 1.0));
     scene.add(new THREE.AmbientLight(0x666666, 1.0));
 
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(0, 14, 44);
+    // Head-on camera matching the WebGL/WebGPU + Havok eraser samples (eye at (0,0,40) looking
+    // at the origin, 45 deg FOV).
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 40);
 
     const light = new THREE.DirectionalLight(0xffffff, 2.0);
     light.position.set(30, 100, 50);
@@ -74,9 +76,8 @@ function initThree() {
     container.appendChild(renderer.domElement);
 
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 3, 0);
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 1.0;
+    controls.target.set(0, 0, 0);
+    controls.autoRotate = false;
 
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -87,7 +88,7 @@ function initThree() {
 
 function initPhysics() {
     worldId = HK.HP_World_Create()[1];
-    HK.HP_World_SetGravity(worldId, [0, -9.81, 0]);
+    HK.HP_World_SetGravity(worldId, [0, -9.8, 0]);
     HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP);
 
     const loader = new THREE.TextureLoader();
@@ -95,16 +96,10 @@ function initPhysics() {
     grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
     grassTex.repeat.set(4, 4);
     const groundMat = new THREE.MeshLambertMaterial({ map: grassTex });
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
 
-    createStaticBox([40, 4, 40], [0, -2, 0], groundMat);
-    const wallData = [
-        { size: [10, 10, 1], pos: [0, 5, -5] },
-        { size: [10, 10, 1], pos: [0, 5, 5] },
-        { size: [1, 10, 10], pos: [-5, 5, 0] },
-        { size: [1, 10, 10], pos: [5, 5, 0] },
-    ];
-    for (const { size, pos } of wallData) createStaticBox(size, pos, wallMat);
+    // Small low floor (no walls), matching the other Havok eraser samples: a 20 x 0.1 x 20 slab
+    // at y = -10 that the heap overflows.
+    createStaticBox([20, 0.1, 20], [0, -10, 0], groundMat);
 
     // Six separate face textures mapped onto a BoxGeometry (one material per face), the same
     // reliable layout as the three.js + Oimo eraser, so every "MOMO" face reads correctly.
@@ -154,7 +149,7 @@ function updatePhysics() {
         debugMeshes[i].position.set(pos[0], pos[1], pos[2]);
         debugMeshes[i].quaternion.set(ori[0], ori[1], ori[2], ori[3]);
 
-        if (pos[1] < -10) {
+        if (pos[1] < -15) {
             const t = spawnTransform();
             HK.HP_Body_SetPosition(bodyIds[i], t.pos);
             HK.HP_Body_SetOrientation(bodyIds[i], [t.q.x, t.q.y, t.q.z, t.q.w]);

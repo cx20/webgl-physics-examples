@@ -108,7 +108,7 @@ function randomQuaternion() {
 }
 
 function spawnPosition() {
-    return [randomRange(-5, 5), randomRange(20, 30), randomRange(-5, 5)];
+    return [randomRange(-6, 6), randomRange(14, 28), randomRange(-6, 6)];
 }
 
 function spawnEraser() {
@@ -132,18 +132,12 @@ function spawnEraser() {
 
 function initPhysics() {
     worldId = HK.HP_World_Create()[1];
-    HK.HP_World_SetGravity(worldId, [0, -9.81, 0]);
+    HK.HP_World_SetGravity(worldId, [0, -9.8, 0]);
     HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP);
 
     const floorMat = new pc.StandardMaterial();
     floorMat.diffuseMap = getTexture(GRASS_TEX, 72, 72);
     floorMat.update();
-
-    const wallMat = new pc.StandardMaterial();
-    wallMat.diffuse = new pc.Color(1, 1, 1);
-    wallMat.opacity = 0.5;
-    wallMat.blendType = pc.BLEND_NORMAL;
-    wallMat.update();
 
     // Load the eraser texture via the asset system and re-update the material once it
     // arrives, so the diffuse map is reliably picked up by the mesh material's shader.
@@ -156,29 +150,14 @@ function initPhysics() {
         eraserMat.update();
     });
 
-    // Floor (static)
-    createStaticBox(0, -2, 0, 20, 2, 20);
+    // Small low floor (no walls), matching the other Havok eraser samples: a 20 x 0.1 x 20 slab
+    // at y = -10 that the heap overflows.
+    createStaticBox(0, -10, 0, 10, 0.05, 10);
     const floor = new pc.Entity();
     floor.addComponent('model', { type: 'box', material: floorMat });
-    floor.setLocalScale(40, 4, 40);
-    floor.setPosition(0, -2, 0);
+    floor.setLocalScale(20, 0.1, 20);
+    floor.setPosition(0, -10, 0);
     app.root.addChild(floor);
-
-    // Walls (static) — basket sides.
-    const wallData = [
-        { size: [10, 10, 1], pos: [0, 5, -5] },
-        { size: [10, 10, 1], pos: [0, 5,  5] },
-        { size: [1, 10, 10], pos: [-5, 5, 0] },
-        { size: [1, 10, 10], pos: [5, 5,  0] }
-    ];
-    for (const w of wallData) {
-        createStaticBox(w.pos[0], w.pos[1], w.pos[2], w.size[0] / 2, w.size[1] / 2, w.size[2] / 2);
-        const wall = new pc.Entity();
-        wall.addComponent('model', { type: 'box', material: wallMat });
-        wall.setLocalScale(w.size[0], w.size[1], w.size[2]);
-        wall.setPosition(w.pos[0], w.pos[1], w.pos[2]);
-        app.root.addChild(wall);
-    }
 
     // Shared eraser mesh + box collider (full side lengths = 2x half-extents).
     eraserMesh = new pc.Mesh(app.graphicsDevice);
@@ -200,7 +179,7 @@ function updatePhysics() {
         e.entity.setPosition(pos[0], pos[1], pos[2]);
         e.entity.setRotation(new pc.Quat(ori[0], ori[1], ori[2], ori[3]));
 
-        if (pos[1] < -10) {
+        if (pos[1] < -15) {
             HK.HP_Body_SetPosition(e.bodyId, spawnPosition());
             HK.HP_Body_SetOrientation(e.bodyId, randomQuaternion());
             HK.HP_Body_SetLinearVelocity(e.bodyId, [0, 0, 0]);
@@ -227,12 +206,13 @@ async function main() {
     app.root.addChild(light);
 
     camera = new pc.Entity('camera');
-    camera.addComponent('camera', { clearColor: new pc.Color(0.5, 0.5, 0.8), nearClip: 0.01, farClip: 1000, fov: 60 });
+    camera.addComponent('camera', { clearColor: new pc.Color(0.5, 0.5, 0.8), nearClip: 0.1, farClip: 1000, fov: 45 });
     camera.addComponent('script');
     app.root.addChild(camera);
     const cc = camera.script.create(CameraControls);
     cc.enableFly = false;
-    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 10, 40));
+    // Head-on view matching the WebGL/WebGPU + Havok eraser samples (eye at (0,0,40), origin).
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 0, 40));
 
     initPhysics();
     setInterval(updatePhysics, 1000 / 60);

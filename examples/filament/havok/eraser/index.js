@@ -37,15 +37,11 @@ const WIREFRAME_OUTSET = 1.01;
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
-const RESET_Y_THRESHOLD = -10;
-const GROUND = { size: [40, 4, 40], pos: [0, -2, 0] };
-const GROUND_TILES = 16;
-const WALLS = [
-  { size: [10, 10, 1], pos: [0, 5, -5] },
-  { size: [10, 10, 1], pos: [0, 5, 5] },
-  { size: [1, 10, 10], pos: [-5, 5, 0] },
-  { size: [1, 10, 10], pos: [5, 5, 0] },
-];
+const RESET_Y_THRESHOLD = -15;
+// Small low floor (no walls), matching the other Havok eraser samples.
+const GROUND = { size: [20, 0.1, 20], pos: [0, -10, 0] };
+const GROUND_TILES = 8;
+const WALLS = [];
 
 const COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
@@ -343,7 +339,7 @@ function randomQuat() {
 }
 
 function randomDrop() {
-  return [(Math.random() - 0.5) * 8, 12 + Math.random() * 26, (Math.random() - 0.5) * 8];
+  return [(Math.random() - 0.5) * 12, 14 + Math.random() * 14, (Math.random() - 0.5) * 12];
 }
 
 function addEraserBody(shapeId, entity, wireframeEntity, pos, rot) {
@@ -483,7 +479,7 @@ async function main() {
   HK = await HavokPhysics();
   const w = HK.HP_World_Create();
   worldId = w[1];
-  checkResult(HK.HP_World_SetGravity(worldId, [0, -10, 0]), 'HP_World_SetGravity');
+  checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
   createStaticBox(GROUND.size, GROUND.pos);
   for (const wd of WALLS) createStaticBox(wd.size, wd.pos);
@@ -534,10 +530,11 @@ async function main() {
   }
   console.log('[Filament+Havok] erasers ready:', erasers.length, 'static wires:', staticWireframeEntities.length);
 
-  const camTarget = [0, 2, 0];
-  let camTheta = 0.5;   // azimuth (rad)
-  let camPhi = 0.49;    // elevation (rad)
-  let camRadius = 34.0;
+  // Head-on view matching the WebGL/WebGPU + Havok eraser samples (eye at (0,0,40), origin).
+  const camTarget = [0, 0, 0];
+  let camTheta = 0.0;   // azimuth (rad)
+  let camPhi = 0.0;     // elevation (rad)
+  let camRadius = 40.0;
 
   let aspect = 1;
   function resize() {
@@ -547,7 +544,7 @@ async function main() {
     aspect = width / height;
     view.setViewport([0, 0, width, height]);
     const fovAxis = aspect < 1 ? Fov.HORIZONTAL : Fov.VERTICAL;
-    camera.setProjectionFov(75, aspect, 0.1, 1000.0, fovAxis);
+    camera.setProjectionFov(45, aspect, 0.1, 1000.0, fovAxis);
   }
   window.addEventListener('resize', resize);
   resize();

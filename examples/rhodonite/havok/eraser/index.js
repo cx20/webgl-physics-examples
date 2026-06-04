@@ -1,7 +1,7 @@
 import Rn from 'rhodonite';
 
-// Rhodonite (rendering) + Havok low-level API (physics). Textured eraser boxes rain into a walled
-// basket on a ground slab; each collider is a box matching the eraser's extents.
+// Rhodonite (rendering) + Havok low-level API (physics). Textured eraser boxes rain onto a small
+// ground slab and overflow the edges; each collider is a box matching the eraser's extents.
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
@@ -165,7 +165,7 @@ const load = async function () {
   const worldRes = HK.HP_World_Create();
   checkResult(worldRes[0], 'HP_World_Create');
   worldId = worldRes[1];
-  checkResult(HK.HP_World_SetGravity(worldId, [0, -10, 0]), 'HP_World_SetGravity');
+  checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
 
   const sampler = new Rn.Sampler(engine, {
@@ -176,37 +176,16 @@ const load = async function () {
   });
   const eraserTex = await Rn.Texture.loadFromUrl(engine, await buildEraserAtlasDataUrl());
 
-  // Ground
-  createStaticBody([40, 4, 40], [0, -2, 0]);
+  // Ground: small low floor (no walls), matching the other Havok eraser samples - a
+  // 20 x 0.1 x 20 slab at y = -10 that the heap overflows.
+  createStaticBody([20, 0.1, 20], [0, -10, 0]);
   const groundMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
   groundMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.4, 0.22, 1]));
   const groundEntity = Rn.MeshHelper.createCube(engine, { material: groundMat });
-  groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -2, 0]);
-  groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([40, 4, 40]);
+  groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -10, 0]);
+  groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([20, 0.1, 20]);
   entities.push(groundEntity);
-  createDebugBox([40, 4, 40], [0, -2, 0], DEBUG_COLOR_STATIC);
-
-  // Walls
-  const wallDefs = [
-    { size: [10, 10, 1], pos: [0, 5, -5] },
-    { size: [10, 10, 1], pos: [0, 5, 5] },
-    { size: [1, 10, 10], pos: [-5, 5, 0] },
-    { size: [1, 10, 10], pos: [5, 5, 0] },
-  ];
-  const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-  wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.8, 0.8, 0.85, 0.35]));
-  try {
-    const blendMode = (Rn.AlphaMode && (Rn.AlphaMode.Blend ?? Rn.AlphaMode.Translucent));
-    if (blendMode !== undefined && blendMode !== null) wallMat.alphaMode = blendMode;
-  } catch (e) {}
-  for (const { size, pos } of wallDefs) {
-    createStaticBody(size, pos);
-    const wallEntity = Rn.MeshHelper.createCube(engine, { material: wallMat });
-    wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
-    wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
-    entities.push(wallEntity);
-    createDebugBox(size, pos, DEBUG_COLOR_STATIC);
-  }
+  createDebugBox([20, 0.1, 20], [0, -10, 0], DEBUG_COLOR_STATIC);
 
   // Shared physics shape
   const psRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, ERASER_SIZE);
@@ -254,9 +233,9 @@ const load = async function () {
   } catch (e) { console.warn('[Eraser] baryCentric failed:', e); }
 
   for (let i = 0; i < ERASER_COUNT; i++) {
-    const x = (Math.random() - 0.5) * 8;
-    const y = 12 + Math.random() * 26;
-    const z = (Math.random() - 0.5) * 8;
+    const x = (Math.random() - 0.5) * 12;
+    const y = 14 + Math.random() * 14;
+    const z = (Math.random() - 0.5) * 12;
     const qx = Math.random() - 0.5;
     const qy = Math.random() - 0.5;
     const qz = Math.random() - 0.5;
@@ -286,12 +265,14 @@ const load = async function () {
 
   // Camera
   const cameraEntity = Rn.createCameraControllerEntity(engine);
-  cameraEntity.localPosition = Rn.Vector3.fromCopyArray([18, 24, 34]);
-  cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.6, 0.5, 0]);
+  // Fixed head-on view matching the other Havok eraser samples (eye at (0,0,40) looking at the
+  // origin, 45 deg FOV); no auto-rotation.
+  cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0, 0, 40]);
+  cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([0, 0, 0]);
   const cameraComponent = cameraEntity.getCamera();
-  cameraComponent.zNear = 1.0;
-  cameraComponent.zFar = 200;
-  cameraComponent.setFovyAndChangeFocalLength(60);
+  cameraComponent.zNear = 0.1;
+  cameraComponent.zFar = 1000;
+  cameraComponent.setFovyAndChangeFocalLength(45);
   cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
   // Lights
@@ -325,10 +306,9 @@ const load = async function () {
 
   setWireframeVisible(showWireframe);
 
-  // 1 ground + 4 walls = 5 static entities before eraser entities
-  const physicsEntityOffset = 5;
+  // 1 ground (no walls) static entity before the eraser entities
+  const physicsEntityOffset = 1;
 
-  let angle = 0;
   const draw = function () {
     HK.HP_World_Step(worldId, FIXED_TIMESTEP);
 
@@ -343,10 +323,10 @@ const load = async function () {
       debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
       debugEntity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
 
-      if (pos[1] < -10) {
-        const nx = (Math.random() - 0.5) * 8;
-        const ny = 12 + Math.random() * 26;
-        const nz = (Math.random() - 0.5) * 8;
+      if (pos[1] < -15) {
+        const nx = (Math.random() - 0.5) * 12;
+        const ny = 14 + Math.random() * 14;
+        const nz = (Math.random() - 0.5) * 12;
         const qx2 = Math.random() - 0.5;
         const qy2 = Math.random() - 0.5;
         const qz2 = Math.random() - 0.5;
@@ -358,14 +338,6 @@ const load = async function () {
         HK.HP_Body_SetAngularVelocity(bodyIds[i], [0, 0, 0]);
       }
     }
-
-    angle += 0.004;
-    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([
-      Math.sin(angle) * 40,
-      24,
-      Math.cos(angle) * 40,
-    ]);
-    cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.6, angle, 0]);
 
     engine.process([expression]);
     requestAnimationFrame(draw);
