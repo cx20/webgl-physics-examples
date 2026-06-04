@@ -3,8 +3,9 @@
 // Babylon.js (WebGPUEngine) provides the camera, skybox, environment and ground (a grass
 // field), while the footballs are simulated and drawn entirely on the GPU through custom WGSL
 // compute + render passes that share Babylon's WebGPU device. 256 textured footballs fall and
-// bounce; the physics is O(N^2) sphere-sphere collision plus floor contact and rolling, and
-// footballs that leave the field are recycled back to the top.
+// bounce; the physics uses a uniform spatial grid for O(N) sphere-sphere collision (clear /
+// build / step passes) plus floor contact and rolling, and footballs that leave the field are
+// recycled back to the top.
 //
 // The footballs are rendered into a RenderTargetTexture and composited over the Babylon scene
 // with a Layer. Press W to toggle the spherical collider wireframe.
@@ -42,14 +43,22 @@ const palette = {
 
 const COUNT = 256;
 const STATE_FLOATS = 16;
-const SUBSTEPS = 4;
+const SUBSTEPS = 5;
 const RADIUS = 0.5;
 const GROUND_Y = -2.0;
 const GROUND_HALF = 15.0;
 const SPAWN_Y_OFFSET = 4.0;
-const RESTITUTION = 0.82;
-const FRICTION = 0.035;
+const RESTITUTION = 0.68;
+const FRICTION = 0.02;
 const LINEAR_DAMPING = 0.999;
+
+// Uniform spatial grid for broad-phase collision (O(N) instead of O(N^2)). CELL_SIZE covers
+// the ball diameter so the 3x3x3 neighbour scan catches every overlapping pair.
+const GRID_X = 64, GRID_Y = 64, GRID_Z = 64;
+const CELL_CAPACITY = 12;
+const GRID_SLOTS = GRID_X * GRID_Y * GRID_Z * (CELL_CAPACITY + 1);
+const CELL_SIZE = Math.max(1.2, RADIUS * 2 * 1.15);
+const FLOOR_Y_C = -3.0;
 
 let engine;
 let scene;
@@ -237,9 +246,10 @@ const createScene = async function () {
 
     const camUbo = device.createBuffer({ size: 16 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const simUbo = device.createBuffer({ size: 12 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const gridBuffer = device.createBuffer({ size: GRID_SLOTS * 4, usage: GPUBufferUsage.STORAGE });
 
-    // Physics: spheres with gravity, floor contact + rolling, O(N^2) sphere-sphere collision,
-    // and recycling of footballs that leave the play area.
+    // Physics: spheres with gravity, floor contact + rolling, uniform-grid O(N) sphere-sphere
+    // collision, and recycling of footballs that leave the play area.
     const computeWGSL = `
 struct BallState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
 struct SimParams {
@@ -248,9 +258,31 @@ struct SimParams {
     groundHalf:f32, pad0:f32, pad1:f32, pad2:f32,
 }
 const COUNT : u32 = ${COUNT}u;
+const GRID_X : u32 = ${GRID_X}u;
+const GRID_Y : u32 = ${GRID_Y}u;
+const GRID_Z : u32 = ${GRID_Z}u;
+const CELL_CAPACITY : u32 = ${CELL_CAPACITY}u;
+const CELL_SIZE : f32 = ${CELL_SIZE.toFixed(4)};
+const FLOOR_Y_C : f32 = ${FLOOR_Y_C.toFixed(1)};
+
 @group(0) @binding(0) var<storage, read>       srcStates : array<BallState>;
 @group(0) @binding(1) var<storage, read_write> dstStates : array<BallState>;
 @group(0) @binding(2) var<uniform>             params    : SimParams;
+@group(0) @binding(3) var<storage, read>       grid      : array<u32>;
+
+fn cellCoord(p : vec3<f32>) -> vec3<i32> {
+    return vec3<i32>(
+        i32(floor(p.x / CELL_SIZE + f32(GRID_X) * 0.5)),
+        i32(floor((p.y - FLOOR_Y_C) / CELL_SIZE)),
+        i32(floor(p.z / CELL_SIZE + f32(GRID_Z) * 0.5)),
+    );
+}
+fn cellHash(c : vec3<i32>) -> i32 {
+    if (c.x < 0 || c.x >= i32(GRID_X)) { return -1; }
+    if (c.y < 0 || c.y >= i32(GRID_Y)) { return -1; }
+    if (c.z < 0 || c.z >= i32(GRID_Z)) { return -1; }
+    return c.x + c.y * i32(GRID_X) + c.z * i32(GRID_X) * i32(GRID_Y);
+}
 
 fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
     return vec4<f32>(
@@ -279,7 +311,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     pos += vel * params.dt;
     angVel *= 0.995;
 
-    let onGroundPlane = abs(pos.x) < params.groundHalf && abs(pos.z) < params.groundHalf;
+    let onGroundPlane = abs(pos.x) + r < params.groundHalf && abs(pos.z) + r < params.groundHalf;
     if (onGroundPlane && pos.y - r < params.groundY) {
         let impactSpeed = max(-vel.y, 0.0);
         pos.y = params.groundY + r;
@@ -290,38 +322,55 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         let tangentDecay = max(1.0 - params.friction, 0.0);
         vel.x *= tangentDecay;
         vel.z *= tangentDecay;
-        let rolling = vec3<f32>(-vel.z / max(r, 0.001), angVel.y * 0.8, vel.x / max(r, 0.001));
-        angVel = mix(angVel, rolling, 0.18);
+        // Roll without slipping: the zero-velocity contact point gives omega_x = vz/r and
+        // omega_z = -vx/r, so the surface rolls forward in the travel direction (the sign of
+        // these two terms is what makes it look like rolling rather than skidding).
+        let rolling = vec3<f32>(vel.z / r, angVel.y * 0.96, -vel.x / r);
+        angVel = mix(angVel, rolling, 0.5);
         if (abs(vel.y) < 0.03) { vel.y = 0.0; }
     }
 
-    for (var j = 0u; j < COUNT; j++) {
-        if (j == i) { continue; }
-        let other = srcStates[j];
-        var delta = pos - other.position.xyz;
-        var dist = length(delta);
-        if (dist < 0.0001) {
-            let a = params.elapsedTime + seed * 6.28318;
-            delta = vec3<f32>(cos(a), 0.2, sin(a)) * 0.001;
-            dist = length(delta);
-        }
-        if (dist < minDist) {
-            let n = delta / dist;
-            let penetration = minDist - dist;
-            pos += n * penetration * 0.52;
-            let relVel = vel - other.velocity.xyz;
-            let vn = dot(relVel, n);
-            if (vn < 0.0) {
-                vel += n * (-(1.0 + params.restitution) * vn * 0.65);
+    // Sphere vs sphere using a uniform spatial grid: only the 3x3x3 neighbouring cells are
+    // scanned instead of every other ball, turning the broad phase from O(N^2) into ~O(N).
+    let myCoord = cellCoord(pos);
+    for (var dz = -1; dz <= 1; dz = dz + 1) {
+    for (var dy = -1; dy <= 1; dy = dy + 1) {
+    for (var dx = -1; dx <= 1; dx = dx + 1) {
+        let cidx = cellHash(myCoord + vec3<i32>(dx, dy, dz));
+        if (cidx < 0) { continue; }
+        let cellBase = u32(cidx) * (CELL_CAPACITY + 1u);
+        let cellCount = min(grid[cellBase], CELL_CAPACITY);
+        for (var k = 0u; k < cellCount; k = k + 1u) {
+            let j = grid[cellBase + 1u + k];
+            if (j == i) { continue; }
+            let other = srcStates[j];
+            var delta = pos - other.position.xyz;
+            var dist = length(delta);
+            if (dist < 0.0001) {
+                let a = params.elapsedTime + seed * 6.28318;
+                delta = vec3<f32>(cos(a), 0.2, sin(a)) * 0.001;
+                dist = length(delta);
             }
-            let tangent = relVel - n * vn;
-            let tangentLen = length(tangent);
-            if (tangentLen > 0.0001) {
-                let t = tangent / tangentLen;
-                vel -= t * min(tangentLen * params.friction, 0.12);
-                angVel += cross(n, t) * tangentLen * 0.11;
+            if (dist < minDist) {
+                let n = delta / dist;
+                let penetration = minDist - dist;
+                pos += n * penetration * 0.52;
+                let relVel = vel - other.velocity.xyz;
+                let vn = dot(relVel, n);
+                if (vn < 0.0) {
+                    vel += n * (-(1.0 + params.restitution) * vn * 0.65);
+                }
+                let tangent = relVel - n * vn;
+                let tangentLen = length(tangent);
+                if (tangentLen > 0.0001) {
+                    let t = tangent / tangentLen;
+                    vel -= t * min(tangentLen * params.friction, 0.12);
+                    angVel += cross(n, t) * tangentLen * 0.11;
+                }
             }
         }
+    }
+    }
     }
 
     let speed = length(angVel);
@@ -345,6 +394,55 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     dstStates[i].velocity = vec4<f32>(vel, 0.0);
     dstStates[i].rotation = rot;
     dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+}
+`;
+
+    // Clears the spatial grid (per sub-step, before it is rebuilt).
+    const clearGridWGSL = `
+@group(0) @binding(0) var<storage, read_write> grid : array<u32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i < arrayLength(&grid)) { grid[i] = 0u; }
+}
+`;
+
+    // Inserts each ball into its grid cell (atomic append, capacity-capped).
+    const buildGridWGSL = `
+const COUNT : u32 = ${COUNT}u;
+const GRID_X : u32 = ${GRID_X}u;
+const GRID_Y : u32 = ${GRID_Y}u;
+const GRID_Z : u32 = ${GRID_Z}u;
+const CELL_CAPACITY : u32 = ${CELL_CAPACITY}u;
+const CELL_SIZE : f32 = ${CELL_SIZE.toFixed(4)};
+const FLOOR_Y_C : f32 = ${FLOOR_Y_C.toFixed(1)};
+struct BallState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
+@group(0) @binding(0) var<storage, read>       states : array<BallState>;
+@group(0) @binding(1) var<storage, read_write> grid   : array<atomic<u32>>;
+fn cellCoord(p : vec3<f32>) -> vec3<i32> {
+    return vec3<i32>(
+        i32(floor(p.x / CELL_SIZE + f32(GRID_X) * 0.5)),
+        i32(floor((p.y - FLOOR_Y_C) / CELL_SIZE)),
+        i32(floor(p.z / CELL_SIZE + f32(GRID_Z) * 0.5)),
+    );
+}
+fn cellHash(c : vec3<i32>) -> i32 {
+    if (c.x < 0 || c.x >= i32(GRID_X)) { return -1; }
+    if (c.y < 0 || c.y >= i32(GRID_Y)) { return -1; }
+    if (c.z < 0 || c.z >= i32(GRID_Z)) { return -1; }
+    return c.x + c.y * i32(GRID_X) + c.z * i32(GRID_X) * i32(GRID_Y);
+}
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) { return; }
+    let cidx = cellHash(cellCoord(states[i].position.xyz));
+    if (cidx < 0) { return; }
+    let base = u32(cidx) * (CELL_CAPACITY + 1u);
+    let slot = atomicAdd(&grid[base], 1u);
+    if (slot < CELL_CAPACITY) {
+        atomicStore(&grid[base + 1u + slot], i);
+    }
 }
 `;
 
@@ -394,9 +492,16 @@ struct BallState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, a
 const RADIUS : f32 = ${RADIUS};
 @group(0) @binding(0) var<uniform>       camera : Camera;
 @group(0) @binding(1) var<storage, read> states : array<BallState>;
+fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
 @vertex
 fn vs(@location(0) position : vec3<f32>, @builtin(instance_index) instance : u32) -> @builtin(position) vec4<f32> {
-    let worldPos = position * RADIUS + states[instance].position.xyz;
+    let state = states[instance];
+    // Apply the ball's rotation so the collider wireframe shows the rigid body's orientation
+    // (and makes the spin visible) rather than staying axis-aligned.
+    let worldPos = rotByQuat(position * RADIUS, state.rotation) + state.position.xyz;
     let clip = camera.viewProjection * vec4<f32>(worldPos, 1.0);
     return vec4<f32>(clip.x, -clip.y, clip.z, clip.w);
 }
@@ -405,10 +510,14 @@ fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.1, 1.0, 0.35, 1.0); }
 `;
 
     const computeModule = device.createShaderModule({ code: computeWGSL });
+    const clearGridModule = device.createShaderModule({ code: clearGridWGSL });
+    const buildGridModule = device.createShaderModule({ code: buildGridWGSL });
     const renderModule = device.createShaderModule({ code: renderWGSL });
     const wireModule = device.createShaderModule({ code: wireWGSL });
 
     const computePipeline = device.createComputePipeline({ layout: 'auto', compute: { module: computeModule, entryPoint: 'main' } });
+    const clearGridPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: clearGridModule, entryPoint: 'main' } });
+    const buildGridPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: buildGridModule, entryPoint: 'main' } });
 
     const rttSize = { width: engine.getRenderWidth(), height: engine.getRenderHeight() };
     const ballRtt = new BABYLON.RenderTargetTexture('ballRTT', rttSize, scene, {
@@ -458,6 +567,18 @@ fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.1, 1.0, 0.35, 1.0); }
             { binding: 0, resource: { buffer: stateBuffers[s] } },
             { binding: 1, resource: { buffer: stateBuffers[1 - s] } },
             { binding: 2, resource: { buffer: simUbo } },
+            { binding: 3, resource: { buffer: gridBuffer } },
+        ],
+    }));
+    const clearGridBindGroup = device.createBindGroup({
+        layout: clearGridPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: gridBuffer } }],
+    });
+    const buildGridBindGroups = [0, 1].map((s) => device.createBindGroup({
+        layout: buildGridPipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: stateBuffers[s] } },
+            { binding: 1, resource: { buffer: gridBuffer } },
         ],
     }));
     const renderBindGroups = [0, 1].map((s) => device.createBindGroup({
@@ -500,7 +621,21 @@ fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.1, 1.0, 0.35, 1.0); }
 
         const ce = device.createCommandEncoder();
         const wg = Math.ceil(COUNT / 64);
+        const gridWg = Math.ceil(GRID_SLOTS / 64);
         for (let s = 0; s < SUBSTEPS; s++) {
+            // Rebuild the spatial grid from the current (src) state, then step the physics.
+            const clearPass = ce.beginComputePass();
+            clearPass.setPipeline(clearGridPipeline);
+            clearPass.setBindGroup(0, clearGridBindGroup);
+            clearPass.dispatchWorkgroups(gridWg);
+            clearPass.end();
+
+            const buildPass = ce.beginComputePass();
+            buildPass.setPipeline(buildGridPipeline);
+            buildPass.setBindGroup(0, buildGridBindGroups[currentState]);
+            buildPass.dispatchWorkgroups(wg);
+            buildPass.end();
+
             const cp = ce.beginComputePass();
             cp.setPipeline(computePipeline);
             cp.setBindGroup(0, computeBindGroups[currentState]);
