@@ -2,7 +2,7 @@ import Rn from 'rhodonite';
 
 const FIXED_TIMESTEP = 1 / 60;
 const IDENTITY_QUATERNION = [0, 0, 0, 1];
-const PIECE_COUNT = 220;
+const PIECE_COUNT = 300;
 
 let HK, worldId, engine;
 const entities = [];
@@ -152,7 +152,7 @@ const load = async function() {
   const worldRes = HK.HP_World_Create();
   checkResult(worldRes[0], 'HP_World_Create');
   worldId = worldRes[1];
-  checkResult(HK.HP_World_SetGravity(worldId, [0, -10, 0]), 'HP_World_SetGravity');
+  checkResult(HK.HP_World_SetGravity(worldId, [0, -9.8, 0]), 'HP_World_SetGravity');
   checkResult(HK.HP_World_SetIdealStepTime(worldId, FIXED_TIMESTEP), 'HP_World_SetIdealStepTime');
 
   const sampler = new Rn.Sampler(engine, {
@@ -163,40 +163,25 @@ const load = async function() {
   });
   const shogiTex = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/shogi_001/shogi.png');
 
-  // Ground
-  createStaticBody([40, 4, 40], [0, -2, 0]);
+  // Ground: small low floor (no walls), matching the other Havok shogi samples - a
+  // 13 x 0.1 x 13 slab at y = -10 that the heap overflows.
+  createStaticBody([13, 0.1, 13], [0, -10, 0]);
   const groundMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
   groundMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 1]));
   const groundEntity = Rn.MeshHelper.createCube(engine, { material: groundMat });
-  groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -2, 0]);
-  groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([40, 4, 40]);
+  groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, -10, 0]);
+  groundEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([13, 0.1, 13]);
   entities.push(groundEntity);
-  createDebugBox([40, 4, 40], [0, -2, 0], DEBUG_COLOR_STATIC);
-
-  // Walls
-  const wallDefs = [
-    { size: [10, 10, 1], pos: [0, 5, -5] },
-    { size: [10, 10, 1], pos: [0, 5,  5] },
-    { size: [1, 10, 10], pos: [-5, 5, 0] },
-    { size: [1, 10, 10], pos: [ 5, 5, 0] },
-  ];
-  const wallMat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: true });
-  wallMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([0.24, 0.25, 0.26, 0.4]));
-  for (const { size, pos } of wallDefs) {
-    createStaticBody(size, pos);
-    const wallEntity = Rn.MeshHelper.createCube(engine, { material: wallMat });
-    wallEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray(pos);
-    wallEntity.getTransform().localScale = Rn.Vector3.fromCopyArray(size);
-    entities.push(wallEntity);
-    createDebugBox(size, pos, DEBUG_COLOR_STATIC);
-  }
+  createDebugBox([13, 0.1, 13], [0, -10, 0], DEBUG_COLOR_STATIC);
 
   const pieceW = 1.6;
   const pieceH = 1.6;
-  const pieceD = 0.45;
+  const pieceD = 0.32;
+  // Collider matches the other Havok samples' SHOGI_PHYSICS_SIZE = [w, h*1.2, d*1.4].
+  const colliderSize = [pieceW, pieceH * 1.2, pieceD * 1.4];
 
   // Shared physics shape
-  const psRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, [pieceW, pieceH, pieceD * 1.4]);
+  const psRes = HK.HP_Shape_CreateBox([0, 0, 0], IDENTITY_QUATERNION, colliderSize);
   checkResult(psRes[0], 'HP_Shape_CreateBox shogi');
   const pieceShapeId = psRes[1];
   const pmRes = HK.HP_Shape_BuildMassProperties(pieceShapeId);
@@ -225,7 +210,7 @@ const load = async function() {
   // Shared box-shaped collider wireframe (one mesh reused by every piece, like the visual mesh,
   // so the debug pass instances rather than issuing 220 separate draws). The wireframe shader
   // needs un-indexed geometry + barycentric coords (what MeshComponent.calcBaryCentricCoord does).
-  const pieceWireGeo = buildBoxGeometry(pieceW, pieceH, pieceD * 1.4);
+  const pieceWireGeo = buildBoxGeometry(colliderSize[0], colliderSize[1], colliderSize[2]);
   const pieceWirePrimitive = Rn.Primitive.createPrimitive(engine, {
     indices: pieceWireGeo.indices,
     attributeSemantics: [Rn.VertexAttribute.Position.XYZ],
@@ -241,9 +226,9 @@ const load = async function() {
   } catch (e) { console.warn('[Shogi] baryCentric failed:', e); }
 
   for (let i = 0; i < PIECE_COUNT; i++) {
-    const x = (Math.random() - 0.5) * 8;
-    const y = 12 + Math.random() * 26;
-    const z = (Math.random() - 0.5) * 8;
+    const x = (Math.random() - 0.5) * 15;
+    const y = (Math.random() + 1.0) * 15;
+    const z = (Math.random() - 0.5) * 15;
     const qx = Math.random() - 0.5;
     const qy = Math.random() - 0.5;
     const qz = Math.random() - 0.5;
@@ -273,14 +258,14 @@ const load = async function() {
 
   // Camera
   const cameraEntity = Rn.createCameraControllerEntity(engine);
-  cameraEntity.localPosition = Rn.Vector3.fromCopyArray([18, 24, 34]);
-  cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.6, 0.5, 0]);
+  // Fixed head-on view matching the other Havok shogi samples (eye at (0,0,40) looking at the
+  // origin, 45 deg FOV); no auto-rotation.
+  cameraEntity.localPosition = Rn.Vector3.fromCopyArray([0, 0, 40]);
+  cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([0, 0, 0]);
   const cameraComponent = cameraEntity.getCamera();
-  // Larger zNear (and tighter zFar) for better depth-buffer precision; the camera orbits far
-  // from the scene, so this avoids z-fighting. (0.01 / 1000 was far too wide a range.)
-  cameraComponent.zNear = 1.0;
-  cameraComponent.zFar = 200;
-  cameraComponent.setFovyAndChangeFocalLength(60);
+  cameraComponent.zNear = 0.1;
+  cameraComponent.zFar = 1000;
+  cameraComponent.setFovyAndChangeFocalLength(45);
   cameraComponent.aspect = window.innerWidth / window.innerHeight;
 
   // Lights
@@ -314,10 +299,9 @@ const load = async function() {
 
   setWireframeVisible(showWireframe);
 
-  // 1 ground + 4 walls = 5 static entities before piece entities
-  const physicsEntityOffset = 5;
+  // 1 ground (no walls) static entity before the piece entities
+  const physicsEntityOffset = 1;
 
-  let angle = 0;
   const draw = function() {
     HK.HP_World_Step(worldId, FIXED_TIMESTEP);
 
@@ -332,10 +316,10 @@ const load = async function() {
       debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
       debugEntity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([ori[0], ori[1], ori[2], ori[3]]);
 
-      if (pos[1] < -10) {
-        const nx = (Math.random() - 0.5) * 8;
-        const ny = 12 + Math.random() * 26;
-        const nz = (Math.random() - 0.5) * 8;
+      if (pos[1] < -15) {
+        const nx = (Math.random() - 0.5) * 15;
+        const ny = (Math.random() + 1.0) * 15;
+        const nz = (Math.random() - 0.5) * 15;
         const qx2 = Math.random() - 0.5;
         const qy2 = Math.random() - 0.5;
         const qz2 = Math.random() - 0.5;
@@ -347,14 +331,6 @@ const load = async function() {
         HK.HP_Body_SetAngularVelocity(bodyIds[i], [0, 0, 0]);
       }
     }
-
-    angle += 0.004;
-    cameraEntity.localPosition = Rn.Vector3.fromCopyArray([
-      Math.sin(angle) * 40,
-      24,
-      Math.cos(angle) * 40,
-    ]);
-    cameraEntity.localEulerAngles = Rn.Vector3.fromCopyArray([-0.6, angle, 0]);
 
     engine.process([expression]);
     requestAnimationFrame(draw);
