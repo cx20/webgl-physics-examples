@@ -3,7 +3,6 @@ let scene;
 let canvas;
 // to go quicker
 const v3 = BABYLON.Vector3;
-const PHYSICS_SCALE = 1/10;
 let showWireframe = true;
 let physicsViewer = null;
 const trackedBodies = [];
@@ -98,9 +97,14 @@ const createScene = function() {
     setupPhysicsDebugWireframe(scene);
     scene.getPhysicsEngine().setTimeStep(scene.getAnimationRatio());
 
-    const camera = new BABYLON.ArcRotateCamera("Camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
-    camera.minZ /= 100; // TODO: If near is 1, the model is missing, so adjusted
-    camera.setPosition(new BABYLON.Vector3(0, 20 * PHYSICS_SCALE, -200 * PHYSICS_SCALE));
+    // Fixed head-on camera matching the WebGL/WebGPU + Havok eraser samples (eye at (0,0,40)
+    // looking at the origin, 45 deg FOV).
+    const camera = new BABYLON.ArcRotateCamera("Camera", -Math.PI / 2, Math.PI / 2, 40, new BABYLON.Vector3(0, 0, 0), scene);
+    camera.setPosition(new BABYLON.Vector3(0, 0, 40));
+    camera.setTarget(BABYLON.Vector3.Zero());
+    camera.fov = 45 * Math.PI / 180;
+    camera.minZ = 0.1;
+    camera.maxZ = 1000;
     camera.attachControl(canvas);
 
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
@@ -112,9 +116,10 @@ const createScene = function() {
     t.uScale = t.vScale = 2;
     mat.diffuseTexture = t;
     mat.specularColor = BABYLON.Color3.Black();
-    const g = BABYLON.Mesh.CreateBox("ground", 400 * PHYSICS_SCALE, scene);
-    g.position.y = -20 * PHYSICS_SCALE;
-    g.scaling.y = 0.01;
+    // Small low floor (no walls/stairs), matching the other eraser samples: a 20 x 0.1 x 20 slab
+    // at y = -10 that the heap overflows.
+    const g = BABYLON.MeshBuilder.CreateBox("ground", { width: 20, height: 0.1, depth: 20 }, scene);
+    g.position.y = -10;
     g.material = mat;
     g.physicsImpostor = new BABYLON.PhysicsImpostor(g, BABYLON.PhysicsImpostor.BoxImpostor, {
         move: false,
@@ -133,20 +138,10 @@ const createScene = function() {
     };
 
     const objects = [];
-    const getPosition = function(y) {
-        return new BABYLON.Vector3(randomNumber(-25, 25) * PHYSICS_SCALE, (randomNumber(0, 100) + y) * PHYSICS_SCALE, randomNumber(-25, 25) * PHYSICS_SCALE);
+    const getPosition = function() {
+        return new BABYLON.Vector3(randomNumber(-6, 6), randomNumber(14, 28), randomNumber(-6, 6));
     };
-    const max = 300;
-
-    for (let i = 0; i < 20; i++) {
-        const stair = BABYLON.Mesh.CreateBox("stair", 100 * PHYSICS_SCALE, scene);
-        stair.position.x = (i * -10) * PHYSICS_SCALE;
-        stair.position.y = (i * 5 - 10) * PHYSICS_SCALE;
-        stair.scaling.x = 0.1;
-        stair.scaling.y = 0.1;
-        //stair.setPhysicsState({ impostor: BABYLON.PhysicsEngine.BoxImpostor, move:false, mass: 0, friction: 1.0, restitution: 1.0 });
-        stair.physicsImpostor = new BABYLON.PhysicsImpostor(stair, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 1.0, restitution: 1.0 }, scene);
-    }
+    const max = 200;
 
     const matEraser = new BABYLON.StandardMaterial("material", scene);
     matEraser.reflectionTexture = new BABYLON.CubeTexture(
@@ -167,13 +162,10 @@ const createScene = function() {
     // Creates
     for (let i = 0; i < max; i++) {
 
-        const scale = 1;
-        const s = BABYLON.Mesh.CreateBox("s", 15 * PHYSICS_SCALE, scene);
-        // 消しゴムのサイズとなるよう調整
-        s.scaling.x = 1.0;
-        s.scaling.y = 0.2;
-        s.scaling.z = 0.5;
-        s.position = new v3((randomNumber(-25,25) - 120) * PHYSICS_SCALE, (randomNumber(0, 100) + 200) * PHYSICS_SCALE, (randomNumber(-50, 50)) * PHYSICS_SCALE);
+        const s = BABYLON.MeshBuilder.CreateBox("s", { width: 2.4, height: 0.6, depth: 1.2 }, scene);
+        s.position = getPosition();
+        s.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(
+            randomNumber(0, Math.PI * 2), randomNumber(0, Math.PI * 2), randomNumber(0, Math.PI * 2));
         s.material = matEraser;
         //s.setPhysicsState({impostor:BABYLON.PhysicsEngine.BoxImpostor, mass:1, friction:0.4, restitution:0.2});
         s.physicsImpostor = new BABYLON.PhysicsImpostor(s, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1, friction: 0.4, restitution: 0.2 }, scene);
@@ -187,12 +179,11 @@ const createScene = function() {
 
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
-            if (obj.position.y < -100 * PHYSICS_SCALE) {
-                obj.position = getPosition(200);
+            if (obj.position.y < -15) {
+                obj.position = getPosition();
                 obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
-        scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();
     });
 
     return scene;
