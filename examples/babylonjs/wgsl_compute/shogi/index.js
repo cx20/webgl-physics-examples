@@ -123,15 +123,16 @@ const PIECE_INDICES = new Uint16Array([
 // ---------------------------------------------------------------- initial states
 // 200 pieces fit the 13 x 13 plate as a low heap; more than this overflows the edges and the
 // spilled pieces recycle forever (a "fountain" of pieces raining back down).
-const COUNT = 200;
+const COUNT = 300;
 const STATE_FLOATS = 16;
 const SUBSTEPS = 5;
 
 // Piece OBB half-extents (match the wireframe box + compute shader).
 const SHE = [0.80, 0.96, 0.224];
-// Static floor as an OBB (Babylon ground box: 13 x 1 x 13 centred at y = -10.4, top at -9.9).
-const GROUND_C = [0, -10.4, 0];
-const GROUND_HE = [6.5, 0.5, 6.5];
+// Static floor OBB. Thick (so fast pieces cannot tunnel through a thin slab) with its top
+// surface at y = -9.95, matching the thin rendered plate.
+const GROUND_C = [0, -11.45, 0];
+const GROUND_HE = [6.5, 1.5, 6.5];
 
 function hash32(n) {
     let x = ((n >>> 0) ^ (n >>> 17)) >>> 0;
@@ -149,9 +150,9 @@ function createInitialStates() {
     for (let i = 0; i < COUNT; i++) {
         const base = i * STATE_FLOATS;
         const seed = hash32(i + 1);
-        states[base + 0] = (hashF(seed) - 0.5) * 10;        // x (kept inside the 13-wide plate)
+        states[base + 0] = (hashF(seed) - 0.5) * 15;        // x (matches the other Havok samples)
         states[base + 1] = (hashF(seed + 1) + 1.0) * 15;    // y (15..30)
-        states[base + 2] = (hashF(seed + 2) - 0.5) * 10;    // z
+        states[base + 2] = (hashF(seed + 2) - 0.5) * 15;    // z
         states[base + 3] = hashF(seed + 6);                  // seed (float 0..1)
         states[base + 11] = 1.0;                             // rotation: identity (qw=1)
         states[base + 12] = (hashF(seed + 3) - 0.5) * 6;     // initial tumble
@@ -180,9 +181,10 @@ const createScene = async function () {
 
     await waitForReady(cubeTexture);
 
-    // Ground plate sized to match the physics floor (top surface at y = -9.9, half-extent 6.5).
-    const ground = BABYLON.MeshBuilder.CreateBox('ground', { width: 13, height: 1, depth: 13 }, scene);
-    ground.position.y = -10.4;
+    // Thin rendered plate (13 x 0.1 x 13, top at y = -9.95), matching the other shogi samples;
+    // the physics floor collider underneath is thicker to avoid tunnelling.
+    const ground = BABYLON.MeshBuilder.CreateBox('ground', { width: 13, height: 0.1, depth: 13 }, scene);
+    ground.position.y = -10.0;
     const groundMat = new BABYLON.PBRMaterial('groundMat', scene);
     groundMat.metallic = 0;
     groundMat.roughness = 0.85;
@@ -303,7 +305,10 @@ const MAX_PUSH  : f32 = 0.06;
 const WAKE_LIN  : f32 = 0.15;
 const WAKE_ANG  : f32 = 0.6;
 const SLEEP_TIME : f32 = 0.4;
-const GTIP : f32 = 2.5;
+// Gravity torque about the average contact tips a piece flat quickly (only while it is still
+// moving, see below). A small extra bias only nudges near-upright pieces off their edge.
+const GTIP : f32 = 4.5;
+const GTIP_FLAT : f32 = 1.5;
 // A body may only sleep on a stable support (the floor or an already-sleeping piece), when it
 // is slow AND the per-step push-out has converged (PUSH_REST). This stops pieces from freezing
 // mid-pile while still penetrating, which is what made the heap look like it was floating.
@@ -441,13 +446,23 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     if (speed > 18.0) { vel *= 18.0 / speed; }
     if (length(angVel) > 8.0) { angVel *= 8.0 / length(angVel); }
 
-    // Resting bodies: gravity torque about the average contact tips an edge-balanced piece
-    // toward a flat rest (and vanishes once balanced). Sleep only on a stable support, when
-    // slow and once the push-out has converged, so jammed/penetrating pieces never freeze.
+    // Resting bodies: gravity torque about the average contact topples a piece quickly, like
+    // real toppling. Once a piece is slow on a stable support it is left alone (no more tipping)
+    // so settled and buried pieces come to rest and stay put instead of being nudged forever. A
+    // small bias is kept only for near-upright pieces, to break the metastable on-edge balance.
+    // Pieces may sleep at whatever angle they wedge at (a natural Havok-like jumble).
     if (contacts > 0.0) {
-        let rAvg = leverSum / contacts;
-        angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
-        angVel *= 0.9;
+        let zaxis = axA[2];
+        let settledSupport = stableSupport && length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG;
+        if (!settledSupport) {
+            let rAvg = leverSum / contacts;
+            angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
+        }
+        if (abs(zaxis.y) < 0.35) {   // near upright (tilt > ~70deg): nudge so it cannot balance
+            let upTarget = select(vec3<f32>(0.0, -1.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), zaxis.y >= 0.0);
+            angVel += cross(zaxis, upTarget) * (params.dt * GTIP_FLAT);
+        }
+        angVel *= 0.93;
         if (stableSupport && length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG && pushMag < PUSH_REST) {
             sleepTimer += params.dt;
         } else {
@@ -467,7 +482,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         let fx = f32((salt >> 0u) & 1023u) / 1023.0;
         let fy = f32((salt >> 10u) & 1023u) / 1023.0;
         let fz = f32((salt >> 20u) & 1023u) / 1023.0;
-        pos = vec3<f32>((fx - 0.5) * 10.0, (fy + 1.0) * 15.0, (fz - 0.5) * 10.0);
+        pos = vec3<f32>((fx - 0.5) * 15.0, (fy + 1.0) * 15.0, (fz - 0.5) * 15.0);
         vel = vec3<f32>(0.0, -0.3, 0.0);
         rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
         angVel = vec3<f32>(0.0, 0.0, 0.0);
