@@ -3,10 +3,12 @@ let engine;
 let scene;
 let canvas;
 
-const PHYSICS_SCALE = 1 / 10;
-const PIECE_COUNT = 220;
-const BOX_HALF_EXTENT = 5 * PHYSICS_SCALE;
-const SPAWN_MARGIN = 0.6 * PHYSICS_SCALE;
+// Modelled in the same world units as the WebGL/WebGPU + Havok shogi samples (no scaling) and
+// with the same parameters, so the scenes can be compared side by side.
+const PIECE_COUNT = 300;
+// Full box-collider extents, identical to the other Havok shogi samples' shape sizes.
+const SHOGI_PHYSICS_SIZE = [1.6, 1.92, 0.448];
+const GROUND_PHYSICS_SIZE = [13, 0.1, 13];
 
 let showWireframe = true;
 let physicsViewer = null;
@@ -255,12 +257,11 @@ function randomRange(min, max) {
 }
 
 function randomSpawn() {
-    const minXZ = -BOX_HALF_EXTENT + SPAWN_MARGIN;
-    const maxXZ = BOX_HALF_EXTENT - SPAWN_MARGIN;
+    // Matches the other Havok shogi samples' genPosition: x,z in +/-7.5, y in 15..30.
     return new BABYLON.Vector3(
-        randomRange(minXZ, maxXZ),
-        randomRange(20, 90) * PHYSICS_SCALE,
-        randomRange(minXZ, maxXZ)
+        (Math.random() - 0.5) * 15,
+        (Math.random() + 1.0) * 15,
+        (Math.random() - 0.5) * 15
     );
 }
 
@@ -270,22 +271,21 @@ function createScene() {
     setupPhysicsDebugWireframe(scene);
     scene.clearColor = new BABYLON.Color4(0.17, 0.18, 0.22, 1.0);
 
-    const camera = new BABYLON.ArcRotateCamera(
-        "camera",
-        0,
-        Math.PI / 180 * 60,
-        42 * PHYSICS_SCALE,
-        BABYLON.Vector3.Zero(),
-        scene
-    );
-    camera.setPosition(new BABYLON.Vector3(18 * PHYSICS_SCALE, 24 * PHYSICS_SCALE, 34 * PHYSICS_SCALE));
+    // Fixed, head-on camera matching the WebGL/WebGPU + Havok samples (eye at (0,0,40) looking
+    // at the origin, 45 deg vertical FOV). No auto-rotation, for easy side-by-side comparison.
+    const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2, 40, BABYLON.Vector3.Zero(), scene);
+    camera.setPosition(new BABYLON.Vector3(0, 0, 40));
+    camera.setTarget(BABYLON.Vector3.Zero());
+    camera.fov = 45 * Math.PI / 180;
+    camera.minZ = 0.1;
+    camera.maxZ = 1000;
     camera.attachControl(canvas, true);
 
     const hemiLight = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(1, 1, 0), scene);
     hemiLight.intensity = 0.9;
 
     const dirLight = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(-0.4, -1.0, -0.3), scene);
-    dirLight.position = new BABYLON.Vector3(30 * PHYSICS_SCALE, 100 * PHYSICS_SCALE, 50 * PHYSICS_SCALE);
+    dirLight.position = new BABYLON.Vector3(30, 100, 50);
     dirLight.intensity = 1.4;
 
     const shadow = new BABYLON.ShadowGenerator(1024, dirLight);
@@ -296,10 +296,6 @@ function createScene() {
     const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
     groundMat.diffuseColor = new BABYLON.Color3(0.24, 0.25, 0.28);
     groundMat.specularColor = BABYLON.Color3.Black();
-
-    const wallMat = new BABYLON.StandardMaterial("wallMat", scene);
-    wallMat.diffuseColor = new BABYLON.Color3(0.3, 0.32, 0.37);
-    wallMat.alpha = 0.4;
 
     const pieceTexture = new BABYLON.Texture("../../../../assets/textures/shogi_001/shogi.png", scene, false, false);
     pieceTexture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
@@ -312,49 +308,25 @@ function createScene() {
     pieceMat.backFaceCulling = false;
     pieceMat.twoSidedLighting = true;
 
-    const ground = BABYLON.MeshBuilder.CreateBox("ground", {
-        width: 40 * PHYSICS_SCALE,
-        height: 4 * PHYSICS_SCALE,
-        depth: 40 * PHYSICS_SCALE
-    }, scene);
-    ground.position.y = -2 * PHYSICS_SCALE;
+    // Floor matching the other Havok shogi samples: a 13 x 0.1 x 13 slab at y = -10, with the
+    // collider the same size as the rendered slab.
+    const ground = BABYLON.MeshBuilder.CreateBox("ground", { width: 13, height: 0.1, depth: 13 }, scene);
+    ground.position.y = -10;
     ground.material = groundMat;
     ground.receiveShadows = true;
     ground.aggregate = new BABYLON.PhysicsAggregate(
         ground,
         BABYLON.PhysicsShapeType.BOX,
-        { mass: 0, friction: 0.6, restitution: 0.1 },
+        {
+            mass: 0, friction: 0.5, restitution: 0.0,
+            extents: new BABYLON.Vector3(GROUND_PHYSICS_SIZE[0], GROUND_PHYSICS_SIZE[1], GROUND_PHYSICS_SIZE[2])
+        },
         scene
     );
 
-    const wallData = [
-        { w: 10, h: 10, d: 1, x: 0, y: 5, z: -5 },
-        { w: 10, h: 10, d: 1, x: 0, y: 5, z: 5 },
-        { w: 1, h: 10, d: 10, x: -5, y: 5, z: 0 },
-        { w: 1, h: 10, d: 10, x: 5, y: 5, z: 0 }
-    ];
-
-    for (const wall of wallData) {
-        const wallMesh = BABYLON.MeshBuilder.CreateBox("wall", {
-            width: wall.w * PHYSICS_SCALE,
-            height: wall.h * PHYSICS_SCALE,
-            depth: wall.d * PHYSICS_SCALE
-        }, scene);
-
-        wallMesh.position.set(wall.x * PHYSICS_SCALE, wall.y * PHYSICS_SCALE, wall.z * PHYSICS_SCALE);
-        wallMesh.material = wallMat;
-
-        wallMesh.aggregate = new BABYLON.PhysicsAggregate(
-            wallMesh,
-            BABYLON.PhysicsShapeType.BOX,
-            { mass: 0, friction: 0.4, restitution: 0.2 },
-            scene
-        );
-    }
-
-    const pieceW = 1.6 * PHYSICS_SCALE;
-    const pieceH = 1.6 * PHYSICS_SCALE;
-    const pieceD = 0.45 * PHYSICS_SCALE;
+    const pieceW = 1.6;
+    const pieceH = 1.6;
+    const pieceD = 0.32;
 
     const baseMesh = new BABYLON.Mesh("shogiPieceBase", scene);
     const vertexData = createShogiVertexData(pieceW, pieceH, pieceD);
@@ -381,7 +353,10 @@ function createScene() {
         const aggregate = new BABYLON.PhysicsAggregate(
             mesh,
             BABYLON.PhysicsShapeType.BOX,
-            { mass: 1, friction: 0.25, restitution: 0.1 },
+            {
+                mass: 1, friction: 0.5, restitution: 0.0,
+                extents: new BABYLON.Vector3(SHOGI_PHYSICS_SIZE[0], SHOGI_PHYSICS_SIZE[1], SHOGI_PHYSICS_SIZE[2])
+            },
             scene
         );
 
@@ -391,10 +366,14 @@ function createScene() {
 
     scene.onBeforeRenderObservable.add(() => {
         for (const piece of pieces) {
-            if (piece.mesh.position.y < -10 * PHYSICS_SCALE) {
+            if (piece.mesh.position.y < -15) {
                 const spawn = randomSpawn();
                 const body = piece.aggregate.body;
 
+                // Recycle pattern from the other Babylon + Havok samples (Babylon physics perf
+                // tips): teleport the transform node and zero the velocities. Re-enabling the
+                // prestep optimisation afterwards is what previously broke this (it left pieces
+                // spinning in mid-air), so it is intentionally left disabled.
                 body.disablePreStep = false;
                 body.transformNode.position.copyFrom(spawn);
                 body.transformNode.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(
@@ -406,8 +385,6 @@ function createScene() {
                 body.setAngularVelocity(BABYLON.Vector3.Zero());
             }
         }
-
-        camera.alpha -= 0.003 * scene.getAnimationRatio();
     });
 
     return scene;
