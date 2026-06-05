@@ -141,21 +141,42 @@ function quatFromEuler(x, y, z) {
     return [sx * cy * cz + cx * sy * sz, cx * sy * cz - sx * cy * sz, cx * cy * sz + sx * sy * cz, cx * cy * cz - sx * sy * sz];
 }
 
+// Hash-based PRNG (matches the WGSL shogi sample) so each eraser gets well-distributed,
+// per-axis-independent random values.
+function hash32(n) {
+    let x = ((n >>> 0) ^ (n >>> 17)) >>> 0;
+    x = Math.imul(x, 0xbf324c81) >>> 0;
+    x = (x ^ (x >>> 11)) >>> 0;
+    x = Math.imul(x, 0x68b665e5) >>> 0;
+    x = (x ^ (x >>> 16)) >>> 0;
+    return x;
+}
+function hashF(n) { return (hash32(n) & 0xffffff) / 0xffffff; }
+
 function createInitialStates() {
     const states = new Float32Array(ERASER_COUNT * STATE_FLOATS);
     for (let i = 0; i < ERASER_COUNT; i++) {
-        const seed = ((i * 37) % 101) / 101;
-        const seed2 = ((i * 53) % 97) / 97;
         const base = i * STATE_FLOATS;
-        states[base + 0] = (seed - 0.5) * 12;                // x in +/-6 over the floor
-        states[base + 1] = 14 + (i / ERASER_COUNT) * 14 + seed2 * 0.5;  // staggered height 14..28
-        states[base + 2] = (seed2 - 0.5) * 12;               // z in +/-6 over the floor
-        states[base + 3] = seed;
-        const q = quatFromEuler((seed - 0.5) * 1.2, seed2 * 6.28, (0.5 - seed2) * 1.0);
-        states[base + 8] = q[0];
-        states[base + 9] = q[1];
+        const seed = hash32(i + 1);
+        // Decorrelate every axis (the old i-based pattern spawned the erasers in neat columns):
+        // random x,z over the floor, a random orientation and a random tumble so they rain down
+        // and settle in a natural jumble. Keep the height loosely stratified by i (plus jitter) so
+        // they do not all overlap at the instant they spawn.
+        states[base + 0] = (hashF(seed)     - 0.5) * 12;                          // x in +/-6
+        states[base + 1] = 14 + (i / ERASER_COUNT) * 14 + (hashF(seed + 1) - 0.5) * 2; // y ~14..28
+        states[base + 2] = (hashF(seed + 2) - 0.5) * 12;                          // z in +/-6
+        states[base + 3] = hashF(seed + 6);                                       // seed (0..1)
+        const q = quatFromEuler(
+            (hashF(seed + 7) - 0.5) * Math.PI * 2,
+            (hashF(seed + 8) - 0.5) * Math.PI * 2,
+            (hashF(seed + 9) - 0.5) * Math.PI * 2);
+        states[base + 8]  = q[0];
+        states[base + 9]  = q[1];
         states[base + 10] = q[2];
         states[base + 11] = q[3];
+        states[base + 12] = (hashF(seed + 3) - 0.5) * 6;                          // tumble (angVel)
+        states[base + 13] = (hashF(seed + 4) - 0.5) * 6;
+        states[base + 14] = (hashF(seed + 5) - 0.5) * 6;
     }
     return states;
 }
