@@ -4,8 +4,9 @@
 //
 // A WGSL compute shader integrates each eraser and resolves collisions as oriented bounding
 // boxes using the Separating Axis Theorem (eraser-eraser and eraser-static). Box-shaped
-// (MOMO-style) erasers fall onto a tilted ramp, slide down and pile on the ground. The
-// erasers, ground and ramp are all drawn with WGSL render pipelines (no rendering library).
+// (MOMO-style) erasers rain onto a small low floor and overflow the edges, the spilled ones
+// recycling from the top (a "fountain"), matching the flat-floor reference eraser samples. The
+// erasers and ground are drawn with WGSL render pipelines (no rendering library).
 // Press W to toggle the collider wireframe.
 
 // Six faces of a MOMO-style eraser (order: +x, -x, +y, -y, +z, -z).
@@ -18,14 +19,16 @@ const ERASER_TEXTURES = [
     '../../../../assets/textures/eraser_003/eraser_back.png',
 ];
 
-const ERASER_COUNT = 500;
+const ERASER_COUNT = 200;
 const STATE_FLOATS = 16;
 const SUBSTEPS = 5;
-const EHE = [0.215, 0.055, 0.085];  // eraser half-extents (0.43 x 0.11 x 0.17)
+const EHE = [1.2, 0.3, 0.6];  // eraser half-extents (2.4 x 0.6 x 1.2), matching the reference eraser samples
 
-// Static colliders (match the Oimo eraser scene): a floor and a 32-degree ramp.
-const GROUND = { center: [0, -0.2, 0], half: [2, 0.2, 2], angle: 0 };
-const RAMP = { center: [1.3, 0.4, 0], half: [1, 0.15, 1.95], angle: 32 * Math.PI / 180 };
+// Static collider: a small low floor (no walls, no ramp), matching the flat-floor reference
+// eraser samples. The visible plate is a thin 20 x 0.1 x 20 slab at y = -10; the physics floor is
+// thicker (top aligned at y = -9.95) so fast erasers cannot tunnel through it.
+const GROUND = { center: [0, -10, 0], half: [10, 0.05, 10], angle: 0 };
+const GROUND_PHYS = { center: [0, -11.45, 0], half: [10, 1.5, 10] };
 
 let device, ctx, format, canvas;
 let depthTexture;
@@ -128,7 +131,6 @@ function appendBox(pos, nrm, center, half, angleZ) {
 function buildStaticGeometry() {
     const pos = [], nrm = [];
     appendBox(pos, nrm, GROUND.center, GROUND.half, GROUND.angle);
-    appendBox(pos, nrm, RAMP.center, RAMP.half, RAMP.angle);
     return { positions: new Float32Array(pos), normals: new Float32Array(nrm), count: pos.length / 3 };
 }
 
@@ -145,9 +147,9 @@ function createInitialStates() {
         const seed = ((i * 37) % 101) / 101;
         const seed2 = ((i * 53) % 97) / 97;
         const base = i * STATE_FLOATS;
-        states[base + 0] = 0.9 + seed * 0.8;                 // x near the ramp top
-        states[base + 1] = 2.0 + i * 0.12 + seed * 0.5;      // staggered height
-        states[base + 2] = (seed2 - 0.5) * 2.4;
+        states[base + 0] = (seed - 0.5) * 12;                // x in +/-6 over the floor
+        states[base + 1] = 14 + (i / ERASER_COUNT) * 14 + seed2 * 0.5;  // staggered height 14..28
+        states[base + 2] = (seed2 - 0.5) * 12;               // z in +/-6 over the floor
         states[base + 3] = seed;
         const q = quatFromEuler((seed - 0.5) * 1.2, seed2 * 6.28, (0.5 - seed2) * 1.0);
         states[base + 8] = q[0];
@@ -203,16 +205,13 @@ function createDepthTexture() {
 }
 
 // ------------------------------------------------------------------ WGSL: compute (OBB SAT solver)
-const rc = Math.cos(RAMP.angle).toFixed(6), rs = Math.sin(RAMP.angle).toFixed(6);
 const computeWGSL = `
 struct EraserState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
 struct SimParams { dt:f32, gravity:f32, elapsedTime:f32, pad:f32, }
 const COUNT : u32 = ${ERASER_COUNT}u;
 const EHE : vec3<f32> = vec3<f32>(${EHE[0]}, ${EHE[1]}, ${EHE[2]});
-const GROUND_C : vec3<f32> = vec3<f32>(${GROUND.center[0]}, ${GROUND.center[1]}, ${GROUND.center[2]});
-const GROUND_HE : vec3<f32> = vec3<f32>(${GROUND.half[0]}, ${GROUND.half[1]}, ${GROUND.half[2]});
-const RAMP_C : vec3<f32> = vec3<f32>(${RAMP.center[0]}, ${RAMP.center[1]}, ${RAMP.center[2]});
-const RAMP_HE : vec3<f32> = vec3<f32>(${RAMP.half[0]}, ${RAMP.half[1]}, ${RAMP.half[2]});
+const GROUND_C : vec3<f32> = vec3<f32>(${GROUND_PHYS.center[0]}, ${GROUND_PHYS.center[1]}, ${GROUND_PHYS.center[2]});
+const GROUND_HE : vec3<f32> = vec3<f32>(${GROUND_PHYS.half[0]}, ${GROUND_PHYS.half[1]}, ${GROUND_PHYS.half[2]});
 
 @group(0) @binding(0) var<storage, read>       srcStates : array<EraserState>;
 @group(0) @binding(1) var<storage, read_write> dstStates : array<EraserState>;
@@ -247,13 +246,15 @@ fn satPen(T:vec3<f32>, axA:mat3x3<f32>, heA:vec3<f32>, axB:mat3x3<f32>, heB:vec3
 
 struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:vec3<f32>, lever:vec3<f32>, }
 
-const ANG_SCALE : f32 = 0.3;
-const PEN_SLOP  : f32 = 0.004;
-const BAUMGARTE : f32 = 0.55;
-const WAKE_LIN  : f32 = 0.06;
+// Full-scale solver tuning shared with the WGSL shogi sample (the same OBB solver at this scale).
+const ANG_SCALE : f32 = 0.18;
+const PEN_SLOP  : f32 = 0.006;
+const BAUMGARTE : f32 = 0.4;
+const MAX_PUSH  : f32 = 0.06;
+const WAKE_LIN  : f32 = 0.15;
 const WAKE_ANG  : f32 = 0.6;
-const SLEEP_TIME : f32 = 0.35;
-const GTIP : f32 = 7.0;
+const SLEEP_TIME : f32 = 0.4;
+const GTIP : f32 = 4.5;
 
 // Collide this eraser (A) against another OBB (B). Only the six face normals are used as
 // separating axes (no edge cross-products), so the contact normal is a stable face direction.
@@ -277,7 +278,7 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
     var n = minAxis;
     if (dot(n, -T) < 0.0) { n = -n; }   // n points from B toward this eraser
     resp.normal = n;
-    resp.dPos = n * (max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE);
+    resp.dPos = n * min(max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE, MAX_PUSH);
 
     let cLx = clamp(dot(T, axA[0]), -EHE.x, EHE.x);
     let cLy = clamp(dot(T, axA[1]), -EHE.y, EHE.y);
@@ -337,18 +338,11 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
 
     let axA = quatToAxes(rot);
     let identity = mat3x3<f32>(vec3<f32>(1,0,0), vec3<f32>(0,1,0), vec3<f32>(0,0,1));
-    let rampAxes = mat3x3<f32>(
-        vec3<f32>(${rc}, ${rs}, 0.0),
-        vec3<f32>(${-rs}, ${rc}, 0.0),
-        vec3<f32>(0.0, 0.0, 1.0),
-    );
 
     var contacts = 0.0;
     var leverSum = vec3<f32>(0.0);
 
     var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.5);
-    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
-    r = collide(pos, vel, angVel, axA, RAMP_C, vec3<f32>(0.0), rampAxes, RAMP_HE, 1.0, 1.0, 0.0, 0.55);
     pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
 
     for (var j = 0u; j < COUNT; j++) {
@@ -360,7 +354,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     }
 
     let speed = length(vel);
-    if (speed > 12.0) { vel *= 12.0 / speed; }
+    if (speed > 18.0) { vel *= 18.0 / speed; }
     if (length(angVel) > 8.0) { angVel *= 8.0 / length(angVel); }
 
     if (contacts > 0.0) {
@@ -380,11 +374,11 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         sleepTimer = 0.0;
     }
 
-    if (pos.y < -2.0) {
+    if (pos.y < -15.0) {
         let salt = i * 2654435761u + u32(params.elapsedTime * 60.0) * 40503u;
         let fx = f32((salt >> 0u) & 1023u) / 1023.0;
         let fz = f32((salt >> 10u) & 1023u) / 1023.0;
-        pos = vec3<f32>(0.9 + fx * 0.8, 4.0 + seed * 1.5, (fz - 0.5) * 2.4);
+        pos = vec3<f32>((fx - 0.5) * 12.0, 18.0 + seed * 8.0, (fz - 0.5) * 12.0);
         vel = vec3<f32>(0.0, -0.3, 0.0);
         rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
         angVel = vec3<f32>(0.0, 0.0, 0.0);
@@ -435,7 +429,7 @@ fn fs(@location(0) normal:vec3<f32>, @location(1) uv:vec2<f32>) -> @location(0) 
 }
 `;
 
-// ------------------------------------------------------------------ WGSL: static ground + ramp
+// ------------------------------------------------------------------ WGSL: static ground
 const staticWGSL = `
 struct Camera { viewProjection : mat4x4<f32>, }
 @group(0) @binding(0) var<uniform> camera : Camera;
@@ -486,19 +480,12 @@ let staticVB, staticCount;
 let currentState = 0;
 let startTime = 0, lastTime = 0;
 let frameCount = 0, lastFpsT = 0, fps = 0;
-let camAngle = 0;
 
 function updateCamera(dt) {
-    camAngle += dt * 0.15;
-    const target = [0, 0.2, 0];
-    const radius = 7, beta = 68 * Math.PI / 180, baseAlpha = -65 * Math.PI / 180;
-    const alpha = baseAlpha + camAngle;
-    const eye = [
-        target[0] + radius * Math.cos(alpha) * Math.sin(beta),
-        target[1] + radius * Math.cos(beta),
-        target[2] + radius * Math.sin(alpha) * Math.sin(beta),
-    ];
-    const proj = perspectiveZO(45, canvas.width / canvas.height, 0.05, 100);
+    // Fixed head-on camera matching the reference eraser samples: eye at (0,0,40) looking at the
+    // origin, 45 deg vertical FOV, no auto-rotation.
+    const eye = [0, 0, 40], target = [0, 0, 0];
+    const proj = perspectiveZO(45, canvas.width / canvas.height, 0.1, 1000);
     const view = lookAt(eye, target, [0, 1, 0]);
     device.queue.writeBuffer(camUbo, 0, mat4mul(proj, view));
 }
@@ -517,7 +504,8 @@ function render() {
     const time = (now - startTime) / 1000;
 
     updateCamera(dt);
-    device.queue.writeBuffer(simUbo, 0, new Float32Array([dt / SUBSTEPS, 9.8, time, 0]));
+    // Fixed timestep (matches the WGSL shogi sample) so the solver tuning is stable.
+    device.queue.writeBuffer(simUbo, 0, new Float32Array([1 / (60 * SUBSTEPS), 9.8, time, 0]));
 
     const encoder = device.createCommandEncoder();
     const wg = Math.ceil(ERASER_COUNT / 64);
