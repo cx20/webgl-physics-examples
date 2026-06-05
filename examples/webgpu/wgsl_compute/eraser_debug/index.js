@@ -21,7 +21,7 @@ const ERASER_TEXTURES = [
 const ERASER_COUNT = 5;   // DEBUG: a few erasers for problem isolation (restore to 200 afterwards)
 const DEBUG = ERASER_COUNT <= 8;   // when on, read the state back each frame and graph it on-screen
 const STATE_FLOATS = 16;
-const SUBSTEPS = 5;
+const SUBSTEPS = 8;   // more solver iterations per frame so deep stacks converge (top stops trembling)
 const EHE = [1.2, 0.3, 0.6];  // eraser half-extents (2.4 x 0.6 x 1.2), matching the reference eraser samples
 
 // Static collider: a small low floor (no walls, no ramp), matching the flat-floor reference
