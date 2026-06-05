@@ -493,18 +493,24 @@ function render() {
     // DEBUG: sample each eraser from Havok and update the graphs.
     const t = (performance.now() - debugStartTime) / 1000;
     const dt = t - debugPrevT; debugPrevT = t;
+    // Prefer Havok's real angular velocity (smooth, like the WGSL state-buffer readback). Only fall
+    // back to finite-differencing the orientation if this build doesn't expose the getter - that
+    // fallback is noisy because its step is the variable render interval, not the physics step.
+    const hasAngVelApi = typeof HK.HP_Body_GetAngularVelocity === 'function';
     for (let i = 0; i < MAX; i++) {
         const p = HK.HP_Body_GetPosition(bodies[i])[1];
         const q = HK.HP_Body_GetOrientation(bodies[i])[1];
-        // |angVel| by finite-differencing the orientation (the dot of two unit quaternions is the
-        // cosine of half the rotation between them), so this needs no get-angular-velocity API.
-        let wMag = 0;
-        const qp = debugPrevQuat[i];
-        if (qp && dt > 1e-4) {
-            const dotq = q[0] * qp[0] + q[1] * qp[1] + q[2] * qp[2] + q[3] * qp[3];
-            wMag = 2 * Math.acos(Math.min(1, Math.abs(dotq))) / dt;
+        let wMag;
+        if (hasAngVelApi) {
+            const w = HK.HP_Body_GetAngularVelocity(bodies[i])[1];
+            wMag = Math.hypot(w[0], w[1], w[2]);
+        } else {
+            // dot of two unit quaternions = cos(half the rotation between them); angle / dt = speed.
+            const qp = debugPrevQuat[i];
+            const dotq = qp ? (q[0] * qp[0] + q[1] * qp[1] + q[2] * qp[2] + q[3] * qp[3]) : 1;
+            wMag = (qp && dt > 1e-4) ? 2 * Math.acos(Math.min(1, Math.abs(dotq))) / dt : 0;
+            debugPrevQuat[i] = q;
         }
-        debugPrevQuat[i] = q;
         // Tilt of the big face from horizontal: angle of the eraser's local up-axis from world up.
         // 0 deg = lying flat, ~90 deg = standing on an edge. |upY| so either large face counts flat.
         const upY = 1 - 2 * (q[0] * q[0] + q[2] * q[2]);
