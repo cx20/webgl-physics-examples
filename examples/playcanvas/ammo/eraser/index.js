@@ -209,7 +209,7 @@ function init() {
     let camera = new pc.Entity("camera");
     camera.addComponent("camera", {
         clearColor: new pc.Color(0.5, 0.5, 0.8),
-        fav: 60,
+        fov: 45,
         nearClip: 0.01,
         farClip: 1000
     });
@@ -217,14 +217,11 @@ function init() {
     app.root.addChild(camera);
     const cc = camera.script.create(CameraControls);
     cc.enableFly = false;
-    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 10, 40));
+    // Head-on camera matching the reference Havok eraser sample (eye at (0,0,40) looking at origin).
+    cc.reset(new pc.Vec3(0, 0, 0), new pc.Vec3(0, 0, 40));
 
-    let boxDataSet = [
-        { size:[10, 10,  1], pos:[ 0, 5,-5], rot:[0,0,0] },
-        { size:[10, 10,  1], pos:[ 0, 5, 5], rot:[0,0,0] },
-        { size:[ 1, 10, 10], pos:[-5, 5, 0], rot:[0,0,0] },
-        { size:[ 1, 10, 10], pos:[ 5, 5, 0], rot:[0,0,0] } 
-    ];
+    // No walls: the reference Havok eraser sample has a single flat floor that the heap overflows.
+    let boxDataSet = [];
 
     const staticDebugEntities = [];
     for (let i = 0; i < boxDataSet.length; i++) {
@@ -272,12 +269,14 @@ function init() {
 	}
 
 
+    // Small low floor (no walls), matching the reference Havok eraser sample: a 20 x 0.1 x 20 slab
+    // at y = -10 that the heap overflows.
     let floor = new pc.Entity("floor");
-    floor.setLocalPosition(0, -2, 0);
-    floor.addComponent("collision", { type: "box", halfExtents: [20, 2, 20] });
-    floor.addComponent("rigidbody", { type: "static", friction: 0.6, restitution: 0.8 });
+    floor.setLocalPosition(0, -10, 0);
+    floor.addComponent("collision", { type: "box", halfExtents: [10, 0.05, 10] });
+    floor.addComponent("rigidbody", { type: "static", friction: 0.6, restitution: 0.1 });
     let floorModel = new pc.Entity("floorModel");
-    floorModel.setLocalScale(40, 4, 40);
+    floorModel.setLocalScale(20, 0.1, 20);
     //let floorMaterial = createColorMaterial(new pc.Color(0.8, 0.8, 0.8));
     let floorMaterial = createTextureMaterial("../../../../assets/textures/grass.jpg");
     floorModel.addComponent("model", { type: "box", material: floorMaterial });
@@ -307,7 +306,7 @@ function init() {
 
         for (let i = 0; i < numErasers; i++ ) {
             let eraser = erasers[i];
-            if (eraser.localPosition.y < -10) {
+            if (eraser.localPosition.y < -15) {
                 let x = -5 + Math.random() * 10;
                 let y = 20 + Math.random() * 10;
                 let z = -5 + Math.random() * 10;
