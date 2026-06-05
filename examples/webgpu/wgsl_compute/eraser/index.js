@@ -347,7 +347,11 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
 
     vel.y -= params.gravity * params.dt;
     vel *= 0.998;
-    angVel *= 0.96;
+    // Only a very light airborne angular drag, so erasers keep tumbling all the way down (the old
+    // 0.96 killed almost all spin within ~0.5 s of the fall, so they dropped as frozen blocks and
+    // then merely crept flat on landing). Resting bodies are damped much harder by the per-contact
+    // angVel *= 0.95 below, plus the gravity-tip torque and sleep, so the pile still settles.
+    angVel *= 0.999;
     pos += vel * params.dt;
 
     let sp = length(angVel);
