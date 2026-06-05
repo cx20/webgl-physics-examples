@@ -29,18 +29,16 @@ let bodys = null;
 let fps = [0,0,0,0];
 let type=1;
 
-const SCALE = 0.01;
-
 init();
 loop();
 
 function init() {
-    
-    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.x = 0 * SCALE;
-    camera.position.y = 20 * SCALE;
-    camera.position.z = 500 * SCALE;
-    
+
+    // Head-on camera matching the reference Havok eraser sample (eye at (0,0,40) looking at the
+    // origin, 45 deg FOV).
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 40);
+
     scene = new THREE.Scene();
     
     content = new THREE.Object3D();
@@ -83,7 +81,10 @@ function init() {
     
     matBox = new THREE.MeshLambertMaterial( {  map: basicTexture(0), name:'box' } );
     //matMono = new THREE.MeshFaceMaterial( materials );
-    matGround = new THREE.MeshLambertMaterial( { color: 0x3D4143 } );
+    const grassTex = loader.load('../../../../assets/textures/grass.jpg');
+    grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
+    grassTex.repeat.set(4, 4);
+    matGround = new THREE.MeshLambertMaterial( { map: grassTex } );
     matGroundTrans = new THREE.MeshLambertMaterial( { color: 0x3D4143, transparent:true, opacity:0.6 } );
     
     renderer = new THREE.WebGLRenderer({precision: "mediump", antialias:false });
@@ -95,7 +96,7 @@ function init() {
     controls.userPanSpeed = 0.0;
     controls.maxDistance = 5000.0;
     controls.maxPolarAngle = Math.PI * 0.4;
-    controls.autoRotate = true;
+    controls.autoRotate = false;
     controls.autoRotateSpeed = 1.0;
 
     rotTest = new THREE.Vector3();
@@ -166,8 +167,8 @@ function populate(n) {
     let group3 = 1 << 2;  // 00000000 00000000 00000000 00000100
     let all = 0xffffffff; // 11111111 11111111 11111111 11111111
     
-    let max = 120;
-    
+    let max = 200;
+
     type = 2;
     
     // reset old
@@ -186,32 +187,20 @@ function populate(n) {
     
     
     
-    //add ground
-    //let ground = new OIMO.Body({size:[400, 40, 400], pos:[0,-20,0], world:world, config:config});
+    // Small low floor (no walls), matching the reference Havok eraser sample: a 20 x 0.1 x 20 slab
+    // at y = -10 that the heap overflows.
     let ground = world.add({
         type: "box",
-        size: [400 * SCALE, 40 * SCALE, 400 * SCALE],
-        pos: [0 * SCALE, -20 * SCALE, 0 * SCALE],
+        size: [20, 0.1, 20],
+        pos: [0, -10, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
         friction: 0.5,
         restitution: 0.1,
     });
-    addStaticBox([400 * SCALE, 40 * SCALE, 400 * SCALE], [0 * SCALE,-20 * SCALE,0 * SCALE], [0,0,0]);
-    
-    let ground2 = world.add({
-        type: "box",
-        size: [200 * SCALE, 30 * SCALE, 390 * SCALE],
-        pos: [130 * SCALE, 40 * SCALE, 0 * SCALE],
-        rot: [0, 0, 32],
-        move: false,
-        density: 1,
-        friction: 0.5,
-        restitution: 0.1,
-    });
-    addStaticBox([200 * SCALE, 30 * SCALE, 390 * SCALE], [130 * SCALE,40 * SCALE,0 * SCALE], [0,0,32]);
-    
+    addStaticBox([20, 0.1, 20], [0, -10, 0], [0, 0, 0]);
+
     // now add object
     let x, y, z, w, h, d;
 	let t;
@@ -219,21 +208,22 @@ function populate(n) {
     
     while (i--){
         t = type;
-        x = 150;
-        z = -100 + Math.random()*200;
-        y = 100 + Math.random()*1000;
-        w = 43;
-        h = 11;
-        d = 17;
-        
+        // Eraser full extents 4.0 x 0.8 x 2.0, spawning over x,z in [-6,6] and y in [14,28].
+        x = -6 + Math.random()*12;
+        z = -6 + Math.random()*12;
+        y = 14 + Math.random()*14;
+        w = 4.0;
+        h = 0.8;
+        d = 2.0;
+
         config[4] = all;
-        
+
         if(t===2){
             config[3] = group3;
 		    bodys[i] = world.add({
 		        type: "box",
-		        size: [w * SCALE, h * SCALE, d * SCALE],
-		        pos: [x * SCALE, y * SCALE, z * SCALE],
+		        size: [w, h, d],
+		        pos: [x, y, z],
 		        move: true,
 		        density: 1,
 		        friction: 0.5,
@@ -241,7 +231,7 @@ function populate(n) {
 		    });
             //meshs[i] = new THREE.Mesh( buffgeoMono, matMono );
             meshs[i] = new THREE.Mesh( buffgeoMono, materials );
-            meshs[i].scale.set( w * SCALE, h * SCALE, d * SCALE );
+            meshs[i].scale.set( w, h, d );
         }
         meshs[i].castShadow = true;
         meshs[i].receiveShadow = true;
@@ -278,11 +268,11 @@ function updateOimoPhysics() {
             if(mesh.material.name === 'box') mesh.material = matBox; 
             
             // reset position
-            if(mesh.position.y * SCALE < -100 * SCALE){
-                x = 150;
-                z = -100 + Math.random()*200;
-                y = 100 + Math.random()*1000;
-                body.resetPosition(x * SCALE,y * SCALE,z * SCALE);
+            if(mesh.position.y < -15){
+                x = -6 + Math.random()*12;
+                z = -6 + Math.random()*12;
+                y = 14 + Math.random()*14;
+                body.resetPosition(x, y, z);
             }
         }
     }

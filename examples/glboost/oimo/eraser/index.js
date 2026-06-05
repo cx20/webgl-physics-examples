@@ -1,7 +1,8 @@
-﻿const DOT_SIZE = 40;
-const W = DOT_SIZE / 2 * 0.8 * 1.0;
-const H = DOT_SIZE / 2 * 0.8 * 0.2;
-const D = DOT_SIZE / 2 * 0.8 * 0.5;
+﻿// Eraser box half-extents 2.0 x 0.4 x 1.0 (full 4.0 x 0.8 x 2.0), matching the reference Havok
+// eraser sample.
+const W = 2.0;
+const H = 0.4;
+const D = 1.0;
 
 // glboost var
 let renderer;
@@ -129,15 +130,17 @@ function init() {
         clearColor: {red: 0, green: 0, blue: 0, alpha: 1}
     });
 
+    // Head-on camera matching the reference Havok eraser sample (eye at (0,0,40) looking at the
+    // origin, 45 deg FOV).
     camera = glBoostContext.createPerspectiveCamera({
-        eye: new GLBoost.Vector3(0.0, 100, 200),
+        eye: new GLBoost.Vector3(0.0, 0.0, 40.0),
         center: new GLBoost.Vector3(0.0, 0.0, 0.0),
         up: new GLBoost.Vector3(0.0, 1.0, 0.0)
     }, {
         fovy: 45.0,
         aspect: width/height,
-        zNear: 0.001,
-        zFar: 3000.0
+        zNear: 0.1,
+        zFar: 1000.0
     });
     camera.cameraController = glBoostContext.createCameraController();
     scene.addChild(camera);
@@ -147,11 +150,13 @@ function init() {
     let directionalLight2 = glBoostContext.createDirectionalLight(new GLBoost.Vector3(1, 1, 1), new GLBoost.Vector3(-30, -30, -30));
     scene.addChild( directionalLight2 );
     
-    let geo1 = glBoostContext.createCube(new GLBoost.Vector3(400, 40, 400), new GLBoost.Vector4(0.7, 0.7, 0.7, 1.0));
+    // Small low floor (no walls), matching the reference Havok eraser sample: a 20 x 0.1 x 20 slab
+    // at y = -10 that the heap overflows.
+    let geo1 = glBoostContext.createCube(new GLBoost.Vector3(20, 0.1, 20), new GLBoost.Vector4(0.7, 0.7, 0.7, 1.0));
     let material = glBoostContext.createClassicMaterial();
     material.shaderClass = GLBoost.PhongShader;
     let mground1 = glBoostContext.createMesh(geo1, material);
-    mground1.translate = new GLBoost.Vector3(0, -50, 0);
+    mground1.translate = new GLBoost.Vector3(0, -10, 0);
     mground1.dirty = true;
     scene.addChild( mground1 );
 
@@ -178,12 +183,12 @@ function init() {
 
 function populate() {
     
-    let max = 500;
+    let max = 200;
 
     let ground2 = world.add({
         type: "box",
-        size: [400, 40, 400],
-        pos: [0, -50, 0],
+        size: [20, 0.1, 20],
+        pos: [0, -10, 0],
         rot: [0, 0, 0],
         move: false,
         density: 1,
@@ -191,9 +196,10 @@ function populate() {
         restitution: 0.1,
     });
 
-    let w = DOT_SIZE * 0.8 * 1.0;
-    let h = DOT_SIZE * 0.8 * 0.2;
-    let d = DOT_SIZE * 0.8 * 0.5;
+    // Eraser full extents 4.0 x 0.8 x 2.0.
+    let w = 4.0;
+    let h = 0.8;
+    let d = 2.0;
 
     let texture = glBoostContext.createTexture('../../../../assets/textures/eraser_001/eraser.png');
     let material = glBoostContext.createClassicMaterial();
@@ -201,13 +207,14 @@ function populate() {
 
 
     for (let i = 0; i < max; i++) {
-        let x = (Math.random() * 8) - 4;
-        let y = (Math.random() * 8*2) + 10;
-        let z = (Math.random() * 8) - 4;
+        // Spawn over x,z in [-6,6] and y in [14,28].
+        let x = (Math.random() * 12) - 6;
+        let y = (Math.random() * 14) + 14;
+        let z = (Math.random() * 12) - 6;
         bodys[i] = world.add({
             type: "box",
             size: [w, h, d],
-            pos: [x * DOT_SIZE, y * DOT_SIZE, z * DOT_SIZE],
+            pos: [x, y, z],
             rot: [0, 0, 0],
             move: true,
             density: 1,
@@ -221,9 +228,9 @@ function populate() {
             position: positions,
             texcoord: texcoords
         }, [indices], GLBoost.TRIANGLE);
-        
+
         meshs[i] = glBoostContext.createMesh(geoBox, material);
-        meshs[i].translate = new GLBoost.Vector3(x * DOT_SIZE, y * DOT_SIZE, z * DOT_SIZE);
+        meshs[i].translate = new GLBoost.Vector3(x, y, z);
         scene.addChild(meshs[i]);
     }
 }
@@ -244,17 +251,13 @@ function animate() {
         let q = body.getQuaternion();
         mesh.translate = new GLBoost.Vector3(p.x, p.y, p.z);
         mesh.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
-        if ( p.y < -300 ) {
-            let x = (Math.random() * 8) - 4;
-            let y = (Math.random() * 8*2) + 10;
-            let z = (Math.random() * 8) - 4;
-            bodys[i].resetPosition(x * DOT_SIZE, y * DOT_SIZE, z * DOT_SIZE);
+        if ( p.y < -15 ) {
+            let x = (Math.random() * 12) - 6;
+            let y = (Math.random() * 14) + 14;
+            let z = (Math.random() * 12) - 6;
+            bodys[i].resetPosition(x, y, z);
         }
     }
-
-    let rotateMatrixY = GLBoost.Matrix33.rotateY(0.1);
-    let rotatedVector = rotateMatrixY.multiplyVector(camera.eye);
-    camera.eye = rotatedVector;
 
     requestAnimationFrame(animate);
 }
