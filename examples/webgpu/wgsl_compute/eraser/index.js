@@ -269,11 +269,15 @@ struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:ve
 
 // Full-scale solver tuning shared with the WGSL shogi sample (the same OBB solver at this scale).
 const ANG_SCALE : f32 = 0.18;
-const PEN_SLOP  : f32 = 0.006;
-const BAUMGARTE : f32 = 0.4;
+// Soft resting contact: tolerate a small overlap (PEN_SLOP) and push out gently (BAUMGARTE), so
+// stacked erasers don't get shoved apart and pulled back every frame (the "trembling" at overlaps).
+const PEN_SLOP  : f32 = 0.02;
+const BAUMGARTE : f32 = 0.25;
 const MAX_PUSH  : f32 = 0.06;
-const WAKE_LIN  : f32 = 0.15;
-const WAKE_ANG  : f32 = 0.6;
+// Sleep thresholds raised a little (with the leaky timer below) so a resting box still falls
+// asleep through the small residual rocking a single contact point leaves.
+const WAKE_LIN  : f32 = 0.2;
+const WAKE_ANG  : f32 = 1.0;
 const SLEEP_TIME : f32 = 0.4;
 const GTIP : f32 = 4.5;
 // Gentle bias toward lying flat (big face down): the gravity-tip torque vanishes once a box is
