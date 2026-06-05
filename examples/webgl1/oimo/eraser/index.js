@@ -245,8 +245,19 @@ gl.bindBuffer(gl.ARRAY_BUFFER, eraserPosVBO);
 gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eraserIBO);
 
-let world = new OIMO.World();
-world.gravity = new OIMO.Vec3(0, -9.8, 0);
+// Configure the world like the other Oimo samples. The bare `new OIMO.World()` keeps Oimo's
+// defaults (notably worldscale 100), which runs the simulation in 1/100-scale space; with the
+// dense overflowing pile it never settles and stays very expensive. Match glboost/oimo:
+// worldscale 1, sweep-and-prune broadphase, a fixed 1/60 step and 8 iterations.
+let world = new OIMO.World({
+    timestep: 1 / 60,
+    iterations: 8,
+    broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
+    worldscale: 1,
+    random: true,
+    info: false,
+    gravity: [0, -9.8, 0]
+});
 
 // Spawn x,z in +/-6 and y in 14..28, matching the other eraser samples.
 let genPosition = function () {
