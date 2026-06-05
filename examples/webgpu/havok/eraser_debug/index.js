@@ -31,7 +31,10 @@ let showWireframe = true;
 let debugBoxVertexBuffer, debugBoxIndexBuffer, debugBoxIndexCount = 0;
 let lineUniformBuffer, lineBindGroup, lineUniformData, eraserLineModel = null;
 
-const MAX = 5;   // DEBUG: a few probe erasers (restore to 200 for the normal scene)
+// DEBUG: eraser count is chosen from the control panel (which reloads with ?count=N). The first
+// PROBE_COUNT erasers use fixed probe poses and are graphed; any extra ones form a random pile.
+const MAX = Math.max(1, Math.min(500, parseInt(new URLSearchParams(location.search).get('count'), 10) || 5));
+const PROBE_COUNT = Math.min(MAX, 5);
 const NUM_LINE_OBJECTS = MAX + 1;
 
 // DEBUG: 5 erasers dropped from known poses (matches the WGSL eraser_debug), plus on-screen graphs.
@@ -45,8 +48,8 @@ const DEBUG_SETUP = [
     { x:  6, eul: [0.5, 0.5, 0.5], w: [3, 3, 3] },   // full tumble, far out
 ];
 let debugCanvas = null, debugCtx = null, debugStartTime = 0, debugPrevT = 0;
-const debugSamples = Array.from({ length: MAX }, () => []);  // per eraser: {t, tilt, w, y}
-const debugPrevQuat = Array.from({ length: MAX }, () => null);
+const debugSamples = Array.from({ length: PROBE_COUNT }, () => []);  // per probe eraser: {t, tilt, w, y}
+const debugPrevQuat = Array.from({ length: PROBE_COUNT }, () => null);
 
 function quatFromEuler(x, y, z) {
     const cx = Math.cos(x * 0.5), sx = Math.sin(x * 0.5);
@@ -166,6 +169,7 @@ async function createEraserAtlasTexture() {
 }
 
 async function init() {
+    createDebugControls();
     canvas = document.getElementById('c');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -299,11 +303,17 @@ async function init() {
 
     bodies = [];
     for (let i = 0; i < MAX; i++) {
-        // DEBUG: deterministic pose so the post-landing settling is reproducible.
-        const s = DEBUG_SETUP[i % DEBUG_SETUP.length];
-        const q = quatFromEuler(s.eul[0], s.eul[1], s.eul[2]);
-        bodies[i] = createBody(eraserShape, HK.MotionType.DYNAMIC, [s.x, 14, 0], q, true);
-        HK.HP_Body_SetAngularVelocity(bodies[i], s.w);
+        if (i < PROBE_COUNT) {
+            // DEBUG: deterministic probe pose (graphed) so the post-landing settling is reproducible.
+            const s = DEBUG_SETUP[i];
+            const q = quatFromEuler(s.eul[0], s.eul[1], s.eul[2]);
+            bodies[i] = createBody(eraserShape, HK.MotionType.DYNAMIC, [s.x, 14, 0], q, true);
+            HK.HP_Body_SetAngularVelocity(bodies[i], s.w);
+        } else {
+            // Extra erasers form a random pile around the probes.
+            const p = genPosition();
+            bodies[i] = createBody(eraserShape, HK.MotionType.DYNAMIC, [p.x, p.y, p.z], randomQuaternion(), true);
+        }
     }
     debugStartTime = performance.now();
 
@@ -497,7 +507,7 @@ function render() {
     // back to finite-differencing the orientation if this build doesn't expose the getter - that
     // fallback is noisy because its step is the variable render interval, not the physics step.
     const hasAngVelApi = typeof HK.HP_Body_GetAngularVelocity === 'function';
-    for (let i = 0; i < MAX; i++) {
+    for (let i = 0; i < PROBE_COUNT; i++) {
         const p = HK.HP_Body_GetPosition(bodies[i])[1];
         const q = HK.HP_Body_GetOrientation(bodies[i])[1];
         let wMag;
@@ -524,6 +534,18 @@ function render() {
     requestAnimationFrame(render);
 }
 
+// DEBUG: lil-gui control panel to pick how many erasers to drop. Changing it reloads the page with
+// ?count=N (a clean full re-init); the first 5 stay fixed probe poses, the rest form a pile.
+function createDebugControls() {
+    if (!window.lil || !window.lil.GUI) return;   // CDN not available
+    const gui = new lil.GUI({ title: 'Debug' });
+    // Move it under the wireframe hint (top-left); the graph overlay already sits top-right.
+    Object.assign(gui.domElement.style, { left: '8px', right: 'auto', top: '40px' });
+    const params = { erasers: MAX };
+    gui.add(params, 'erasers', [1, 5, 10, 20, 50, 100, 200]).name('Erasers')
+        .onChange((v) => { location.search = '?count=' + v; });
+}
+
 // DEBUG: three stacked time-series graphs (tilt angle, |angVel|, height) on a 2D overlay canvas,
 // so the post-landing behaviour is visible without console logs (matches the WGSL eraser_debug).
 function drawDebugViz() {
@@ -545,7 +567,7 @@ function drawDebugViz() {
 
     // Legend
     let lx = 10;
-    for (let k = 0; k < MAX; k++) {
+    for (let k = 0; k < PROBE_COUNT; k++) {
         ctx.fillStyle = DEBUG_COLORS[k];
         ctx.fillRect(lx, 6, 10, 10);
         ctx.fillText(DEBUG_LABELS[k], lx + 13, 12);
@@ -579,7 +601,7 @@ function drawDebugViz() {
             ctx.strokeStyle = '#00ff9988'; ctx.setLineDash([4, 3]); ctx.beginPath();
             ctx.moveTo(x0, vy(p.guide)); ctx.lineTo(x0 + pw, vy(p.guide)); ctx.stroke(); ctx.setLineDash([]);
         }
-        for (let k = 0; k < MAX; k++) {
+        for (let k = 0; k < PROBE_COUNT; k++) {
             const s = debugSamples[k];
             ctx.strokeStyle = DEBUG_COLORS[k]; ctx.lineWidth = 1.5; ctx.beginPath();
             let started = false;

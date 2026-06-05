@@ -3,6 +3,11 @@
   padding: 0;
   border: 0;
   overflow: hidden;
+}
+
+/* Only the canvas fills the window; scoping this here (instead of `*`) keeps the
+   lil-gui debug panel from being stretched to full height. */
+html, body, #c {
   width: 100%;
   height: 100%;
 }
