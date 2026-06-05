@@ -583,7 +583,9 @@ function drawDebugViz() {
         debugCanvas = document.createElement('canvas');
         debugCanvas.width = 520; debugCanvas.height = 420;
         Object.assign(debugCanvas.style, {
-            position: 'fixed', right: '8px', top: '8px', zIndex: 9999,
+            // Pin the CSS size to the buffer size so the `* { width:100% }` reset in style.css
+            // can't stretch the overlay to fill the window.
+            position: 'fixed', right: '8px', top: '8px', zIndex: 9999, width: '520px', height: '420px',
             background: 'rgba(0,0,0,0.72)', border: '1px solid #444', borderRadius: '4px',
         });
         document.body.appendChild(debugCanvas);
