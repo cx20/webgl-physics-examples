@@ -277,24 +277,24 @@ struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:ve
 // Angular response is deliberately scaled down: a faithful inertia tensor makes a thin
 // eraser spin violently, so we keep it gentle to read as a rigid box settling.
 // Full-scale solver tuning shared with the WGSL shogi sample (the same OBB solver at this scale).
-const ANG_SCALE : f32 = 0.10;
+const ANG_SCALE : f32 = 0.18;
 const PEN_SLOP  : f32 = 0.006;
 const BAUMGARTE : f32 = 0.4;
 const MAX_PUSH  : f32 = 0.06;
 // Sleeping: once a body has been in contact and nearly still for SLEEP_TIME it is frozen
 // (skips integration/response entirely) so a settled pile stops trembling. velocity.w stores
 // the accumulated still-time; SLEEP_TIME (a sentinel) also marks "asleep".
-const WAKE_LIN  : f32 = 0.3;
-const WAKE_ANG  : f32 = 1.2;   // tolerate small residual rocking so a settled box still sleeps (anti-jitter)
+const WAKE_LIN  : f32 = 0.15;
+const WAKE_ANG  : f32 = 0.6;
 const SLEEP_TIME : f32 = 0.4;
 // Gravity torque about the contact: tips an overhanging / edge-balanced box toward a flat
 // rest and vanishes once balanced, so (unlike a forced "align" nudge) it does not keep a
 // settled pile twitching.
 const GTIP : f32 = 4.5;
-// Extra bias toward lying flat (big face down). The gravity-tip torque above vanishes once a box
-// is balanced, so a box left standing on a thin edge (CoM right over the contact) never falls; this
-// rotates the eraser's big-face normal toward vertical so it topples flat.
-const GTIP_FLAT : f32 = 2.5;
+// Gentle bias toward lying flat (big face down): the gravity-tip torque vanishes once a box is
+// balanced, so without this a box can stand on a thin edge. Kept weak so a jumbled pile does not
+// get forced flat (the reference Oimo/Havok piles settle at mixed angles too).
+const GTIP_FLAT : f32 = 1.0;
 
 // Collide this eraser (A) against another OBB (B). pushFactor/impFactor are 1.0 for an
 // immovable static and 0.5 for an eraser-eraser pair (so each takes half). Only the six
@@ -427,10 +427,9 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         let upAxis = axA[1];
         let flatTarget = select(vec3<f32>(0.0, -1.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), upAxis.y >= 0.0);
         angVel += cross(upAxis, flatTarget) * (params.dt * GTIP_FLAT);
-        // Strong damping while resting on the floor so a box settles quickly and stops rocking
-        // (a single contact point can only approximate face support). Airborne motion is untouched.
-        angVel *= 0.85;
-        vel *= 0.92;
+        // Light damping while resting; gentle enough that a forming pile can still slide and
+        // spread out instead of freezing into a sticky clump.
+        angVel *= 0.95;
         if (length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG) {
             sleepTimer += params.dt;
         } else {
