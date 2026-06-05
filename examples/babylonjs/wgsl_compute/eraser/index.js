@@ -1,10 +1,11 @@
 'use strict';
 
-// Babylon.js (WebGPUEngine) provides the camera, skybox, environment, ground and a tilted
-// ramp, while the erasers are simulated and drawn entirely on the GPU through custom WGSL
-// compute + render passes that share Babylon's WebGPU device. Box-shaped (MONO-style) erasers
-// fall onto the ramp, slide down and pile on the ground; the physics is an oriented-bounding-
-// box solver using the Separating Axis Theorem for eraser-eraser and eraser-static contacts.
+// Babylon.js (WebGPUEngine) provides the camera, skybox, environment and ground, while the
+// erasers are simulated and drawn entirely on the GPU through custom WGSL compute + render
+// passes that share Babylon's WebGPU device. Box-shaped (MONO-style) erasers rain onto a small
+// low floor and overflow the edges, the spilled ones recycling from the top (a "fountain"),
+// matching the flat-floor reference eraser samples; the physics is an oriented-bounding-box
+// solver using the Separating Axis Theorem for eraser-eraser and eraser-static contacts.
 //
 // The erasers are rendered into a RenderTargetTexture and composited over the Babylon scene
 // with a Layer. Press W to toggle the collider wireframe.
@@ -20,14 +21,16 @@ const ERASER_TEXTURES = [
     '../../../../assets/textures/eraser_003/eraser_back.png',
 ];
 
-const ERASER_COUNT = 500;
+const ERASER_COUNT = 200;
 const STATE_FLOATS = 16;
 const SUBSTEPS = 5;
-const EHE = [0.215, 0.055, 0.085];  // eraser half-extents (0.43 x 0.11 x 0.17)
+const EHE = [1.2, 0.3, 0.6];  // eraser half-extents (2.4 x 0.6 x 1.2), matching the reference eraser samples
 
-// Static colliders (match the Oimo eraser scene): a floor and a 32-degree ramp.
-const GROUND = { center: [0, -0.2, 0], half: [2, 0.2, 2], angle: 0 };
-const RAMP = { center: [1.3, 0.4, 0], half: [1, 0.15, 1.95], angle: 32 * Math.PI / 180 };
+// Static collider: a small low floor (no walls, no ramp), matching the flat-floor reference
+// eraser samples. The visible plate is a thin 20 x 0.1 x 20 slab at y = -10; the physics floor is
+// thicker (top aligned at y = -9.95) so fast erasers cannot tunnel through it.
+const GROUND = { center: [0, -10, 0], half: [10, 0.05, 10], angle: 0 };
+const GROUND_PHYS = { center: [0, -11.45, 0], half: [10, 1.5, 10] };
 
 let engine;
 let scene;
@@ -115,9 +118,9 @@ function createInitialStates() {
         const seed = ((i * 37) % 101) / 101;
         const seed2 = ((i * 53) % 97) / 97;
         const base = i * STATE_FLOATS;
-        states[base + 0] = 0.9 + seed * 0.8;                 // x near the ramp top
-        states[base + 1] = 2.0 + i * 0.12 + seed * 0.5;      // staggered height
-        states[base + 2] = (seed2 - 0.5) * 2.4;
+        states[base + 0] = (seed - 0.5) * 12;                // x in +/-6 over the floor
+        states[base + 1] = 14 + (i / ERASER_COUNT) * 14 + seed2 * 0.5;  // staggered height 14..28
+        states[base + 2] = (seed2 - 0.5) * 12;               // z in +/-6 over the floor
         states[base + 3] = seed;
         const q = quatFromEuler((seed - 0.5) * 1.2, seed2 * 6.28, (0.5 - seed2) * 1.0);
         states[base + 8] = q[0];
@@ -130,13 +133,16 @@ function createInitialStates() {
 
 const createScene = async function () {
     const scene = new BABYLON.Scene(engine);
+    // Fixed head-on camera matching the reference eraser samples: eye at (0,0,40) looking at the
+    // origin, 45 deg vertical FOV.
     const camera = new BABYLON.ArcRotateCamera('camera',
-        -Math.PI / 180 * 65, Math.PI / 180 * 68, 7,
+        -Math.PI / 2, Math.PI / 2, 40,
         BABYLON.Vector3.Zero(), scene);
-    camera.setTarget(new BABYLON.Vector3(0, 0.2, 0));
+    camera.setTarget(BABYLON.Vector3.Zero());
+    camera.fov = 45 * Math.PI / 180;
     camera.attachControl(canvas, true);
-    camera.minZ = 0.05;
-    camera.maxZ = 100;
+    camera.minZ = 0.1;
+    camera.maxZ = 1000;
 
     const cubeTexture = new BABYLON.CubeTexture(
         BASE_URL + '/textures/env/papermillSpecularHDR.env', scene);
@@ -154,11 +160,6 @@ const createScene = async function () {
     const ground = BABYLON.MeshBuilder.CreateBox('ground', { width: GROUND.half[0] * 2, height: GROUND.half[1] * 2, depth: GROUND.half[2] * 2 }, scene);
     ground.position.set(GROUND.center[0], GROUND.center[1], GROUND.center[2]);
     ground.material = staticMat;
-
-    const ramp = BABYLON.MeshBuilder.CreateBox('ramp', { width: RAMP.half[0] * 2, height: RAMP.half[1] * 2, depth: RAMP.half[2] * 2 }, scene);
-    ramp.position.set(RAMP.center[0], RAMP.center[1], RAMP.center[2]);
-    ramp.rotation.z = RAMP.angle;
-    ramp.material = staticMat;
 
     // ============================================================
     // Custom WebGPU path (shares Babylon's device)
@@ -209,20 +210,15 @@ const createScene = async function () {
     const camUbo = device.createBuffer({ size: 16 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const simUbo = device.createBuffer({ size: 4 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-    const rampC = RAMP.center, rampHE = RAMP.half;
-    const rc = Math.cos(RAMP.angle).toFixed(6), rs = Math.sin(RAMP.angle).toFixed(6);
-
     // Physics: oriented bounding boxes resolved with the Separating Axis Theorem. Each eraser
-    // is integrated, then collided against the floor, the ramp and every other eraser.
+    // is integrated, then collided against the floor and every other eraser.
     const computeWGSL = `
 struct EraserState { position:vec4<f32>, velocity:vec4<f32>, rotation:vec4<f32>, angularVel:vec4<f32>, }
 struct SimParams { dt:f32, gravity:f32, elapsedTime:f32, pad:f32, }
 const COUNT : u32 = ${ERASER_COUNT}u;
 const EHE : vec3<f32> = vec3<f32>(${EHE[0]}, ${EHE[1]}, ${EHE[2]});
-const GROUND_C : vec3<f32> = vec3<f32>(${GROUND.center[0]}, ${GROUND.center[1]}, ${GROUND.center[2]});
-const GROUND_HE : vec3<f32> = vec3<f32>(${GROUND.half[0]}, ${GROUND.half[1]}, ${GROUND.half[2]});
-const RAMP_C : vec3<f32> = vec3<f32>(${rampC[0]}, ${rampC[1]}, ${rampC[2]});
-const RAMP_HE : vec3<f32> = vec3<f32>(${rampHE[0]}, ${rampHE[1]}, ${rampHE[2]});
+const GROUND_C : vec3<f32> = vec3<f32>(${GROUND_PHYS.center[0]}, ${GROUND_PHYS.center[1]}, ${GROUND_PHYS.center[2]});
+const GROUND_HE : vec3<f32> = vec3<f32>(${GROUND_PHYS.half[0]}, ${GROUND_PHYS.half[1]}, ${GROUND_PHYS.half[2]});
 
 @group(0) @binding(0) var<storage, read>       srcStates : array<EraserState>;
 @group(0) @binding(1) var<storage, read_write> dstStates : array<EraserState>;
@@ -259,19 +255,21 @@ struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:ve
 
 // Angular response is deliberately scaled down: a faithful inertia tensor makes a thin
 // eraser spin violently, so we keep it gentle to read as a rigid box settling.
-const ANG_SCALE : f32 = 0.3;
-const PEN_SLOP  : f32 = 0.004;
-const BAUMGARTE : f32 = 0.55;
+// Full-scale solver tuning shared with the WGSL shogi sample (the same OBB solver at this scale).
+const ANG_SCALE : f32 = 0.18;
+const PEN_SLOP  : f32 = 0.006;
+const BAUMGARTE : f32 = 0.4;
+const MAX_PUSH  : f32 = 0.06;
 // Sleeping: once a body has been in contact and nearly still for SLEEP_TIME it is frozen
 // (skips integration/response entirely) so a settled pile stops trembling. velocity.w stores
 // the accumulated still-time; SLEEP_TIME (a sentinel) also marks "asleep".
-const WAKE_LIN  : f32 = 0.06;
+const WAKE_LIN  : f32 = 0.15;
 const WAKE_ANG  : f32 = 0.6;
-const SLEEP_TIME : f32 = 0.35;
+const SLEEP_TIME : f32 = 0.4;
 // Gravity torque about the contact: tips an overhanging / edge-balanced box toward a flat
 // rest and vanishes once balanced, so (unlike a forced "align" nudge) it does not keep a
 // settled pile twitching.
-const GTIP : f32 = 7.0;
+const GTIP : f32 = 4.5;
 
 // Collide this eraser (A) against another OBB (B). pushFactor/impFactor are 1.0 for an
 // immovable static and 0.5 for an eraser-eraser pair (so each takes half). Only the six
@@ -297,7 +295,7 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
     var n = minAxis;
     if (dot(n, -T) < 0.0) { n = -n; }   // n points from B toward this eraser
     resp.normal = n;
-    resp.dPos = n * (max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE);
+    resp.dPos = n * min(max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE, MAX_PUSH);
 
     // contact lever on this eraser (toward B), clamped to its half-extents
     let cLx = clamp(dot(T, axA[0]), -EHE.x, EHE.x);
@@ -359,20 +357,12 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
 
     let axA = quatToAxes(rot);
     let identity = mat3x3<f32>(vec3<f32>(1,0,0), vec3<f32>(0,1,0), vec3<f32>(0,0,1));
-    let rampAxes = mat3x3<f32>(
-        vec3<f32>(${rc}, ${rs}, 0.0),
-        vec3<f32>(${-rs}, ${rc}, 0.0),
-        vec3<f32>(0.0, 0.0, 1.0),
-    );
 
     var contacts = 0.0;
     var leverSum = vec3<f32>(0.0);
 
     // Floor (static).
     var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.5);
-    pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
-    // Ramp (static).
-    r = collide(pos, vel, angVel, axA, RAMP_C, vec3<f32>(0.0), rampAxes, RAMP_HE, 1.0, 1.0, 0.0, 0.55);
     pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
 
     // Eraser-eraser (read neighbours from the previous state). Against an already-sleeping
@@ -386,7 +376,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     }
 
     let speed = length(vel);
-    if (speed > 12.0) { vel *= 12.0 / speed; }
+    if (speed > 18.0) { vel *= 18.0 / speed; }
     if (length(angVel) > 8.0) { angVel *= 8.0 / length(angVel); }
 
     // Resting bodies: apply a gravity torque about the average contact point. This tips an
@@ -410,13 +400,12 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         sleepTimer = 0.0;   // airborne -> never sleeps
     }
 
-    // Recycle only erasers that somehow fall through the floor (the wide ground keeps the
-    // pile contained, so after the initial drop everything settles and stays put).
-    if (pos.y < -2.0) {
+    // Recycle erasers that overflow the small floor: respawn them at the top (a "fountain").
+    if (pos.y < -15.0) {
         let salt = i * 2654435761u + u32(params.elapsedTime * 60.0) * 40503u;
         let fx = f32((salt >> 0u) & 1023u) / 1023.0;
         let fz = f32((salt >> 10u) & 1023u) / 1023.0;
-        pos = vec3<f32>(0.9 + fx * 0.8, 4.0 + seed * 1.5, (fz - 0.5) * 2.4);
+        pos = vec3<f32>((fx - 0.5) * 12.0, 18.0 + seed * 8.0, (fz - 0.5) * 12.0);
         vel = vec3<f32>(0.0, -0.3, 0.0);
         rot = normalizeQ(vec4<f32>(fx - 0.5, fz - 0.5, seed - 0.5, 1.0));
         angVel = vec3<f32>(0.0, 0.0, 0.0);
@@ -577,7 +566,8 @@ fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 0.85, 0.1, 1.0); }
 
         const dt = Math.min(engine.getDeltaTime() / 1000, 1 / 30);
         const time = (performance.now() - startTime) / 1000;
-        device.queue.writeBuffer(simUbo, 0, new Float32Array([dt / SUBSTEPS, 9.8, time, 0]));
+        // Fixed timestep (matches the WGSL shogi sample) so the solver tuning is stable.
+        device.queue.writeBuffer(simUbo, 0, new Float32Array([1 / (60 * SUBSTEPS), 9.8, time, 0]));
 
         const ce = device.createCommandEncoder();
         const wg = Math.ceil(ERASER_COUNT / 64);
