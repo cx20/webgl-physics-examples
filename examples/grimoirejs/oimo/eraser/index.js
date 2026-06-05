@@ -1,11 +1,15 @@
 ﻿const Quaternion = gr.lib.math.Quaternion;
+// Spawn 200 erasers at once over the small floor, matching the other eraser samples
+// (x,z in +/-6, y in 14..28). They are recycled in the Rigid $update when they fall off.
+const ERASER_COUNT = 200;
+function spawnPosition() {
+    return [Math.random() * 12 - 6, 14 + Math.random() * 14, Math.random() * 12 - 6];
+}
 gr(function() {
     const scene = gr("#main")("scene").single();
-    setInterval(function() {
-        const n = scene.addChildByName("rigid-eraser", {
-            position: [Math.random() * 3 - 1.5, Math.random() * 5 + 5, Math.random() * 3 - 1.5]
-        });
-    }, 200);
+    for (let i = 0; i < ERASER_COUNT; i++) {
+        scene.addChildByName("rigid-eraser", { position: spawnPosition() });
+    }
 });
 
 let GeometryFactory = gr.lib.fundamental.Geometry.GeometryFactory;
@@ -115,7 +119,18 @@ GeometryFactory.addType("custom", {}, function(gl,attrs){
 gr.register(() => {
     gr.registerComponent("OimoScene", {
         $awake: function() {
-            this.world = new OIMO.World();
+            // Configure the world like the other Oimo eraser samples (glboost/oimo). A bare
+            // `new OIMO.World()` keeps Oimo's defaults (notably worldscale 100), which runs the
+            // simulation in 1/100-scale space and never settles the dense pile.
+            this.world = new OIMO.World({
+                timestep: 1 / 60,
+                iterations: 8,
+                broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
+                worldscale: 1,
+                random: true,
+                info: false,
+                gravity: [0, -9.8, 0]
+            });
         },
         $update: function() {
             this.world.step();
@@ -146,10 +161,20 @@ gr.register(() => {
                 pos: [p.X, p.Y, p.Z],
                 rot: [r.X, r.Y, r.Z],
                 move: this.move,
-                density: 1
+                density: 1,
+                friction: 0.5,
+                restitution: 0.1
             });
         },
         $update: function() {
+            // Recycle movable erasers that fall off the small floor back to the top.
+            if (this.move) {
+                const cur = this.body.getPosition();
+                if (cur.y < -15) {
+                    const sp = spawnPosition();
+                    this.body.resetPosition(sp[0], sp[1], sp[2]);
+                }
+            }
             const p = this.body.getPosition();
             this.transform.setAttribute("position", [p.x, p.y, p.z]);
             const r = this.body.getQuaternion();
@@ -165,7 +190,8 @@ gr.register(() => {
         material: "new(textureShader)",
         geometry: "c1",
         texture: "../../../../assets/textures/eraser_001/eraser.png",
-        //scale: [1.0, 0.2, 0.5]
-        scale: [1.0, 0.2, 0.5]
+        // Eraser full size [4.0, 0.8, 2.0] (c1 geometry is 2 units, so scale = size / 2),
+        // matching the other Oimo eraser samples (glboost/oimo, babylonjs/oimo).
+        scale: [2.0, 0.4, 1.0]
     }, "mesh");
 });
