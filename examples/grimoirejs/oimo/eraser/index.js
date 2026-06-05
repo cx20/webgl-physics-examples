@@ -119,7 +119,18 @@ GeometryFactory.addType("custom", {}, function(gl,attrs){
 gr.register(() => {
     gr.registerComponent("OimoScene", {
         $awake: function() {
-            this.world = new OIMO.World();
+            // Configure the world like the other Oimo eraser samples (glboost/oimo). A bare
+            // `new OIMO.World()` keeps Oimo's defaults (notably worldscale 100), which runs the
+            // simulation in 1/100-scale space and never settles the dense pile.
+            this.world = new OIMO.World({
+                timestep: 1 / 60,
+                iterations: 8,
+                broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
+                worldscale: 1,
+                random: true,
+                info: false,
+                gravity: [0, -9.8, 0]
+            });
         },
         $update: function() {
             this.world.step();
@@ -150,7 +161,9 @@ gr.register(() => {
                 pos: [p.X, p.Y, p.Z],
                 rot: [r.X, r.Y, r.Z],
                 move: this.move,
-                density: 1
+                density: 1,
+                friction: 0.5,
+                restitution: 0.1
             });
         },
         $update: function() {
@@ -177,8 +190,8 @@ gr.register(() => {
         material: "new(textureShader)",
         geometry: "c1",
         texture: "../../../../assets/textures/eraser_001/eraser.png",
-        // Eraser full size [2.4, 0.6, 1.2] (c1 geometry is 2 units, so scale = size / 2),
-        // matching the other eraser samples.
-        scale: [1.2, 0.3, 0.6]
+        // Eraser full size [4.0, 0.8, 2.0] (c1 geometry is 2 units, so scale = size / 2),
+        // matching the other Oimo eraser samples (glboost/oimo, babylonjs/oimo).
+        scale: [2.0, 0.4, 1.0]
     }, "mesh");
 });
