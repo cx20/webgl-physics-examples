@@ -18,8 +18,11 @@ const ERASER_TEXTURES = [
     '../../../../assets/textures/eraser_003/eraser_back.png',
 ];
 
-const ERASER_COUNT = 5;   // DEBUG: a few erasers for problem isolation (restore to 200 afterwards)
-const DEBUG = ERASER_COUNT <= 8;   // when on, read the state back each frame and graph it on-screen
+// DEBUG: eraser count is chosen from the control panel (which reloads with ?count=N). The first
+// PROBE_COUNT erasers use fixed probe poses and are graphed; any extra ones form a random pile.
+const ERASER_COUNT = Math.max(1, Math.min(500, parseInt(new URLSearchParams(location.search).get('count'), 10) || 5));
+const PROBE_COUNT = Math.min(ERASER_COUNT, 5);
+const DEBUG = true;
 const STATE_FLOATS = 16;
 const SUBSTEPS = 8;   // more solver iterations per frame so deep stacks converge (top stops trembling)
 const EHE = [1.2, 0.3, 0.6];  // eraser half-extents (2.4 x 0.6 x 1.2), matching the reference eraser samples
@@ -157,52 +160,45 @@ function hashF(n) { return (hash32(n) & 0xffffff) / 0xffffff; }
 const DEBUG_COLORS = ['#ff5555', '#55dd55', '#5599ff', '#ffaa33', '#ff66dd'];
 const DEBUG_LABELS = ['flat x=-6', 'flat x=0', 'tilt45 x=4', 'yaw x=-3', 'tumble x=6'];
 
+// The first 5 erasers use these fixed probe poses (graphed); these match DEBUG_LABELS/COLORS.
+const DEBUG_PROBES = [
+    { x: -6, eul: [0.0, 0.0, 0.0], w: [0, 0, 0] },   // flat, far out
+    { x:  0, eul: [0.0, 0.0, 0.0], w: [0, 0, 0] },   // flat, centre (baseline)
+    { x:  4, eul: [0.8, 0.0, 0.0], w: [0, 0, 0] },   // tilted ~46 deg, should tip flat
+    { x: -3, eul: [0.0, 0.0, 0.0], w: [0, 4, 0] },   // flat + yaw spin
+    { x:  6, eul: [0.5, 0.5, 0.5], w: [3, 3, 3] },   // full tumble, far out
+];
+
 function createInitialStates() {
     const states = new Float32Array(ERASER_COUNT * STATE_FLOATS);
-
-    // DEBUG: 5 erasers dropped from known poses to probe the *post-landing* settling. Spread
-    // across x so we can see whether position still affects the landing (the old contact-lever bug).
-    if (DEBUG && ERASER_COUNT <= 8) {
-        const setup = [
-            { x: -6, eul: [0.0, 0.0, 0.0], w: [0, 0, 0] },   // flat, far out
-            { x:  0, eul: [0.0, 0.0, 0.0], w: [0, 0, 0] },   // flat, centre (baseline)
-            { x:  4, eul: [0.8, 0.0, 0.0], w: [0, 0, 0] },   // tilted ~46 deg, should tip flat
-            { x: -3, eul: [0.0, 0.0, 0.0], w: [0, 4, 0] },   // flat + yaw spin
-            { x:  6, eul: [0.5, 0.5, 0.5], w: [3, 3, 3] },   // full tumble, far out
-        ];
-        for (let i = 0; i < ERASER_COUNT; i++) {
-            const s = setup[i % setup.length];
-            const base = i * STATE_FLOATS;
+    for (let i = 0; i < ERASER_COUNT; i++) {
+        const base = i * STATE_FLOATS;
+        if (i < PROBE_COUNT) {
+            // Known probe pose (graphed), spread across x.
+            const s = DEBUG_PROBES[i];
             const q = quatFromEuler(s.eul[0], s.eul[1], s.eul[2]);
             states[base + 0] = s.x; states[base + 1] = 14; states[base + 2] = 0; states[base + 3] = 0.5;
             states[base + 8] = q[0]; states[base + 9] = q[1]; states[base + 10] = q[2]; states[base + 11] = q[3];
             states[base + 12] = s.w[0]; states[base + 13] = s.w[1]; states[base + 14] = s.w[2];
+        } else {
+            // Extra erasers form a random pile around the probes (random x,z, orientation, tumble).
+            const seed = hash32(i + 1);
+            states[base + 0] = (hashF(seed)     - 0.5) * 12;
+            states[base + 1] = 14 + (i / ERASER_COUNT) * 14 + (hashF(seed + 1) - 0.5) * 2;
+            states[base + 2] = (hashF(seed + 2) - 0.5) * 12;
+            states[base + 3] = hashF(seed + 6);
+            const q = quatFromEuler(
+                (hashF(seed + 7) - 0.5) * Math.PI * 2,
+                (hashF(seed + 8) - 0.5) * Math.PI * 2,
+                (hashF(seed + 9) - 0.5) * Math.PI * 2);
+            states[base + 8]  = q[0];
+            states[base + 9]  = q[1];
+            states[base + 10] = q[2];
+            states[base + 11] = q[3];
+            states[base + 12] = (hashF(seed + 3) - 0.5) * 6;
+            states[base + 13] = (hashF(seed + 4) - 0.5) * 6;
+            states[base + 14] = (hashF(seed + 5) - 0.5) * 6;
         }
-        return states;
-    }
-
-    for (let i = 0; i < ERASER_COUNT; i++) {
-        const base = i * STATE_FLOATS;
-        const seed = hash32(i + 1);
-        // Decorrelate every axis (the old i-based pattern spawned the erasers in neat columns):
-        // random x,z over the floor, a random orientation and a random tumble so they rain down
-        // and settle in a natural jumble. Keep the height loosely stratified by i (plus jitter) so
-        // they do not all overlap at the instant they spawn.
-        states[base + 0] = (hashF(seed)     - 0.5) * 12;                          // x in +/-6
-        states[base + 1] = 14 + (i / ERASER_COUNT) * 14 + (hashF(seed + 1) - 0.5) * 2; // y ~14..28
-        states[base + 2] = (hashF(seed + 2) - 0.5) * 12;                          // z in +/-6
-        states[base + 3] = hashF(seed + 6);                                       // seed (0..1)
-        const q = quatFromEuler(
-            (hashF(seed + 7) - 0.5) * Math.PI * 2,
-            (hashF(seed + 8) - 0.5) * Math.PI * 2,
-            (hashF(seed + 9) - 0.5) * Math.PI * 2);
-        states[base + 8]  = q[0];
-        states[base + 9]  = q[1];
-        states[base + 10] = q[2];
-        states[base + 11] = q[3];
-        states[base + 12] = (hashF(seed + 3) - 0.5) * 6;                          // tumble (angVel)
-        states[base + 13] = (hashF(seed + 4) - 0.5) * 6;
-        states[base + 14] = (hashF(seed + 5) - 0.5) * 6;
     }
     return states;
 }
@@ -558,7 +554,7 @@ let startTime = 0, lastTime = 0;
 let frameCount = 0, lastFpsT = 0, fps = 0;
 // DEBUG: GPU readback + on-screen time-series graphs.
 let debugReadback = null, debugPending = false, debugCanvas = null, debugCtx = null;
-const debugSamples = Array.from({ length: ERASER_COUNT }, () => []);  // per eraser: {t, tilt, w, y}
+const debugSamples = Array.from({ length: PROBE_COUNT }, () => []);  // per probe eraser: {t, tilt, w, y}
 
 function updateCamera(dt) {
     // Fixed head-on camera matching the reference eraser samples: eye at (0,0,40) looking at the
@@ -578,6 +574,28 @@ function resize() {
 
 // DEBUG: draw three stacked time-series graphs (tilt angle, |angVel|, height) for the probe
 // erasers onto a 2D overlay canvas, so the post-landing behaviour is visible without console logs.
+// DEBUG: a small control panel to pick how many erasers to drop. Changing it reloads the page with
+// ?count=N (a clean full re-init); the first 5 stay fixed probe poses, the rest form a pile.
+function createDebugControls() {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+        position: 'fixed', left: '8px', top: '36px', zIndex: 9999,
+        font: '13px monospace', color: '#0f0', background: 'rgba(0,0,0,0.45)',
+        padding: '4px 8px', borderRadius: '4px',
+    });
+    wrap.appendChild(document.createTextNode('Erasers: '));
+    const sel = document.createElement('select');
+    [1, 5, 10, 20, 50, 100, 200].forEach((n) => {
+        const o = document.createElement('option');
+        o.value = String(n); o.textContent = String(n);
+        if (n === ERASER_COUNT) o.selected = true;
+        sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => { location.search = '?count=' + sel.value; });
+    wrap.appendChild(sel);
+    document.body.appendChild(wrap);
+}
+
 function drawDebugViz() {
     if (!debugCanvas) {
         debugCanvas = document.createElement('canvas');
@@ -597,7 +615,7 @@ function drawDebugViz() {
 
     // Legend
     let lx = 10;
-    for (let k = 0; k < ERASER_COUNT; k++) {
+    for (let k = 0; k < PROBE_COUNT; k++) {
         ctx.fillStyle = DEBUG_COLORS[k];
         ctx.fillRect(lx, 6, 10, 10);
         ctx.fillText(DEBUG_LABELS[k], lx + 13, 12);
@@ -635,7 +653,7 @@ function drawDebugViz() {
             ctx.moveTo(x0, vy(p.guide)); ctx.lineTo(x0 + pw, vy(p.guide)); ctx.stroke(); ctx.setLineDash([]);
         }
         // series
-        for (let k = 0; k < ERASER_COUNT; k++) {
+        for (let k = 0; k < PROBE_COUNT; k++) {
             const s = debugSamples[k];
             ctx.strokeStyle = DEBUG_COLORS[k]; ctx.lineWidth = 1.5; ctx.beginPath();
             let started = false;
@@ -723,7 +741,7 @@ function render() {
             const a = new Float32Array(debugReadback.getMappedRange()).slice();
             debugReadback.unmap();
             debugPending = false;
-            for (let k = 0; k < ERASER_COUNT; k++) {
+            for (let k = 0; k < PROBE_COUNT; k++) {
                 const o = k * STATE_FLOATS;
                 const qx = a[o + 8], qy = a[o + 9], qz = a[o + 10];
                 // Tilt of the eraser's big face from horizontal: angle of its local up-axis from
@@ -752,6 +770,7 @@ function render() {
 }
 
 async function init() {
+    createDebugControls();
     canvas = document.getElementById('c');
     if (!navigator.gpu) {
         document.getElementById('hint').textContent = 'WebGPU is not available in this browser.';
