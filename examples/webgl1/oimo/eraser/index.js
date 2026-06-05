@@ -74,9 +74,9 @@ gl.uniformMatrix4fv(
     perspective(45, c.width / c.height, 0.1, 1000.0)
 );
 
-let w = 1.0;
-let h = 0.2;
-let d = 0.5;
+let w = 1.2;
+let h = 0.3;
+let d = 0.6;
 let position = new Float32Array([
         // Front face
         -w, -h,  d, // v0
@@ -178,7 +178,7 @@ for (let i = 0; i < strides.length; i++) {
     gl.enableVertexAttribArray(i);
 }
 
-let max = 300;
+let max = 200;
 let posStride = 3;
 let rotStride = 4;
 let posBuffer =  gl.createBuffer();
@@ -245,19 +245,29 @@ gl.bindBuffer(gl.ARRAY_BUFFER, eraserPosVBO);
 gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eraserIBO);
 
-let world = new OIMO.World();
-world.gravity = new OIMO.Vec3(0, -0.98, 0);
+// Configure the world like the other Oimo samples. The bare `new OIMO.World()` keeps Oimo's
+// defaults (notably worldscale 100), which runs the simulation in 1/100-scale space; with the
+// dense overflowing pile it never settles and stays very expensive. Match glboost/oimo:
+// worldscale 1, sweep-and-prune broadphase, a fixed 1/60 step and 8 iterations.
+let world = new OIMO.World({
+    timestep: 1 / 60,
+    iterations: 8,
+    broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
+    worldscale: 1,
+    random: true,
+    info: false,
+    gravity: [0, -9.8, 0]
+});
 
+// Spawn x,z in +/-6 and y in 14..28, matching the other eraser samples.
 let genPosition = function () {
-    let p = new OIMO.Vec3(Math.random() - 0.5, Math.random() + 1 , Math.random() - 0.5);
-    p = new OIMO.Vec3().scale(p, 15);
-    return p;
+    return new OIMO.Vec3((Math.random() - 0.5) * 12, 14 + Math.random() * 14, (Math.random() - 0.5) * 12);
 };
 
-//let ground = new OIMO.Body({size:[13, 0.1, 13], pos:[0, -10, 0], world:world});
+// Small low floor (no walls), matching the other eraser samples: a 20 x 0.1 x 20 slab at y = -10.
 let ground = world.add({
         type: "box",
-        size: [13, 0.1, 13],
+        size: [20, 0.1, 20],
         pos:[0, -10, 0],
         rot: [0, 0, 0],
         move: false,
@@ -332,7 +342,7 @@ animate();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxWireIB);
     let wm = mat4.create();
     let gp = ground.getPosition();
-    mat4.fromRotationTranslationScale(wm, [0,0,0,1], [gp.x, gp.y, gp.z], [13, 0.1, 13]);
+    mat4.fromRotationTranslationScale(wm, [0,0,0,1], [gp.x, gp.y, gp.z], [20, 0.1, 20]);
     gl.uniformMatrix4fv(lineModelLoc, false, wm);
     gl.uniform4fv(lineColorLoc, [0, 1, 0, 1]);
     if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
