@@ -383,7 +383,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     var leverSum = vec3<f32>(0.0);
 
     // Floor (static).
-    var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.0, 0.5);
+    var r = collide(pos, vel, angVel, axA, GROUND_C, vec3<f32>(0.0), identity, GROUND_HE, 1.0, 1.0, 0.2, 0.5);
     pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
 
     // Eraser-eraser (read neighbours from the previous state). Against an already-sleeping
@@ -392,7 +392,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
         if (j == i) { continue; }
         let o = srcStates[j];
         let push = select(0.5, 1.0, o.velocity.w >= SLEEP_TIME);
-        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), EHE, push, 0.5, 0.0, 0.45);
+        r = collide(pos, vel, angVel, axA, o.position.xyz, o.velocity.xyz, quatToAxes(o.rotation), EHE, push, 0.5, 0.1, 0.45);
         pos += r.dPos; vel += r.dVel; angVel += r.dAng; contacts += r.hit; leverSum += r.lever;
     }
 
@@ -407,7 +407,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     if (contacts > 0.0) {
         let rAvg = leverSum / contacts;
         angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
-        angVel *= 0.9;
+        angVel *= 0.95;
         if (length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG) {
             sleepTimer += params.dt;
         } else {
