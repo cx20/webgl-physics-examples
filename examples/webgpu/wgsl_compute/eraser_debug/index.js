@@ -1,12 +1,11 @@
 'use strict';
 
-// Falling erasers simulated and rendered entirely on the GPU with WebGPU + WGSL.
+// PHYSICS DEBUG build of the WebGPU + WGSL falling-eraser sample.
 //
-// A WGSL compute shader integrates each eraser and resolves collisions as oriented bounding
-// boxes using the Separating Axis Theorem (eraser-eraser and eraser-static). Box-shaped
-// (MOMO-style) erasers rain onto a small low floor and overflow the edges, the spilled ones
-// recycling from the top (a "fountain"), matching the flat-floor reference eraser samples. The
-// erasers and ground are drawn with WGSL render pipelines (no rendering library).
+// Identical solver to ../eraser, but instead of 200 erasers it drops a few probe erasers from
+// known poses and graphs their post-landing behaviour on a 2D overlay (top-right): tilt angle,
+// |angVel| and height over time. The eraser state is read back from the GPU each frame. Use it to
+// compare settling behaviour against the other physics-library eraser samples.
 // Press W to toggle the collider wireframe.
 
 // Six faces of a MOMO-style eraser (order: +x, -x, +y, -y, +z, -z).
@@ -19,7 +18,8 @@ const ERASER_TEXTURES = [
     '../../../../assets/textures/eraser_003/eraser_back.png',
 ];
 
-const ERASER_COUNT = 200;
+const ERASER_COUNT = 5;   // DEBUG: a few erasers for problem isolation (restore to 200 afterwards)
+const DEBUG = ERASER_COUNT <= 8;   // when on, read the state back each frame and graph it on-screen
 const STATE_FLOATS = 16;
 const SUBSTEPS = 5;
 const EHE = [1.2, 0.3, 0.6];  // eraser half-extents (2.4 x 0.6 x 1.2), matching the reference eraser samples
@@ -153,8 +153,34 @@ function hash32(n) {
 }
 function hashF(n) { return (hash32(n) & 0xffffff) / 0xffffff; }
 
+// DEBUG colours/labels for the 5 probe erasers (kept in sync with the setup below).
+const DEBUG_COLORS = ['#ff5555', '#55dd55', '#5599ff', '#ffaa33', '#ff66dd'];
+const DEBUG_LABELS = ['flat x=-6', 'flat x=0', 'tilt45 x=4', 'yaw x=-3', 'tumble x=6'];
+
 function createInitialStates() {
     const states = new Float32Array(ERASER_COUNT * STATE_FLOATS);
+
+    // DEBUG: 5 erasers dropped from known poses to probe the *post-landing* settling. Spread
+    // across x so we can see whether position still affects the landing (the old contact-lever bug).
+    if (DEBUG && ERASER_COUNT <= 8) {
+        const setup = [
+            { x: -6, eul: [0.0, 0.0, 0.0], w: [0, 0, 0] },   // flat, far out
+            { x:  0, eul: [0.0, 0.0, 0.0], w: [0, 0, 0] },   // flat, centre (baseline)
+            { x:  4, eul: [0.8, 0.0, 0.0], w: [0, 0, 0] },   // tilted ~46 deg, should tip flat
+            { x: -3, eul: [0.0, 0.0, 0.0], w: [0, 4, 0] },   // flat + yaw spin
+            { x:  6, eul: [0.5, 0.5, 0.5], w: [3, 3, 3] },   // full tumble, far out
+        ];
+        for (let i = 0; i < ERASER_COUNT; i++) {
+            const s = setup[i % setup.length];
+            const base = i * STATE_FLOATS;
+            const q = quatFromEuler(s.eul[0], s.eul[1], s.eul[2]);
+            states[base + 0] = s.x; states[base + 1] = 14; states[base + 2] = 0; states[base + 3] = 0.5;
+            states[base + 8] = q[0]; states[base + 9] = q[1]; states[base + 10] = q[2]; states[base + 11] = q[3];
+            states[base + 12] = s.w[0]; states[base + 13] = s.w[1]; states[base + 14] = s.w[2];
+        }
+        return states;
+    }
+
     for (let i = 0; i < ERASER_COUNT; i++) {
         const base = i * STATE_FLOATS;
         const seed = hash32(i + 1);
@@ -527,6 +553,9 @@ let staticVB, staticCount;
 let currentState = 0;
 let startTime = 0, lastTime = 0;
 let frameCount = 0, lastFpsT = 0, fps = 0;
+// DEBUG: GPU readback + on-screen time-series graphs.
+let debugReadback = null, debugPending = false, debugCanvas = null, debugCtx = null;
+const debugSamples = Array.from({ length: ERASER_COUNT }, () => []);  // per eraser: {t, tilt, w, y}
 
 function updateCamera(dt) {
     // Fixed head-on camera matching the reference eraser samples: eye at (0,0,40) looking at the
@@ -542,6 +571,78 @@ function resize() {
     canvas.height = window.innerHeight;
     if (depthTexture) depthTexture.destroy();
     depthTexture = createDepthTexture();
+}
+
+// DEBUG: draw three stacked time-series graphs (tilt angle, |angVel|, height) for the probe
+// erasers onto a 2D overlay canvas, so the post-landing behaviour is visible without console logs.
+function drawDebugViz() {
+    if (!debugCanvas) {
+        debugCanvas = document.createElement('canvas');
+        debugCanvas.width = 520; debugCanvas.height = 420;
+        Object.assign(debugCanvas.style, {
+            position: 'fixed', right: '8px', top: '8px', zIndex: 9999,
+            background: 'rgba(0,0,0,0.72)', border: '1px solid #444', borderRadius: '4px',
+        });
+        document.body.appendChild(debugCanvas);
+        debugCtx = debugCanvas.getContext('2d');
+    }
+    const ctx = debugCtx, W = debugCanvas.width;
+    ctx.clearRect(0, 0, W, debugCanvas.height);
+    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+
+    // Legend
+    let lx = 10;
+    for (let k = 0; k < ERASER_COUNT; k++) {
+        ctx.fillStyle = DEBUG_COLORS[k];
+        ctx.fillRect(lx, 6, 10, 10);
+        ctx.fillText(DEBUG_LABELS[k], lx + 13, 12);
+        lx += 13 + ctx.measureText(DEBUG_LABELS[k]).width + 12;
+    }
+
+    // Common time window across all erasers (last ~8 s).
+    let tMax = 0;
+    for (const s of debugSamples) if (s.length) tMax = Math.max(tMax, s[s.length - 1].t);
+    const tMin = Math.max(0, tMax - 8);
+
+    const panels = [
+        { title: 'tilt angle (deg) - 0=flat, ~90=on edge', key: 'tilt', lo: 0, hi: 95, guide: 0 },
+        { title: '|angVel| (rad/s) - should settle to 0', key: 'w', lo: 0, hi: 6, guide: 0 },
+        { title: 'height y - rests ~ -9.65 if flat', key: 'y', lo: -11, hi: 16, guide: -9.65 },
+    ];
+    const padL = 38, padR = 10, top0 = 26, ph = 116, gap = 16;
+
+    panels.forEach((p, pi) => {
+        const y0 = top0 + pi * (ph + gap), x0 = padL, pw = W - padL - padR;
+        // frame + title
+        ctx.strokeStyle = '#666'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, pw, ph);
+        ctx.fillStyle = '#ccc'; ctx.fillText(p.title, x0, y0 - 7);
+        const vy = (v) => y0 + ph - ((v - p.lo) / (p.hi - p.lo)) * ph;
+        // y ticks
+        ctx.fillStyle = '#888';
+        for (let g = 0; g <= 4; g++) {
+            const v = p.lo + (p.hi - p.lo) * g / 4, yy = vy(v);
+            ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x0 + pw, yy); ctx.stroke();
+            ctx.fillText(v.toFixed(p.key === 'y' ? 0 : (p.hi <= 6 ? 1 : 0)), 2, yy);
+        }
+        // guide line (target)
+        if (p.guide >= p.lo && p.guide <= p.hi) {
+            ctx.strokeStyle = '#00ff9988'; ctx.setLineDash([4, 3]); ctx.beginPath();
+            ctx.moveTo(x0, vy(p.guide)); ctx.lineTo(x0 + pw, vy(p.guide)); ctx.stroke(); ctx.setLineDash([]);
+        }
+        // series
+        for (let k = 0; k < ERASER_COUNT; k++) {
+            const s = debugSamples[k];
+            ctx.strokeStyle = DEBUG_COLORS[k]; ctx.lineWidth = 1.5; ctx.beginPath();
+            let started = false;
+            for (const pt of s) {
+                if (pt.t < tMin) continue;
+                const xx = x0 + ((pt.t - tMin) / (tMax - tMin || 1)) * pw;
+                const yy = Math.max(y0, Math.min(y0 + ph, vy(pt[p.key])));
+                if (!started) { ctx.moveTo(xx, yy); started = true; } else ctx.lineTo(xx, yy);
+            }
+            ctx.stroke();
+        }
+    });
 }
 
 function render() {
@@ -602,7 +703,37 @@ function render() {
     }
 
     pass.end();
+
+    // DEBUG: copy every eraser's latest state into the readback buffer (only when no map is pending).
+    const doReadback = DEBUG && debugReadback && !debugPending;
+    if (doReadback) {
+        encoder.copyBufferToBuffer(stateBuffers[currentState], 0, debugReadback, 0, ERASER_COUNT * STATE_FLOATS * 4);
+    }
+
     device.queue.submit([encoder.finish()]);
+
+    if (doReadback) {
+        debugPending = true;
+        debugReadback.mapAsync(GPUMapMode.READ).then(() => {
+            const a = new Float32Array(debugReadback.getMappedRange()).slice();
+            debugReadback.unmap();
+            debugPending = false;
+            for (let k = 0; k < ERASER_COUNT; k++) {
+                const o = k * STATE_FLOATS;
+                const qx = a[o + 8], qy = a[o + 9], qz = a[o + 10];
+                // Tilt of the eraser's big face from horizontal: angle of its local up-axis from
+                // world up. 0 deg = lying flat, ~90 deg = standing on an edge. |upY| so either
+                // large face counts as flat.
+                const upY = 1 - 2 * (qx * qx + qz * qz);
+                const tilt = Math.acos(Math.min(1, Math.abs(upY))) * 180 / Math.PI;
+                const w = Math.hypot(a[o + 12], a[o + 13], a[o + 14]);
+                const s = debugSamples[k];
+                s.push({ t: time, tilt, w, y: a[o + 1] });
+                if (s.length > 900) s.shift();
+            }
+            drawDebugViz();
+        });
+    }
 
     frameCount++;
     if (now - lastFpsT > 500) {
@@ -689,11 +820,16 @@ async function init() {
 
     const initStates = createInitialStates();
     stateBuffers = [0, 1].map(() => {
-        const buf = device.createBuffer({ size: ERASER_COUNT * STATE_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+        const buf = device.createBuffer({ size: ERASER_COUNT * STATE_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, mappedAtCreation: true });
         new Float32Array(buf.getMappedRange()).set(initStates);
         buf.unmap();
         return buf;
     });
+
+    // DEBUG: a CPU-readable buffer to copy every eraser's state into each frame.
+    if (DEBUG) {
+        debugReadback = device.createBuffer({ size: ERASER_COUNT * STATE_FLOATS * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    }
 
     // Pipelines
     const computeModule = device.createShaderModule({ code: computeWGSL });

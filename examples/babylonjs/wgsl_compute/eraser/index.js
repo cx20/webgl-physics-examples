@@ -277,20 +277,24 @@ struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:ve
 // Angular response is deliberately scaled down: a faithful inertia tensor makes a thin
 // eraser spin violently, so we keep it gentle to read as a rigid box settling.
 // Full-scale solver tuning shared with the WGSL shogi sample (the same OBB solver at this scale).
-const ANG_SCALE : f32 = 0.18;
+const ANG_SCALE : f32 = 0.10;
 const PEN_SLOP  : f32 = 0.006;
 const BAUMGARTE : f32 = 0.4;
 const MAX_PUSH  : f32 = 0.06;
 // Sleeping: once a body has been in contact and nearly still for SLEEP_TIME it is frozen
 // (skips integration/response entirely) so a settled pile stops trembling. velocity.w stores
 // the accumulated still-time; SLEEP_TIME (a sentinel) also marks "asleep".
-const WAKE_LIN  : f32 = 0.15;
-const WAKE_ANG  : f32 = 0.6;
+const WAKE_LIN  : f32 = 0.3;
+const WAKE_ANG  : f32 = 1.2;   // tolerate small residual rocking so a settled box still sleeps (anti-jitter)
 const SLEEP_TIME : f32 = 0.4;
 // Gravity torque about the contact: tips an overhanging / edge-balanced box toward a flat
 // rest and vanishes once balanced, so (unlike a forced "align" nudge) it does not keep a
 // settled pile twitching.
 const GTIP : f32 = 4.5;
+// Extra bias toward lying flat (big face down). The gravity-tip torque above vanishes once a box
+// is balanced, so a box left standing on a thin edge (CoM right over the contact) never falls; this
+// rotates the eraser's big-face normal toward vertical so it topples flat.
+const GTIP_FLAT : f32 = 2.5;
 
 // Collide this eraser (A) against another OBB (B). pushFactor/impFactor are 1.0 for an
 // immovable static and 0.5 for an eraser-eraser pair (so each takes half). Only the six
@@ -331,7 +335,11 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
     let relV = vel - velB;
     let relVn = dot(relV, n);
     if (relVn < 0.0) {
-        let Jn = -(relVn * (1.0 + restitution) * impFactor);
+        // Only bounce on a fast impact; at low approach speed use no restitution, so a settling box
+        // does not rock corner-to-corner forever (a single-contact-point solver cannot rest a face
+        // stably with restitution). Keeps the visible landing bounce, kills the resting jitter.
+        let rest = select(0.0, restitution, abs(relVn) > 2.0);
+        let Jn = -(relVn * (1.0 + rest) * impFactor);
         resp.dVel += n * Jn;
         resp.dAng += cross(r_i, n * Jn) * (impFactor * ANG_SCALE);
         let relVt = relV - relVn * n;
@@ -414,11 +422,21 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     if (contacts > 0.0) {
         let rAvg = leverSum / contacts;
         angVel += cross(-rAvg, vec3<f32>(0.0, -params.gravity, 0.0)) * (params.dt * GTIP);
-        angVel *= 0.95;
+        // Bias the big face (local +Y, = axA[1]) toward horizontal so edge-balanced erasers fall
+        // flat instead of standing. Target is whichever pole (up/down) the face already leans to.
+        let upAxis = axA[1];
+        let flatTarget = select(vec3<f32>(0.0, -1.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), upAxis.y >= 0.0);
+        angVel += cross(upAxis, flatTarget) * (params.dt * GTIP_FLAT);
+        // Strong damping while resting on the floor so a box settles quickly and stops rocking
+        // (a single contact point can only approximate face support). Airborne motion is untouched.
+        angVel *= 0.85;
+        vel *= 0.92;
         if (length(vel) < WAKE_LIN && length(angVel) < WAKE_ANG) {
             sleepTimer += params.dt;
         } else {
-            sleepTimer = 0.0;
+            // Leaky reset: a brief jitter spike only drains the accumulated still-time instead of
+            // zeroing it, so a nearly-settled box still falls asleep despite tiny residual rocking.
+            sleepTimer = max(sleepTimer - params.dt * 3.0, 0.0);
         }
         if (sleepTimer >= SLEEP_TIME) {
             vel = vec3<f32>(0.0);
