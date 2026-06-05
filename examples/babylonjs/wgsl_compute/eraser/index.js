@@ -278,14 +278,16 @@ struct Resp { dPos:vec3<f32>, dVel:vec3<f32>, dAng:vec3<f32>, hit:f32, normal:ve
 // eraser spin violently, so we keep it gentle to read as a rigid box settling.
 // Full-scale solver tuning shared with the WGSL shogi sample (the same OBB solver at this scale).
 const ANG_SCALE : f32 = 0.18;
-const PEN_SLOP  : f32 = 0.006;
-const BAUMGARTE : f32 = 0.4;
+// Soft resting contact: tolerate a small overlap (PEN_SLOP) and push out gently (BAUMGARTE), so
+// stacked erasers don't get shoved apart and pulled back every frame (the "trembling" at overlaps).
+const PEN_SLOP  : f32 = 0.02;
+const BAUMGARTE : f32 = 0.25;
 const MAX_PUSH  : f32 = 0.06;
-// Sleeping: once a body has been in contact and nearly still for SLEEP_TIME it is frozen
-// (skips integration/response entirely) so a settled pile stops trembling. velocity.w stores
-// the accumulated still-time; SLEEP_TIME (a sentinel) also marks "asleep".
-const WAKE_LIN  : f32 = 0.15;
-const WAKE_ANG  : f32 = 0.6;
+// Sleeping: once a body has been in contact and nearly still for SLEEP_TIME it is frozen (skips
+// integration/response entirely) so a settled pile stops trembling. Thresholds are raised a little
+// (with the leaky timer below) so a box still sleeps through small residual rocking.
+const WAKE_LIN  : f32 = 0.2;
+const WAKE_ANG  : f32 = 1.0;
 const SLEEP_TIME : f32 = 0.4;
 // Gravity torque about the contact: tips an overhanging / edge-balanced box toward a flat
 // rest and vanishes once balanced, so (unlike a forced "align" nudge) it does not keep a
