@@ -534,26 +534,16 @@ function render() {
     requestAnimationFrame(render);
 }
 
-// DEBUG: a small control panel to pick how many erasers to drop. Changing it reloads the page with
+// DEBUG: lil-gui control panel to pick how many erasers to drop. Changing it reloads the page with
 // ?count=N (a clean full re-init); the first 5 stay fixed probe poses, the rest form a pile.
 function createDebugControls() {
-    const wrap = document.createElement('div');
-    Object.assign(wrap.style, {
-        position: 'fixed', left: '8px', top: '36px', zIndex: 9999,
-        font: '13px monospace', color: '#0f0', background: 'rgba(0,0,0,0.45)',
-        padding: '4px 8px', borderRadius: '4px',
-    });
-    wrap.appendChild(document.createTextNode('Erasers: '));
-    const sel = document.createElement('select');
-    [1, 5, 10, 20, 50, 100, 200].forEach((n) => {
-        const o = document.createElement('option');
-        o.value = String(n); o.textContent = String(n);
-        if (n === MAX) o.selected = true;
-        sel.appendChild(o);
-    });
-    sel.addEventListener('change', () => { location.search = '?count=' + sel.value; });
-    wrap.appendChild(sel);
-    document.body.appendChild(wrap);
+    if (!window.lil || !window.lil.GUI) return;   // CDN not available
+    const gui = new lil.GUI({ title: 'Debug' });
+    // Move it under the wireframe hint (top-left); the graph overlay already sits top-right.
+    Object.assign(gui.domElement.style, { left: '8px', right: 'auto', top: '40px' });
+    const params = { erasers: MAX };
+    gui.add(params, 'erasers', [1, 5, 10, 20, 50, 100, 200]).name('Erasers')
+        .onChange((v) => { location.search = '?count=' + v; });
 }
 
 // DEBUG: three stacked time-series graphs (tilt angle, |angVel|, height) on a 2D overlay canvas,
