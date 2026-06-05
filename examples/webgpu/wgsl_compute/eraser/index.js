@@ -301,10 +301,14 @@ fn collide(pos:vec3<f32>, vel:vec3<f32>, angVel:vec3<f32>, axA:mat3x3<f32>,
     resp.normal = n;
     resp.dPos = n * min(max(minPen - PEN_SLOP, 0.0) * pushFactor * BAUMGARTE, MAX_PUSH);
 
-    let cLx = clamp(dot(T, axA[0]), -EHE.x, EHE.x);
-    let cLy = clamp(dot(T, axA[1]), -EHE.y, EHE.y);
-    let cLz = clamp(dot(T, axA[2]), -EHE.z, EHE.z);
-    let r_i = axA[0]*cLx + axA[1]*cLy + axA[2]*cLz;
+    // Contact lever = this eraser's support point toward B (its deepest vertex/face in the -n
+    // direction). The old code clamped the centre-to-centre vector T, but against the huge floor
+    // box T is dominated by the eraser's horizontal offset from the floor centre, so the lever
+    // landed at the eraser's side edge and the normal impulse spun it up on contact (worse the
+    // further from x=z=0). The support point depends only on the eraser's own orientation.
+    let r_i = -sign(dot(n, axA[0])) * EHE.x * axA[0]
+            - sign(dot(n, axA[1])) * EHE.y * axA[1]
+            - sign(dot(n, axA[2])) * EHE.z * axA[2];
     resp.lever = r_i;
 
     let relV = vel - velB;
