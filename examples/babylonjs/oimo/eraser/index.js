@@ -183,7 +183,9 @@ const createScene = function(eraserAtlasUrl) {
     scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.OimoJSPlugin());
     setupPhysicsDebugWireframe(scene);
-    scene.getPhysicsEngine().setTimeStep(scene.getAnimationRatio());
+    // Keep the default 1/60 s physics step. setTimeStep(getAnimationRatio()) made the step ~1 s
+    // (animationRatio is ~1 at 60 fps), which integrated a whole second per step and blew the
+    // erasers apart in mid-air.
     scene.clearColor = new BABYLON.Color4(0.5, 0.5, 0.8, 1.0);
 
     // Fixed head-on camera matching the WebGL/WebGPU + Havok eraser samples (eye at (0,0,40)
