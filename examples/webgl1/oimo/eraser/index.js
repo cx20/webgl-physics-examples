@@ -350,7 +350,7 @@ animate();
     for (let i = 0; i < max; i++) {
         let q = quat.fromValues(rotArray[i*4], rotArray[i*4+1], rotArray[i*4+2], rotArray[i*4+3]);
         mat4.fromRotationTranslationScale(wm, q,
-            [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [2, 0.4, 1]);
+            [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [w * 2, h * 2, d * 2]);
         gl.uniformMatrix4fv(lineModelLoc, false, wm);
         if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     }
