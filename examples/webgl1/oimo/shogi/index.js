@@ -346,7 +346,8 @@ for (let i = 0; i < max; i++) {
     //bodys[i] = new OIMO.Body({type:'box', size:[w*2, h*2, d*2], pos:[p.x, p.y, p.z], move:true, world:world});
     bodys[i] = world.add({
         type: "box",
-        size: [w * 2, h * 2, d * 2],
+        // Match the rendered piece: the mesh spans +/-0.5w, +/-0.5h, +/-0.7d -> [w, h, 1.4d].
+        size: [w, h, d * 1.4],
         pos: [p.x, p.y, p.z],
         rot: [0, 0, 0],
         move: true,
@@ -455,7 +456,7 @@ setInterval(function () {
     for (let i = 0; i < max; i++) {
         let q = quat.fromValues(rotArray[i*4], rotArray[i*4+1], rotArray[i*4+2], rotArray[i*4+3]);
         mat4.fromRotationTranslationScale(wm, q,
-            [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [w*2, h*2, d*2]);
+            [posArray[i*3], posArray[i*3+1], posArray[i*3+2]], [w, h, d * 1.4]);
         gl.uniformMatrix4fv(lineModelLoc, false, wm);
         if (showWireframe) gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
     }
