@@ -349,7 +349,8 @@ async function init() {
         const p = genPosition();
         bodies[i] = world.add({
             type: 'box',
-            size: [pw * 2, ph * 2, pd * 2],
+            // Match the rendered piece: the mesh spans +/-0.5pw, +/-0.5ph, +/-0.7pd -> [pw, ph, 1.4pd].
+            size: [pw, ph, pd * 1.4],
             pos: [p.x, p.y, p.z],
             rot: [0, 0, 0],
             move: true,
@@ -535,7 +536,7 @@ function render() {
     for (let i = 0; i < MAX; i++) {
         const px=posArray[i*3], py=posArray[i*3+1], pz=posArray[i*3+2];
         const qx=rotArray[i*4], qy=rotArray[i*4+1], qz=rotArray[i*4+2], qw=rotArray[i*4+3];
-        makeModelMatrix(lineModelTmp, px, py, pz, qx, qy, qz, qw, pw*2, ph*2, pd*2);
+        makeModelMatrix(lineModelTmp, px, py, pz, qx, qy, qz, qw, pw, ph, pd * 1.4);
         const base = (i + 1) * (LINE_ALIGN / 4);
         lineUniformData.set(lineViewProj, base); lineUniformData.set(lineModelTmp, base + 16);
         lineUniformData[base+32]=1; lineUniformData[base+33]=1; lineUniformData[base+34]=0; lineUniformData[base+35]=1;
