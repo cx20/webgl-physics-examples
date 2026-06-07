@@ -19,6 +19,13 @@ let G = -10, nG = -10;
 let wakeup = false;
 let bodys = [];
 
+// collider wireframe (W key)
+let debugMeshs = [];        // all collider wireframes (for the W toggle)
+let pieceDebugMeshs = [];   // per-piece wireframes, parallel to bodys
+let showWireframe = true;
+const DEBUG_COLOR_DYNAMIC = new GLBoost.Vector4(1.0, 0.5, 0.2, 1.0);
+const DEBUG_COLOR_STATIC = new GLBoost.Vector4(0.2, 1.0, 0.4, 1.0);
+
 init();
 
 function init() {
@@ -56,6 +63,13 @@ function init() {
     mground1.translate = new GLBoost.Vector3(tmpVector3.x, tmpVector3.y - 50, tmpVector3.z);
     mground1.dirty = true;
     scene.addChild( mground1 );
+
+    // Ground collider wireframe (matches the Oimo ground box, full size 200x20x200)
+    let groundWireGeo = createWireframeBoxGeometry(200, 20, 200, DEBUG_COLOR_STATIC);
+    let groundWireMesh = glBoostContext.createMesh(groundWireGeo, glBoostContext.createClassicMaterial());
+    groundWireMesh.translate = new GLBoost.Vector3(0, -50, 0);
+    scene.addChild(groundWireMesh);
+    debugMeshs.push(groundWireMesh);
 
     // oimo init
     world = new OIMO.World({ 
@@ -232,6 +246,11 @@ function populate() {
         texcoord: texcoords
     }, [indices], GLBoost.TRIANGLE);
 
+    // Shared collider wireframe (one geometry/material reused by every piece),
+    // matching the Oimo piece box [w, h, d].
+    let pieceWireGeo = createWireframeBoxGeometry(w, h, d, DEBUG_COLOR_DYNAMIC);
+    let pieceWireMaterial = glBoostContext.createClassicMaterial();
+
     for (let i = 0; i < max; i++) {
         let x = (Math.random() * 8) - 4;
         let y = (Math.random() * 8*2) + 10;
@@ -250,11 +269,73 @@ function populate() {
         meshs[i] = mesh;
         meshs[i].translate = new GLBoost.Vector3(x * DOT_SIZE, y * DOT_SIZE, z * DOT_SIZE);
         scene.addChild(meshs[i]);
+
+        // Per-piece collider wireframe (shares geometry/material with the others)
+        let debugMesh = glBoostContext.createMesh(pieceWireGeo, pieceWireMaterial);
+        debugMesh.translate = new GLBoost.Vector3(x * DOT_SIZE, y * DOT_SIZE, z * DOT_SIZE);
+        scene.addChild(debugMesh);
+        debugMeshs.push(debugMesh);
+        pieceDebugMeshs[i] = debugMesh;
     }
+
+    setWireframeVisible(showWireframe);
 }
 
 function clearMesh(){
 }
+
+// Build a box-edge wireframe geometry (full size w x h x d, centred on the origin)
+// as GL LINES, with a per-vertex colour so it draws as a solid coloured outline.
+function createWireframeBoxGeometry(w, h, d, color) {
+    let x = w / 2, y = h / 2, z = d / 2;
+    let c = [
+        new GLBoost.Vector3(-x, -y, -z), // 0
+        new GLBoost.Vector3( x, -y, -z), // 1
+        new GLBoost.Vector3( x,  y, -z), // 2
+        new GLBoost.Vector3(-x,  y, -z), // 3
+        new GLBoost.Vector3(-x, -y,  z), // 4
+        new GLBoost.Vector3( x, -y,  z), // 5
+        new GLBoost.Vector3( x,  y,  z), // 6
+        new GLBoost.Vector3(-x,  y,  z)  // 7
+    ];
+    let edges = [
+        [0, 1], [1, 5], [5, 4], [4, 0], // bottom face
+        [3, 2], [2, 6], [6, 7], [7, 3], // top face
+        [0, 3], [1, 2], [5, 6], [4, 7]  // verticals
+    ];
+    let positions = [];
+    let colors = [];
+    for (let e = 0; e < edges.length; e++) {
+        positions.push(c[edges[e][0]]);
+        positions.push(c[edges[e][1]]);
+        colors.push(color);
+        colors.push(color);
+    }
+    let geometry = glBoostContext.createGeometry();
+    geometry.setVerticesData({
+        position: positions,
+        color: colors
+    }, null, GLBoost.LINES);
+    return geometry;
+}
+
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    for (let i = 0; i < debugMeshs.length; i++) {
+        debugMeshs[i].isVisible = visible;
+    }
+    let hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', function(event) {
+    if (event.repeat) return;
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
 
 // MAIN LOOP
 
@@ -274,6 +355,11 @@ function loop() {
         let q = body.getQuaternion();
         mesh.translate = new GLBoost.Vector3(p.x, p.y, p.z);
         mesh.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
+        let debugMesh = pieceDebugMeshs[i];
+        if ( debugMesh ) {
+            debugMesh.translate = new GLBoost.Vector3(p.x, p.y, p.z);
+            debugMesh.quaternion = new GLBoost.Quaternion(q.x, q.y, q.z, q.w);
+        }
         if ( p.y < -300 ) {
             let x = (Math.random() * 8) - 4;
             let y = (Math.random() * 8*2) + 10;
