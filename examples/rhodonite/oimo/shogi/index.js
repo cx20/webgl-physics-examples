@@ -9,6 +9,75 @@ let world;
 let oimoBodies = [];
 let engine;
 
+let showWireframe = true;
+const debugEntities = [];         // all collider wireframes (for the W toggle)
+const pieceDebugEntities = [];    // per-piece wireframes, parallel to shogiPieces
+const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+
+// Mirror the Rhodonite + Havok shogi sample: PbrUber + RN_USE_WIREFRAME, with
+// barycentric coords on the mesh so the wireframe shader can draw the edges.
+function makeDebugMaterial(color) {
+  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: false, isSkinning: false, isMorphing: false });
+  try { mat.addShaderDefine('RN_USE_WIREFRAME'); } catch (e) {}
+  try { mat.setParameter('wireframe', Rn.Vector3.fromCopy3(1, 0, 1)); } catch (e) {}
+  try { mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4(color)); } catch (e) {}
+  return mat;
+}
+
+// Box wireframe geometry (full size w x h x d, centred on the origin).
+function buildBoxGeometry(w, h, d) {
+  const x = w / 2, y = h / 2, z = d / 2;
+  const positions = new Float32Array([
+    -x, -y, -z,  x, -y, -z,  x, y, -z,  -x, y, -z,
+    -x, -y,  z,  x, -y,  z,  x, y,  z,  -x, y,  z,
+  ]);
+  const indices = new Uint16Array([
+    0, 1, 2, 0, 2, 3,   4, 6, 5, 4, 7, 6,
+    0, 4, 7, 0, 7, 3,   1, 5, 6, 1, 6, 2,
+    3, 7, 6, 3, 6, 2,   0, 5, 1, 0, 4, 5,
+  ]);
+  return { positions, indices };
+}
+
+// Build a collider-wireframe mesh (full size w x h x d). The wireframe shader needs
+// un-indexed geometry + barycentric coords (what _calcBaryCentricCoord adds).
+function makeWireMesh(w, h, d, color) {
+  const geo = buildBoxGeometry(w, h, d);
+  const primitive = Rn.Primitive.createPrimitive(engine, {
+    indices: geo.indices,
+    attributeSemantics: [Rn.VertexAttribute.Position.XYZ],
+    attributes: [geo.positions],
+    material: makeDebugMaterial(color),
+    primitiveMode: Rn.PrimitiveMode.Triangles,
+  });
+  const mesh = new Rn.Mesh(engine);
+  mesh.addPrimitive(primitive);
+  try {
+    for (const prim of mesh.primitives) prim.convertToUnindexedGeometry();
+    mesh._calcBaryCentricCoord();
+  } catch (e) { console.warn('[Shogi] baryCentric failed:', e); }
+  return mesh;
+}
+
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  for (const entity of debugEntities) {
+    try { entity.getSceneGraph().isVisible = visible; } catch (e) {}
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
+
 const load = async function() {
     const c = document.getElementById('world');
 
@@ -75,6 +144,12 @@ const load = async function() {
     groundEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, groundY, 0]);
     entities.push(groundEntity);
 
+    // Ground collider wireframe (matches the Oimo ground box, which is full size)
+    const groundDebugEntity = Rn.createMeshEntity(engine);
+    groundDebugEntity.getMesh().setMesh(makeWireMesh(groundSize[0], groundSize[1], groundSize[2], DEBUG_COLOR_STATIC));
+    groundDebugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([0, groundY, 0]);
+    debugEntities.push(groundDebugEntity);
+
     // Create shogi pieces
     populate(shogiTexture, sampler);
 
@@ -107,9 +182,18 @@ const load = async function() {
     renderPass.clearColor = Rn.Vector4.fromCopyArray4([0.2, 0.2, 0.2, 1]);
     renderPass.addEntities(entities);
 
+    // Collider wireframes are drawn in a second pass on top of the model (no depth test).
+    const debugRenderPass = new Rn.RenderPass(engine);
+    debugRenderPass.cameraComponent = cameraComponent;
+    debugRenderPass.toClearColorBuffer = false;
+    try { debugRenderPass.isDepthTest = false; } catch (e) {}
+    debugRenderPass.addEntities(debugEntities);
+
     // expression
     const expression = new Rn.Expression();
-    expression.addRenderPasses([renderPass]);
+    expression.addRenderPasses([renderPass, debugRenderPass]);
+
+    setWireframeVisible(showWireframe);
 
     let angle = 0;
     const draw = function(time) {
@@ -135,6 +219,10 @@ const load = async function() {
 
             entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos.x, pos.y, pos.z]);
             entity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([quat.x, quat.y, quat.z, quat.w]);
+
+            const debugEntity = pieceDebugEntities[i];
+            debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos.x, pos.y, pos.z]);
+            debugEntity.getTransform().localRotation = Rn.Quaternion.fromCopyArray([quat.x, quat.y, quat.z, quat.w]);
         }
 
         // Rotate camera around the scene
@@ -336,6 +424,10 @@ function populate(shogiTexture, sampler) {
     const sharedMesh = new Rn.Mesh(engine);
     sharedMesh.addPrimitive(primitive);
 
+    // Shared collider wireframe (one mesh reused by every piece), matching the Oimo
+    // piece box [pieceW, pieceH, pieceD].
+    const pieceWireMesh = makeWireMesh(pieceW, pieceH, pieceD, DEBUG_COLOR_DYNAMIC);
+
     for (let i = 0; i < max; i++) {
         // Random position above the ground (within ground bounds)
         const x = (Math.random() - 0.5) * 5;
@@ -370,6 +462,13 @@ function populate(shogiTexture, sampler) {
 
         entities.push(entity);
         shogiPieces.push(entity);
+
+        // Per-piece collider wireframe (no scale: geometry is already at physics size)
+        const debugEntity = Rn.createMeshEntity(engine);
+        debugEntity.getMesh().setMesh(pieceWireMesh);
+        debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([x, y, z]);
+        debugEntities.push(debugEntity);
+        pieceDebugEntities.push(debugEntity);
     }
 }
 
