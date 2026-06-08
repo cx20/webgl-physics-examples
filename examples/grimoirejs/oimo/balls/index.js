@@ -6,6 +6,82 @@ const dataSet = [
     {imageFile:"../../../../assets/textures/Softball.jpg",   scale:0.3}, // Softball.jpg
     {imageFile:"../../../../assets/textures/TennisBall.jpg", scale:0.3}, // TennisBall.jpg
 ];
+
+const GeometryFactory = gr.lib.fundamental.Geometry.GeometryFactory;
+const Geometry = gr.lib.fundamental.Geometry.Geometry;
+
+// collider wireframe (W key)
+let debugNodes = [];
+let showWireframe = true;
+
+// Box-edge wireframe geometry (2-unit cube, matching Grimoire's "cube" so it lines up with
+// the rigid-cube collider [scale * 2]). Drawn as GL LINES.
+GeometryFactory.addType("collider-box-wire", {}, function(gl, attrs) {
+    const geometry = new Geometry(gl);
+    const c = [
+        [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+        [-1, -1,  1], [1, -1,  1], [1, 1,  1], [-1, 1,  1]
+    ];
+    const positions = [];
+    const normals = [];
+    const inv = 1 / Math.sqrt(3);
+    for (let i = 0; i < c.length; i++) {
+        positions.push(c[i][0], c[i][1], c[i][2]);
+        normals.push(c[i][0] * inv, c[i][1] * inv, c[i][2] * inv);
+    }
+    geometry.addAttributes(new Float32Array(positions), { POSITION: { size: 3 } });
+    geometry.addAttributes(new Float32Array(normals), { NORMAL: { size: 3 } });
+    const indices = [0,1, 1,5, 5,4, 4,0, 3,2, 2,6, 6,7, 7,3, 0,3, 1,2, 5,6, 4,7];
+    geometry.addIndex("default", indices, WebGLRenderingContext.LINES);
+    return geometry;
+});
+
+// Sphere wireframe geometry (radius 1, three great circles) drawn as GL LINES.
+GeometryFactory.addType("collider-sphere-wire", {}, function(gl, attrs) {
+    const geometry = new Geometry(gl);
+    const SEG = 24;
+    const positions = [];
+    const normals = [];
+    const indices = [];
+    let idx = 0;
+    for (let ring = 0; ring < 3; ring++) {
+        const base = idx;
+        for (let i = 0; i < SEG; i++) {
+            const a = (i / SEG) * Math.PI * 2;
+            let p;
+            if (ring === 0) p = [Math.cos(a), Math.sin(a), 0];
+            else if (ring === 1) p = [Math.cos(a), 0, Math.sin(a)];
+            else p = [0, Math.cos(a), Math.sin(a)];
+            positions.push(p[0], p[1], p[2]);
+            normals.push(p[0], p[1], p[2]);
+            indices.push(base + i, base + ((i + 1) % SEG));
+            idx++;
+        }
+    }
+    geometry.addAttributes(new Float32Array(positions), { POSITION: { size: 3 } });
+    geometry.addAttributes(new Float32Array(normals), { NORMAL: { size: 3 } });
+    geometry.addIndex("default", indices, WebGLRenderingContext.LINES);
+    return geometry;
+});
+
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    for (let i = 0; i < debugNodes.length; i++) {
+        try { debugNodes[i].enabled = visible; } catch (e) {}
+    }
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', function(event) {
+    if (event.repeat) return;
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
+
 gr(function() {
     const scene = gr("#main")("scene").single();
     let timer = setInterval(function() {
@@ -58,6 +134,16 @@ gr.register(() => {
                 move: this.move,
                 density: 1
             });
+
+            // Collider wireframe child (inherits this node's physics-driven transform)
+            try {
+                const wireName = this.shape === "box" ? "collider-box-wire" : "collider-sphere-wire";
+                const wireNode = this.node.addChildByName(wireName, {});
+                if (wireNode) {
+                    try { wireNode.enabled = showWireframe; } catch (e) {}
+                    debugNodes.push(wireNode);
+                }
+            } catch (e) {}
         },
         $update: function() {
             const p = this.body.getPosition();
@@ -84,5 +170,13 @@ gr.register(() => {
         shape: "sphere",
         scale: [1,1,1],
         transparent:"false"
+    }, "mesh");
+    gr.registerNode("collider-box-wire", [], {
+        geometry: "collider-box-wire",
+        material: "#lime"
+    }, "mesh");
+    gr.registerNode("collider-sphere-wire", [], {
+        geometry: "collider-sphere-wire",
+        material: "#orange"
     }, "mesh");
 });
