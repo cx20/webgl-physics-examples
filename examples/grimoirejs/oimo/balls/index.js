@@ -137,12 +137,21 @@ gr.register(() => {
                 density: 1
             });
 
-            // Collider wireframe child (inherits this node's physics-driven transform)
+            // Collider wireframe placed as a sibling (scene child) and synced to the physics
+            // transform each frame.
+            // WIP: the node is created (debugNodes fills) and the material is valid, but the
+            // LINES wireframe geometry does not render with the default mesh material yet.
+            // Needs follow-up (box/ball meshes themselves render fine).
             try {
                 const wireName = this.shape === "box" ? "collider-box-wire" : "collider-sphere-wire";
-                const wireNode = this.node.addChildByName(wireName, {});
+                const parent = this.node.parent || this.node;
+                const wireNode = parent.addChildByName(wireName, {
+                    scale: [s.X, s.Y, s.Z],
+                    position: [p.X, p.Y, p.Z]
+                });
                 if (wireNode) {
                     try { wireNode.enabled = showWireframe; } catch (e) {}
+                    this.wireNode = wireNode;
                     debugNodes.push(wireNode);
                 }
             } catch (e) {}
@@ -152,6 +161,10 @@ gr.register(() => {
             this.transform.setAttribute("position", [p.x, p.y, p.z]);
             const r = this.body.getQuaternion();
             this.transform.setAttribute("rotation", new Quaternion([r.x, r.y, r.z, r.w]));
+            if (this.wireNode) {
+                this.wireNode.setAttribute("position", [p.x, p.y, p.z]);
+                this.wireNode.setAttribute("rotation", new Quaternion([r.x, r.y, r.z, r.w]));
+            }
             if ( p.y < -10 ) {
                 x = Math.random() * 4 - 2;
                 y = Math.random() * 5 + 15;
@@ -175,12 +188,12 @@ gr.register(() => {
     }, "mesh");
     gr.registerNode("collider-box-wire", [], {
         geometry: "collider-box-wire",
-        albedo: "#000000",
+        albedo: "#44ee88",
         emission: "#44ee88"
     }, "mesh");
     gr.registerNode("collider-sphere-wire", [], {
         geometry: "collider-sphere-wire",
-        albedo: "#000000",
+        albedo: "#ff8844",
         emission: "#ff8844"
     }, "mesh");
 });
