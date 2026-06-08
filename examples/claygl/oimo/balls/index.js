@@ -140,12 +140,12 @@ let app = clay.application.create('#main', {
         let geometrySphere = new clay.geometry.Sphere();
         let n = 400;
         while (n--){
-            let x = -50 + Math.random()*100;
-            let y = 200 + Math.random()*100;
-            let z = -50 + Math.random()*100;
-            let w = 10;
-            let h = 10;
-            let d = 10;
+            let x = -25 + Math.random()*50;
+            let y = 10 + Math.random()*40;
+            let z = -25 + Math.random()*50;
+            let w = 1;
+            let h = 1;
+            let d = 1;
             let pos = Math.floor(Math.random() * dataSet.length);
             let scale = dataSet[pos].scale;
             
@@ -189,10 +189,10 @@ let app = clay.application.create('#main', {
                 debugMesh.position.set(pos.x, pos.y, pos.z);
                 debugMesh.rotation.set(rot.x, rot.y, rot.z, rot.w);
             }
-            if ( meshSphere.position.y < -100 ) {
-                let x = -50 + Math.random()*100;
-                let y = 200 + Math.random()*100;
-                let z = -50 + Math.random()*100;
+            if ( meshSphere.position.y < -20 ) {
+                let x = -25 + Math.random()*50;
+                let y = 10 + Math.random()*40;
+                let z = -25 + Math.random()*50;
                oimoSphere.resetPosition(x, y, z);
             }
         }
@@ -250,6 +250,8 @@ function createLineMesh(app, positions, position, color) {
     geometry.dirty();
     let material = new clay.Material({ shader: clay.shader.library.get('clay.basic') });
     material.set('color', color);
+    // Draw collider wireframes on top of the (opaque) balls so they stay visible.
+    material.depthTest = false;
     let mesh = app.createMesh(geometry, material);
     mesh.mode = (clay.Mesh.LINES !== undefined ? clay.Mesh.LINES : 1);
     mesh.position.set(position[0], position[1], position[2]);

@@ -31,6 +31,7 @@ GeometryFactory.addType("collider-box-wire", {}, function(gl, attrs) {
     }
     geometry.addAttributes(new Float32Array(positions), { POSITION: { size: 3 } });
     geometry.addAttributes(new Float32Array(normals), { NORMAL: { size: 3 } });
+    geometry.addAttributes(new Float32Array((positions.length / 3) * 2), { TEXCOORD: { size: 2 } });
     const indices = [0,1, 1,5, 5,4, 4,0, 3,2, 2,6, 6,7, 7,3, 0,3, 1,2, 5,6, 4,7];
     geometry.addIndex("default", indices, WebGLRenderingContext.LINES);
     return geometry;
@@ -60,6 +61,7 @@ GeometryFactory.addType("collider-sphere-wire", {}, function(gl, attrs) {
     }
     geometry.addAttributes(new Float32Array(positions), { POSITION: { size: 3 } });
     geometry.addAttributes(new Float32Array(normals), { NORMAL: { size: 3 } });
+    geometry.addAttributes(new Float32Array((positions.length / 3) * 2), { TEXCOORD: { size: 2 } });
     geometry.addIndex("default", indices, WebGLRenderingContext.LINES);
     return geometry;
 });
@@ -173,10 +175,12 @@ gr.register(() => {
     }, "mesh");
     gr.registerNode("collider-box-wire", [], {
         geometry: "collider-box-wire",
-        material: "#lime"
+        albedo: "#000000",
+        emission: "#44ee88"
     }, "mesh");
     gr.registerNode("collider-sphere-wire", [], {
         geometry: "collider-sphere-wire",
-        material: "#orange"
+        albedo: "#000000",
+        emission: "#ff8844"
     }, "mesh");
 });
