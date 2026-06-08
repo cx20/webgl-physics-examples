@@ -6,6 +6,7 @@ import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 let camera, scene, light, renderer, container, content;
 let controls;
 let meshs = [];
+let debugMeshs = [];
 let grounds = [];
 let matSphere, matGround, matGroundTrans;
 let matSpheres = [];
@@ -23,6 +24,9 @@ const dataSet = [
 let textures = [];
 let world;
 let bodys = [];
+
+const SHOW_DEBUG_COLLIDERS = true;
+let showWireframe = true;
 
 async function init() {
     await RAPIER.init();
@@ -87,6 +91,7 @@ async function init() {
         updatePhysics();
     }, 1000 / 60);
 
+    setWireframeVisible(showWireframe);
     loop();
 }
 
@@ -99,10 +104,20 @@ function addStaticBox(size, position, rotation, spec) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
+
+    if (SHOW_DEBUG_COLLIDERS) {
+        const dbg = new THREE.LineSegments(
+            new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0], size[1], size[2])),
+            new THREE.LineBasicMaterial({ color: 0x44ee88 })
+        );
+        dbg.position.set(position[0], position[1], position[2]);
+        dbg.rotation.set(rotation[0] * ToRad, rotation[1] * ToRad, rotation[2] * ToRad);
+        scene.add(dbg);
+    }
 }
 
 function initRapierPhysics() {
-    let groundColliderDesc = RAPIER.ColliderDesc.cuboid(20, 2, 20);
+    let groundColliderDesc = RAPIER.ColliderDesc.cuboid(10, 1, 10);
     let groundBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, -2, 0);
     let groundBody = world.createRigidBody(groundBodyDesc);
     world.createCollider(groundColliderDesc, groundBody);
@@ -150,6 +165,15 @@ function initRapierPhysics() {
 
         scene.add(mesh);
         meshs[i] = mesh;
+
+        if (SHOW_DEBUG_COLLIDERS) {
+            const dbg = new THREE.LineSegments(
+                new THREE.WireframeGeometry(new THREE.SphereGeometry(radius, 8, 6)),
+                new THREE.LineBasicMaterial({ color: 0xff8844 })
+            );
+            scene.add(dbg);
+            debugMeshs[i] = dbg;
+        }
     }
 }
 
@@ -165,6 +189,11 @@ function updatePhysics() {
 
         mesh.position.set(position.x, position.y, position.z);
         mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+
+        if (SHOW_DEBUG_COLLIDERS && debugMeshs[i]) {
+            debugMeshs[i].position.copy(mesh.position);
+            debugMeshs[i].quaternion.copy(mesh.quaternion);
+        }
 
         // 床を超えて落ちたオブジェクトの位置をリセット
         if (mesh.position.y < -10) {
@@ -185,5 +214,27 @@ function loop() {
     controls.update();
     requestAnimationFrame(loop);
 }
+
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    scene.traverse((object) => {
+        if (object.isLineSegments) {
+            object.visible = visible;
+        }
+    });
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.repeat) {
+        return;
+    }
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
 
 init();
