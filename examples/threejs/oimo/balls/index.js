@@ -6,6 +6,7 @@ let camera, scene, light, renderer, container, content;
 let controls;
 
 let meshs = [];
+let debugMeshs = [];
 let grounds = [];
 let matSphere, matGround, matGroundTrans;
 let matSpheres = [];
@@ -33,6 +34,9 @@ let world = new OIMO.World({
     gravity: [0, -9.8, 0] 
 });
 let bodys = [];
+
+const SHOW_DEBUG_COLLIDERS = true;
+let showWireframe = true;
 
 function init() {
 
@@ -105,6 +109,16 @@ function addStaticBox(size, position, rotation, spec) {
     grounds.push(mesh);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+
+    if (SHOW_DEBUG_COLLIDERS) {
+        const dbg = new THREE.LineSegments(
+            new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0], size[1], size[2])),
+            new THREE.LineBasicMaterial({ color: 0x44ee88 })
+        );
+        dbg.position.set(position[0], position[1], position[2]);
+        dbg.rotation.set(rotation[0] * ToRad, rotation[1] * ToRad, rotation[2] * ToRad);
+        scene.add(dbg);
+    }
 }
 
 function initOimoPhysics() {
@@ -135,7 +149,7 @@ function initOimoPhysics() {
         let rot = boxDataSet[i].rot;
         let surfaceBody = world.add({
             type: "box",
-            size: [size[0]/2, size[1]/2, size[2]/2],
+            size: [size[0], size[1], size[2]],
             pos: [pos[0], pos[1], pos[2]],
             rot: [0, 0, 0],
             move: false,
@@ -180,6 +194,15 @@ function initOimoPhysics() {
         meshs[i].receiveShadow = true;
 
         scene.add(meshs[i]);
+
+        if (SHOW_DEBUG_COLLIDERS) {
+            const dbg = new THREE.LineSegments(
+                new THREE.WireframeGeometry(new THREE.SphereGeometry(w / 2, 8, 6)),
+                new THREE.LineBasicMaterial({ color: 0xff8844 })
+            );
+            scene.add(dbg);
+            debugMeshs[i] = dbg;
+        }
     }
 }
 
@@ -198,7 +221,12 @@ function updateOimoPhysics() {
         mesh.quaternion.y = body.quaternion.y;
         mesh.quaternion.z = body.quaternion.z;
         mesh.quaternion.w = body.quaternion.w;
-        
+
+        if (SHOW_DEBUG_COLLIDERS && debugMeshs[i]) {
+            debugMeshs[i].position.copy(mesh.position);
+            debugMeshs[i].quaternion.copy(mesh.quaternion);
+        }
+
         if (mesh.position.y < -10) {
             let x = -5 + Math.random() * 10;
             let y = 10 + Math.random() * 8;
@@ -214,5 +242,28 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    scene.traverse((object) => {
+        if (object.isLineSegments) {
+            object.visible = visible;
+        }
+    });
+    const hint = document.getElementById('hint');
+    if (hint) {
+        hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+    }
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.repeat) {
+        return;
+    }
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
+
 init();
 loop();
+setWireframeVisible(showWireframe);
