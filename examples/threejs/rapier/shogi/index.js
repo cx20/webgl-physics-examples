@@ -9,7 +9,7 @@ let world;
 const meshes = [];
 const bodies = [];
 
-const PIECE_COUNT = 220;
+const PIECE_COUNT = 300;
 
 function createShogiGeometry(w, h, d) {
     const positions = [
@@ -173,8 +173,8 @@ function randomQuaternion() {
 async function init() {
     await RAPIER.init();
 
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(18, 24, 34);
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 40);
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x2b2f38);
@@ -183,9 +183,7 @@ async function init() {
 
     light = new THREE.DirectionalLight(0xffffff, 2.1);
     light.position.set(30, 100, 50);
-    light.target.position.set(0, 0, 0);
     light.castShadow = true;
-    light.shadow.camera = new THREE.OrthographicCamera(-30, 30, 30, -30, 0.1, 1000);
     scene.add(light);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -210,50 +208,27 @@ async function init() {
     });
 
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.autoRotate = true;
+    controls.autoRotate = false;
 
     // Rapier physics world
     world = new RAPIER.World({ x: 0, y: -10, z: 0 });
 
     // Ground
-    const groundBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, -2, 0);
+    const groundBodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, -10, 0);
     const groundBody = world.createRigidBody(groundBodyDesc);
-    world.createCollider(RAPIER.ColliderDesc.cuboid(20, 2, 20), groundBody);
-    addStaticBox([40, 4, 40], [0, -2, 0], new THREE.MeshLambertMaterial({ color: 0x3D4143 }));
-
-    // Walls
-    const wallData = [
-        { size: [10, 10,  1], pos: [ 0, 5, -5], half: [5, 5, 0.5] },
-        { size: [10, 10,  1], pos: [ 0, 5,  5], half: [5, 5, 0.5] },
-        { size: [ 1, 10, 10], pos: [-5, 5,  0], half: [0.5, 5, 5] },
-        { size: [ 1, 10, 10], pos: [ 5, 5,  0], half: [0.5, 5, 5] },
-    ];
-
-    for (const wall of wallData) {
-        addStaticBox(
-            wall.size,
-            wall.pos,
-            new THREE.MeshLambertMaterial({ color: 0x3D4143, transparent: true, opacity: 0.4 })
-        );
-        const wallBodyDesc = RAPIER.RigidBodyDesc.fixed()
-            .setTranslation(wall.pos[0], wall.pos[1], wall.pos[2]);
-        const wallBody = world.createRigidBody(wallBodyDesc);
-        world.createCollider(
-            RAPIER.ColliderDesc.cuboid(wall.half[0], wall.half[1], wall.half[2]),
-            wallBody
-        );
-    }
+    world.createCollider(RAPIER.ColliderDesc.cuboid(6.5, 0.05, 6.5), groundBody);
+    addStaticBox([13, 0.1, 13], [0, -10, 0], new THREE.MeshLambertMaterial({ color: 0x3D4143 }));
 
     const pieceW = 1.6;
     const pieceH = 1.6;
-    const pieceD = 0.45;
+    const pieceD = 0.32;
 
     const pieceGeometry = createShogiGeometry(pieceW, pieceH, pieceD);
 
     for (let i = 0; i < PIECE_COUNT; i++) {
-        const x = (Math.random() - 0.5) * 8;
-        const y = 12 + Math.random() * 26;
-        const z = (Math.random() - 0.5) * 8;
+        const x = (Math.random() - 0.5) * 15;
+        const y = (Math.random() + 1.0) * 15;
+        const z = (Math.random() - 0.5) * 15;
         const q = randomQuaternion();
 
         const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
@@ -291,7 +266,7 @@ function updatePhysics() {
         mesh.position.set(position.x, position.y, position.z);
         mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
 
-        if (mesh.position.y < -10) {
+        if (mesh.position.y < -15) {
             const x = (Math.random() - 0.5) * 8;
             const y = 12 + Math.random() * 26;
             const z = (Math.random() - 0.5) * 8;
