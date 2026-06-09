@@ -183,7 +183,17 @@ const createScene = function(eraserAtlasUrl) {
     scene = new BABYLON.Scene(engine);
     scene.enablePhysics(new BABYLON.Vector3(0, -9.8, 0), new BABYLON.CannonJSPlugin());
     setupPhysicsDebugWireframe(scene);
-    scene.getPhysicsEngine().setTimeStep(scene.getAnimationRatio());
+    // Keep the default 1/60 s physics step. setTimeStep(getAnimationRatio()) made the step ~1 s
+    // (animationRatio is ~1 at 60 fps), which integrated a whole second per step and blew the
+    // erasers apart in mid-air.
+    // Cannon.js explodes overlapping bodies by default: soften contacts and add more solver
+    // iterations so 200 erasers spawning in the same region fall calmly instead of flying apart.
+    const cannonWorld = scene.getPhysicsEngine().getPhysicsPlugin().world;
+    if (cannonWorld) {
+        cannonWorld.solver.iterations = 20;
+        cannonWorld.defaultContactMaterial.contactEquationStiffness = 1e6;
+        cannonWorld.defaultContactMaterial.contactEquationRelaxation = 4;
+    }
     scene.clearColor = new BABYLON.Color4(0.5, 0.5, 0.8, 1.0);
 
     // Fixed head-on camera matching the WebGL/WebGPU + Havok eraser samples (eye at (0,0,40)
@@ -237,26 +247,35 @@ const createScene = function(eraserAtlasUrl) {
     baseMesh.isVisible = false;
 
     const objects = [];
+    let spawnedCount = 0;
+    const SPAWN_PER_FRAME = 5;
 
-    // Creates
-    for (let i = 0; i < ERASER_COUNT; i++) {
-
-        const s = baseMesh.clone("eraser" + i);
+    function spawnEraser(index) {
+        const s = baseMesh.clone("eraser" + index);
         s.isVisible = true;
         s.position = getPosition();
         s.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(
             randomNumber(0, Math.PI * 2), randomNumber(0, Math.PI * 2), randomNumber(0, Math.PI * 2));
-        s.physicsImpostor = new BABYLON.PhysicsImpostor(s, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1, friction: 0.4, restitution: 0.2 }, scene);
-
-        // SAVE OBJECT
+        s.physicsImpostor = new BABYLON.PhysicsImpostor(s, BABYLON.PhysicsImpostor.BoxImpostor,
+            { mass: 1, friction: 0.4, restitution: 0.2, nativeOptions: { linearDamping: 0.1, angularDamping: 0.1 } }, scene);
         objects.push(s);
     }
 
+    // Spawn gradually (SPAWN_PER_FRAME per frame) so the solver never resolves 200 overlapping
+    // bodies at once — the same reason recycled erasers fall calmly but a bulk initial spawn explodes.
     scene.registerBeforeRender(function() {
+        if (spawnedCount < ERASER_COUNT) {
+            const n = Math.min(SPAWN_PER_FRAME, ERASER_COUNT - spawnedCount);
+            for (let i = 0; i < n; i++) {
+                spawnEraser(spawnedCount++);
+            }
+        }
+
         objects.forEach(function(obj) {
             if (obj.position.y < -15) {
                 obj.position = getPosition();
-                obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
+                obj.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0, 0, 0));
+                obj.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0));
             }
         });
     });
