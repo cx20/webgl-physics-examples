@@ -10,7 +10,7 @@ const meshes = [];
 const bodies = [];
 
 const TIME_STEP = 1 / 60;
-const PIECE_COUNT = 220;
+const PIECE_COUNT = 300;
 
 function createShogiGeometry(w, h, d) {
     const positions = [
@@ -168,8 +168,8 @@ function addStaticBox(size, position, material, opacity = 1.0) {
 }
 
 function init() {
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(18, 24, 34);
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 40);
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x2b2f38);
@@ -178,9 +178,7 @@ function init() {
 
     light = new THREE.DirectionalLight(0xffffff, 2.1);
     light.position.set(30, 100, 50);
-    light.target.position.set(0, 0, 0);
     light.castShadow = true;
-    light.shadow.camera = new THREE.OrthographicCamera(-30, 30, 30, -30, 0.1, 1000);
     scene.add(light);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -205,7 +203,7 @@ function init() {
     });
 
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.autoRotate = true;
+    controls.autoRotate = false;
 
     world = new CANNON.World();
     world.gravity.set(0, -10, 0);
@@ -214,43 +212,22 @@ function init() {
 
     const groundMaterial = new CANNON.Material('ground');
     const groundBody = new CANNON.Body({ mass: 0, material: groundMaterial });
-    groundBody.addShape(new CANNON.Box(new CANNON.Vec3(20, 2, 20)));
-    groundBody.position.set(0, -2, 0);
+    groundBody.addShape(new CANNON.Box(new CANNON.Vec3(6.5, 0.05, 6.5)));
+    groundBody.position.set(0, -10, 0);
     world.addBody(groundBody);
 
-    addStaticBox([40, 4, 40], [0, -2, 0], new THREE.MeshLambertMaterial({ color: 0x3D4143 }));
-
-    const wallData = [
-        { size: [10, 10,  1], pos: [ 0, 5, -5], half: [5, 5, 0.5] },
-        { size: [10, 10,  1], pos: [ 0, 5,  5], half: [5, 5, 0.5] },
-        { size: [ 1, 10, 10], pos: [-5, 5,  0], half: [0.5, 5, 5] },
-        { size: [ 1, 10, 10], pos: [ 5, 5,  0], half: [0.5, 5, 5] },
-    ];
-
-    for (const wall of wallData) {
-        addStaticBox(
-            wall.size,
-            wall.pos,
-            new THREE.MeshLambertMaterial({ color: 0x3D4143, transparent: true, opacity: 0.4 }),
-            0.4
-        );
-
-        const wallBody = new CANNON.Body({ mass: 0 });
-        wallBody.addShape(new CANNON.Box(new CANNON.Vec3(wall.half[0], wall.half[1], wall.half[2])));
-        wallBody.position.set(wall.pos[0], wall.pos[1], wall.pos[2]);
-        world.addBody(wallBody);
-    }
+    addStaticBox([13, 0.1, 13], [0, -10, 0], new THREE.MeshLambertMaterial({ color: 0x3D4143 }));
 
     const pieceW = 1.6;
     const pieceH = 1.6;
-    const pieceD = 0.45;
+    const pieceD = 0.32;
 
     const pieceGeometry = createShogiGeometry(pieceW, pieceH, pieceD);
 
     for (let i = 0; i < PIECE_COUNT; i++) {
-        const x = (Math.random() - 0.5) * 8;
-        const y = 12 + Math.random() * 26;
-        const z = (Math.random() - 0.5) * 8;
+        const x = (Math.random() - 0.5) * 15;
+        const y = (Math.random() + 1.0) * 15;
+        const z = (Math.random() - 0.5) * 15;
 
         const body = new CANNON.Body({ mass: 1 });
         body.addShape(new CANNON.Box(new CANNON.Vec3(pieceW * 0.5, pieceH * 0.5, pieceD * 0.7)));
@@ -285,7 +262,7 @@ function updatePhysics() {
         mesh.position.set(body.position.x, body.position.y, body.position.z);
         mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
 
-        if (mesh.position.y < -10) {
+        if (mesh.position.y < -15) {
             const x = (Math.random() - 0.5) * 8;
             const y = 12 + Math.random() * 26;
             const z = (Math.random() - 0.5) * 8;
