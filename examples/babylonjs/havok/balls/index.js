@@ -2,7 +2,7 @@ const HAVOK_WASM_URL = 'https://cx20.github.io/gltf-test/libs/babylonjs/dev/Havo
 let engine;
 let scene;
 let canvas;
-const PHYSICS_SCALE = 1/100;
+const PHYSICS_SCALE = 1/10;
 let showWireframe = true;
 let physicsViewer = null;
 const trackedBodies = [];
@@ -210,7 +210,9 @@ const createScene = function() {
         
         objects.push(s);
 
-        y += 20 * PHYSICS_SCALE;
+        // Small per-ball spawn-height stagger in pre-scale units (kept constant so it does
+        // not blow up when PHYSICS_SCALE changes; matches the WebGL/WebGPU spawn range).
+        y += 0.2;
     }
     scene.registerBeforeRender(function() {
         objects.forEach(function(obj) {
@@ -227,7 +229,9 @@ const createScene = function() {
                 body.setAngularVelocity(new BABYLON.Vector3(0,0,0));
             }
         });
-        scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();
+        // Rotate ~0.2 rad/s to match the WebGL/WebGPU samples (getAnimationRatio keeps it
+        // frame-rate independent: getAnimationRatio() / 60 is the per-frame time in seconds).
+        scene.activeCamera.alpha += 0.2 * scene.getAnimationRatio() / 60;
     });
 
     return scene;
