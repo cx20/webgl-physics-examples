@@ -5,6 +5,13 @@ const PHYSICS_SCALE = 1/10;
 const DOT_SIZE = 8;
 let engine;
 
+let showWireframe = true;
+const debugEntities = [];
+const dynamicEntities = [];
+const dynamicDebugEntities = [];
+const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
+const DEBUG_COLOR_STATIC  = [0.2, 1.0, 0.4, 1.0];
+
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
 // ‥‥‥‥‥〓〓〓〓〓〓〓〓〓□□
@@ -53,6 +60,41 @@ const colorHash = {
     "紫": [0x80/0xff, 0, 0x80/0xff]
 };
 
+function makeDebugMaterial(color) {
+  const mat = Rn.MaterialHelper.createPbrUberMaterial(engine, { isLighting: false, isSkinning: false, isMorphing: false });
+  try { mat.addShaderDefine('RN_USE_WIREFRAME'); } catch (e) {}
+  try { mat.setParameter('wireframe', Rn.Vector3.fromCopy3(1, 0, 1)); } catch (e) {}
+  try { mat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4(color)); } catch (e) {}
+  return mat;
+}
+
+function createStaticDebugBox(scale, pos) {
+  const entity = Rn.MeshHelper.createCube(engine, { material: makeDebugMaterial(DEBUG_COLOR_STATIC) });
+  entity.getTransform().localScale = Rn.Vector3.fromCopyArray([scale[0], scale[1], scale[2]]);
+  entity.getTransform().localPosition = Rn.Vector3.fromCopyArray([pos[0], pos[1], pos[2]]);
+  try { entity.getMesh().calcBaryCentricCoord(); } catch (e) {}
+  debugEntities.push(entity);
+  return entity;
+}
+
+function setWireframeVisible(visible) {
+  showWireframe = visible;
+  for (const entity of debugEntities) {
+    try { entity.getSceneGraph().isVisible = visible; } catch (e) {}
+  }
+  const hint = document.getElementById('hint');
+  if (hint) {
+    hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+  if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+    setWireframeVisible(!showWireframe);
+  }
+});
+
 const load = async function() {
     const c = document.getElementById('world');
 
@@ -96,6 +138,10 @@ const load = async function() {
     entity1.scale = Rn.Vector3.fromCopyArray([200 * PHYSICS_SCALE, 2 * PHYSICS_SCALE, 200 * PHYSICS_SCALE]);
     entity1.getMesh().mesh.getPrimitiveAt(0).material.setTextureParameter('diffuseColorTexture', texture, sampler);
     entities.push(entity1);
+    createStaticDebugBox(
+        [200 * PHYSICS_SCALE, 2 * PHYSICS_SCALE, 200 * PHYSICS_SCALE],
+        [0, 0, 0]
+    );
 
     // Pre-build one material per unique color key
     const matByKey = {};
@@ -109,9 +155,18 @@ const load = async function() {
     ballMat.setParameter('baseColorFactor', Rn.Vector4.fromCopyArray4([1, 0, 0, 1]));
     ballMat.setTextureParameter('diffuseColorTexture', texture, sampler);
 
-    populate(matByKey, ballMat);
+    // Shared wireframe mesh for dynamic box colliders (unit cube, scaled per entity)
+    const cubeWireHelper = Rn.MeshHelper.createCube(engine, {
+        material: makeDebugMaterial(DEBUG_COLOR_DYNAMIC),
+    });
+    try { cubeWireHelper.getSceneGraph().isVisible = false; } catch (e) {}
+    const cubeWireMesh = cubeWireHelper.getMesh().mesh;
+    try {
+        for (const prim of cubeWireMesh.primitives) prim.convertToUnindexedGeometry();
+        cubeWireMesh._calcBaryCentricCoord();
+    } catch (e) { console.warn('[Domino] baryCentric failed:', e); }
 
-    const startTime = Date.now();
+    populate(matByKey, ballMat, cubeWireMesh);
 
     // camera
     const cameraEntity = Rn.createCameraControllerEntity(engine);
@@ -141,11 +196,29 @@ const load = async function() {
     renderPass.clearColor = Rn.Vector4.fromCopyArray4([0, 0, 0, 1]);
     renderPass.addEntities(entities);
 
+    // Collider wireframes drawn in a second pass on top (no depth test)
+    const debugRenderPass = new Rn.RenderPass(engine);
+    debugRenderPass.cameraComponent = cameraComponent;
+    debugRenderPass.toClearColorBuffer = false;
+    try { debugRenderPass.isDepthTest = false; } catch (e) {}
+    debugRenderPass.addEntities(debugEntities);
+
     // expression
     const expression = new Rn.Expression();
-    expression.addRenderPasses([renderPass]);
+    expression.addRenderPasses([renderPass, debugRenderPass]);
+
+    setWireframeVisible(showWireframe);
 
     const draw = function(time) {
+        // Sync dynamic box collider wireframes to physics-driven transforms
+        for (let i = 0; i < dynamicEntities.length; i++) {
+            const t = dynamicEntities[i].getTransform();
+            const dt = dynamicDebugEntities[i].getTransform();
+            const p = t.localPosition;
+            const q = t.localRotation;
+            dt.localPosition = Rn.Vector3.fromCopyArray([p.x, p.y, p.z]);
+            dt.localRotation = Rn.Quaternion.fromCopyArray([q.x, q.y, q.z, q.w]);
+        }
         engine.process([expression]);
         requestAnimationFrame(draw);
     }
@@ -154,7 +227,7 @@ const load = async function() {
 
 }
 
-function populate(matByKey, ballMat) {
+function populate(matByKey, ballMat, cubeWireMesh) {
     const w = DOT_SIZE * 0.2;
     const h = DOT_SIZE * 1.5;
     const d = DOT_SIZE;
@@ -182,6 +255,15 @@ function populate(matByKey, ballMat) {
             entity.position = Rn.Vector3.fromCopyArray([(-8 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
             entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
             entities.push(entity);
+
+            const debugEntity = Rn.createMeshEntity(engine);
+            debugEntity.getMesh().setMesh(cubeWireMesh);
+            debugEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
+            const p0 = entity.getTransform().localPosition;
+            debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([p0.x, p0.y, p0.z]);
+            debugEntities.push(debugEntity);
+            dynamicEntities.push(entity);
+            dynamicDebugEntities.push(debugEntity);
         }
     }
 
@@ -210,6 +292,15 @@ function populate(matByKey, ballMat) {
         entity.position = Rn.Vector3.fromCopyArray([(-8.4 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
         entity.scale = Rn.Vector3.fromCopyArray([bw * PHYSICS_SCALE, bh * PHYSICS_SCALE, bd * PHYSICS_SCALE]);
         entities.push(entity);
+
+        const debugEntity = Rn.createMeshEntity(engine);
+        debugEntity.getMesh().setMesh(cubeWireMesh);
+        debugEntity.getTransform().localScale = Rn.Vector3.fromCopyArray([bw * PHYSICS_SCALE, bh * PHYSICS_SCALE, bd * PHYSICS_SCALE]);
+        const p0 = entity.getTransform().localPosition;
+        debugEntity.getTransform().localPosition = Rn.Vector3.fromCopyArray([p0.x, p0.y, p0.z]);
+        debugEntities.push(debugEntity);
+        dynamicEntities.push(entity);
+        dynamicDebugEntities.push(debugEntity);
     }
 }
 
