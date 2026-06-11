@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>three.js (WebGPU) + WGSL Compute Shader Minimum Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+<div id="container"></div>
+<div id="hint">W: wireframe ON</div>
+
+<script id="cs" type="x-shader/x-compute">
+struct PhysicsState {
+    position   : vec4<f32>,
+    velocity   : vec4<f32>,
+    rotation   : vec4<f32>,
+    angularVel : vec4<f32>,
+}
+struct SimParams {
+    dt          : f32,
+    gravity     : f32,
+    groundY     : f32,
+    restitution : f32,
+    halfSize    : f32,
+    friction    : f32,
+    mass        : f32,
+    iInv        : f32,
+}
+
+@group(0) @binding(0) var<storage, read_write> state  : PhysicsState;
+@group(0) @binding(1) var<uniform>             params : SimParams;
+
+fn quatMul(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+    );
+}
+
+fn rotByQuat(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+@compute @workgroup_size(1)
+fn main() {
+    var pos    = state.position.xyz;
+    var vel    = state.velocity.xyz;
+    var rot    = state.rotation;
+    var angVel = state.angularVel.xyz;
+
+    let mInv = 1.0 / params.mass;
+    let iInv = params.iInv;
+    let h    = params.halfSize;
+    let mu   = params.friction;
+
+    angVel *= 0.999;
+
+    vel.y -= params.gravity * params.dt;
+    pos   += vel * params.dt;
+
+    let angSpeed = length(angVel);
+    if (angSpeed > 0.0001) {
+        let axis      = angVel / angSpeed;
+        let halfAngle = angSpeed * params.dt * 0.5;
+        let dq        = vec4<f32>(axis * sin(halfAngle), cos(halfAngle));
+        rot = normalize(quatMul(dq, rot));
+    }
+
+    var numContact = 0u;
+    var sumR       = vec3<f32>(0.0);
+    var minWorldY  = 0.0;
+
+    for (var mask = 0u; mask < 8u; mask++) {
+        let lx = select(-h, h, (mask & 1u) != 0u);
+        let ly = select(-h, h, (mask & 2u) != 0u);
+        let lz = select(-h, h, (mask & 4u) != 0u);
+        let r_world = rotByQuat(vec3<f32>(lx, ly, lz), rot);
+        let worldY  = pos.y + r_world.y;
+        if (worldY < params.groundY) {
+            numContact++;
+            sumR += r_world;
+            if (numContact == 1u || worldY < minWorldY) { minWorldY = worldY; }
+        }
+    }
+
+    if (numContact > 0u) {
+        let r = sumR / f32(numContact);
+
+        let vn = vel.y + angVel.z * r.x - angVel.x * r.z;
+        var jn = 0.0;
+        if (vn < 0.0) {
+            let e  = select(params.restitution, 0.0, abs(vn) < 1.0);
+            let dn = mInv + iInv * (r.x * r.x + r.z * r.z);
+            jn     = -(1.0 + e) * vn / dn;
+
+            vel.y    += jn * mInv;
+            angVel.x -= iInv * jn * r.z;
+            angVel.z += iInv * jn * r.x;
+        }
+
+        let vt    = vec3<f32>(vel.x + angVel.y*r.z - angVel.z*r.y,
+                              0.0,
+                              vel.z + angVel.x*r.y - angVel.y*r.x);
+        let vtLen = length(vt);
+        if (vtLen > 0.0001) {
+            let tDir    = vt / vtLen;
+            let rCrossT = cross(r, tDir);
+            let denom_t = mInv + iInv * dot(rCrossT, rCrossT);
+            let jn_eff  = max(abs(jn), params.mass * params.gravity * params.dt);
+            let jt      = clamp(-vtLen / denom_t, -mu * jn_eff, mu * jn_eff);
+
+            vel    += (jt * mInv) * tDir;
+            angVel += iInv * jt * rCrossT;
+        }
+
+        pos.y += params.groundY - minWorldY;
+
+        if (length(vel) < 0.05 && length(angVel) < 0.05) {
+            vel    = vec3<f32>(0.0);
+            angVel = vec3<f32>(0.0);
+        }
+    }
+
+    if (pos.y < -30.0) {
+        pos    = vec3<f32>(0.0, 12.0, 0.0);
+        vel    = vec3<f32>(0.0, 0.0, 0.0);
+        rot    = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        angVel = vec3<f32>(0.3, 0.8, 0.2);
+    }
+
+    state.position   = vec4<f32>(pos, 0.0);
+    state.velocity   = vec4<f32>(vel, 0.0);
+    state.rotation   = rot;
+    state.angularVel = vec4<f32>(angVel, 0.0);
+}
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="index.js"></script>
+</body>
+</html>
