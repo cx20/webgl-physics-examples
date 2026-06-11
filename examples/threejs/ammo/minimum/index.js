@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const SCALE = 1 / 20;
 const deltaT = 60;
 
+let showWireframe = true;
 let scene;
 let controls;
 let loader;
@@ -12,6 +13,7 @@ let texture;
 let world;
 let objs = [];
 let numObjects = 0;
+let debugGround, debugCube;
 
 class Box {
     constructor(x, y, z, w, h, d, m) {
@@ -180,6 +182,11 @@ function init() {
     let ground = new Plane(0, 0, 0, 80 * SCALE, 0, 0xdddddd);
     scene.add(ground.threeObj);
     world.addRigidBody(ground.bulletObj);
+    debugGround = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(80 * SCALE, 2 * SCALE, 80 * SCALE)),
+        new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    scene.add(debugGround);
 
     createBox();
 
@@ -210,8 +217,12 @@ function init() {
             let obj = objs[i];
             obj.move();
         }
+        if (objs[0] && debugCube) {
+            debugCube.position.copy(objs[0].threeObj.position);
+            debugCube.quaternion.copy(objs[0].threeObj.quaternion);
+        }
     }
- 
+
 }
 
 function createBox() {
@@ -225,9 +236,30 @@ function createBox() {
     let box = new Box(x1, y1, z1, w, h, d, 10);
     scene.add(box.threeObj);
     world.addRigidBody(box.bulletObj);
+    debugCube = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)),
+        new THREE.LineBasicMaterial({ color: 0xff8844 })
+    );
+    debugCube.position.set(x1, y1, z1);
+    scene.add(debugCube);
     objs.push(box);
     numObjects++;
 }
+
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    if (debugGround) debugGround.visible = visible;
+    if (debugCube) debugCube.visible = visible;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.repeat) return;
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
 
 window.addEventListener("load", function() {
     loader = new THREE.TextureLoader();
@@ -235,5 +267,6 @@ window.addEventListener("load", function() {
 
     Ammo().then(function(Ammo) {
         init();
+        setWireframeVisible(showWireframe);
     });
 }, false);
