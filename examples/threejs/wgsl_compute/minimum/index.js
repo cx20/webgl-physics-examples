@@ -1,6 +1,5 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import WebGPURenderer from 'three/addons/renderers/webgpu/WebGPURenderer.js';
 
 // Physics constants (same as webgpu/wgsl_compute/minimum)
 const GROUND_Y  = -2.0;
@@ -173,7 +172,7 @@ async function main() {
 
     initScene();
 
-    renderer = new WebGPURenderer({ antialias: true });
+    renderer = new THREE.WebGPURenderer({ antialias: true });
     renderer.setClearColor(0xffffff);
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.getElementById('container').appendChild(renderer.domElement);
