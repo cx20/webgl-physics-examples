@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+let showWireframe = true;
+let debugGround, debugCube;
+
 class Box {
     constructor(x, y, z, w, h, d, texture) {
         this.x = x;
@@ -161,10 +164,21 @@ function init(PhysX) {
     let ground = new Ground(0, 0, 0, 4, 0.1, 4, texture);
     sceneThree.add(ground.threeObj);
     scenePhysx.addActor(ground.physxObj);
-    
+    debugGround = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(4, 0.1, 4)),
+        new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    sceneThree.add(debugGround);
+
     let box = new Box(0, 2, 0, 1, 1, 1, texture);
     sceneThree.add(box.threeObj);
     scenePhysx.addActor(box.physxObj);
+    debugCube = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+        new THREE.LineBasicMaterial({ color: 0xff8844 })
+    );
+    debugCube.position.set(0, 2, 0);
+    sceneThree.add(debugCube);
     box.move();
 
     const renderer = new THREE.WebGLRenderer( { antialias: true } );
@@ -179,15 +193,35 @@ function init(PhysX) {
         scenePhysx.fetchResults(true);
 
         box.move();
+        if (debugCube) {
+            debugCube.position.copy(box.threeObj.position);
+            debugCube.quaternion.copy(box.threeObj.quaternion);
+        }
 
         renderer.render( sceneThree, camera );
     }
 
 }
 
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    if (debugGround) debugGround.visible = visible;
+    if (debugCube) debugCube.visible = visible;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.repeat) return;
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
+
 window.addEventListener("load", function() {
     PhysX().then(function(PhysX) {
         init(PhysX);
+        setWireframeVisible(showWireframe);
     });
 }, false);
 

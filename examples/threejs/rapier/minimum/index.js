@@ -2,11 +2,13 @@
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import RAPIER from 'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.17.3';
 
+let showWireframe = true;
 let container;
 let camera, scene, renderer;
 let meshGround, meshCube;
 let world, groundBody, boxBody;
 let controls;
+let debugGround, debugCube;
 
 async function initRapier() {
     await RAPIER.init();
@@ -44,10 +46,21 @@ function initThree() {
     meshGround = new THREE.Mesh(geometryGround, material);
     meshGround.position.y = 0;
     scene.add(meshGround);
+    debugGround = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(4, 0.1, 4)),
+        new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    scene.add(debugGround);
 
     const geometryCube = new THREE.BoxGeometry(1, 1, 1);
     meshCube = new THREE.Mesh(geometryCube, material);
     scene.add(meshCube);
+    debugCube = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+        new THREE.LineBasicMaterial({ color: 0xff8844 })
+    );
+    debugCube.position.set(0, 2, 0);
+    scene.add(debugCube);
 
     renderer = new THREE.WebGLRenderer();
     renderer.setClearColor(0xffffff);
@@ -70,6 +83,10 @@ function updatePhysics() {
 
     meshCube.position.set(boxPosition.x, boxPosition.y, boxPosition.z);
     meshCube.quaternion.set(boxRotation.x, boxRotation.y, boxRotation.z, boxRotation.w);
+    if (debugCube) {
+        debugCube.position.set(boxPosition.x, boxPosition.y, boxPosition.z);
+        debugCube.quaternion.set(boxRotation.x, boxRotation.y, boxRotation.z, boxRotation.w);
+    }
 }
 
 function animate() {
@@ -82,7 +99,23 @@ function render() {
     renderer.render(scene, camera);
 }
 
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    if (debugGround) debugGround.visible = visible;
+    if (debugCube) debugCube.visible = visible;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.repeat) return;
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
+
 initRapier().then(() => {
     initThree();
+    setWireframeVisible(showWireframe);
     animate();
 });

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as CANNON from 'cannon';
 
+let showWireframe = true;
 let container;
 let camera, scene, renderer;
 let meshGround;
@@ -10,6 +11,7 @@ let world;
 let shape;
 let body;
 let controls;
+let debugGround, debugCube;
 
 function initCannon() {
     // Setup our world
@@ -66,11 +68,22 @@ function initThree() {
     meshGround = new THREE.Mesh(geometryGround, material);
     meshGround.position.y = 0;
     scene.add(meshGround);
+    debugGround = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(4, 0.1, 4)),
+        new THREE.LineBasicMaterial({ color: 0x44ee88 })
+    );
+    scene.add(debugGround);
 
     let geometryCube = new THREE.BoxGeometry(1, 1, 1);
     meshCube = new THREE.Mesh(geometryCube, material);
     meshCube.rigidBody = body; // THREE.Object3D#rigidBody has a field of CANNON.RigidBody
     scene.add(meshCube);
+    debugCube = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+        new THREE.LineBasicMaterial({ color: 0xff8844 })
+    );
+    debugCube.position.set(0, 2, 0);
+    scene.add(debugCube);
 
     renderer = new THREE.WebGLRenderer();
     renderer.setClearColor(0xffffff);
@@ -101,12 +114,32 @@ function updatePhysics() {
     meshCube.quaternion.y = body.quaternion.y;
     meshCube.quaternion.z = body.quaternion.z;
     meshCube.quaternion.w = body.quaternion.w;
+    if (debugCube) {
+        debugCube.position.set(body.position.x, body.position.y, body.position.z);
+        debugCube.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
+    }
 }
 
 function render() {
     renderer.render(scene, camera);
 }
 
+function setWireframeVisible(visible) {
+    showWireframe = visible;
+    if (debugGround) debugGround.visible = visible;
+    if (debugCube) debugCube.visible = visible;
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.repeat) return;
+    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
+        setWireframeVisible(!showWireframe);
+    }
+});
+
 initCannon();
 initThree();
+setWireframeVisible(showWireframe);
 animate();
