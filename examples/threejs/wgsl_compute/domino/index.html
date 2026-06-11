@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>[WIP] three.js (WebGPU) + WGSL Compute Shader Domino Example</title>
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+<div id="container"></div>
+<div id="hint">W: wireframe ON</div>
+
+<script id="cs" type="x-shader/x-compute">
+struct DominoState {
+    base   : vec4<f32>,
+    motion : vec4<f32>,
+}
+
+struct SimParams {
+    dt      : f32,
+    gravity : f32,
+    damping : f32,
+    pad     : f32,
+}
+
+const GRID  : u32 = 16u;
+const COUNT : u32 = 256u;
+
+@group(0) @binding(0) var<storage, read_write> states : array<DominoState>;
+@group(0) @binding(1) var<uniform> params : SimParams;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+    let i = id.x;
+    if (i >= COUNT) {
+        return;
+    }
+
+    var state  = states[i];
+    var angle  = state.motion.x;
+    var angVel = state.motion.y;
+    var phase  = state.motion.z;
+    let row    = i % GRID;
+
+    if (phase < 0.5 && row > 0u) {
+        let prev = states[i - 1u].motion;
+        if (prev.x < -0.78) {
+            phase  = 1.0;
+            angle  = min(angle, -0.04);
+            angVel = -2.1;
+        }
+    }
+
+    if (phase > 0.5 && phase < 1.5) {
+        let torque = -params.gravity * 0.42 * max(cos(angle), 0.24);
+        angVel = (angVel + torque * params.dt) * params.damping;
+        angle += angVel * params.dt;
+
+        if (angle < -1.47) {
+            angle  = -1.47;
+            angVel = 0.0;
+            phase  = 2.0;
+        }
+    }
+
+    states[i].motion = vec4<f32>(angle, angVel, phase, 0.0);
+}
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="index.js"></script>
+</body>
+</html>
