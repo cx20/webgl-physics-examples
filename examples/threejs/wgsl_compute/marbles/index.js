@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { HDRCubeTextureLoader } from 'three/addons/loaders/HDRCubeTextureLoader.js';
 
 const MARBLES_GLTF_URL   = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
 const GROUND_TEXTURE_FILE = '../../../../assets/textures/grass.jpg';
@@ -52,6 +53,7 @@ function makeSphereWireGeo() {
 
 async function initScene() {
     scene  = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 150);
     camera.position.set(0, 10, 22);
 
@@ -320,7 +322,6 @@ async function main() {
     await initScene();
 
     renderer = new THREE.WebGPURenderer({ antialias: true });
-    renderer.setClearColor(0xF7F7FA);
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.getElementById('container').appendChild(renderer.domElement);
 
@@ -337,6 +338,21 @@ async function main() {
 
     await renderer.init();
     device = renderer.backend.device;
+
+    const BASE_HDR = 'https://cx20.github.io/gltf-test/textures/papermill_hdr/specular/';
+    new HDRCubeTextureLoader().load(
+        ['specular_posx_0.hdr', 'specular_negx_0.hdr',
+         'specular_posy_0.hdr', 'specular_negy_0.hdr',
+         'specular_posz_0.hdr', 'specular_negz_0.hdr'].map(f => BASE_HDR + f),
+        (hdrCubeMap) => {
+            hdrCubeMap.mapping = THREE.CubeReflectionMapping;
+            const pmrem = new THREE.PMREMGenerator(renderer);
+            pmrem.compileCubemapShader();
+            scene.environment = pmrem.fromCubemap(hdrCubeMap).texture;
+            scene.background  = hdrCubeMap;
+            pmrem.dispose();
+        }
+    );
 
     initPhysics();
     setWireframeVisible(showWireframe);
