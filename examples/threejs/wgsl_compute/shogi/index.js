@@ -129,6 +129,7 @@ async function initScene() {
 
     const texLoader = new THREE.TextureLoader();
     const shogiTex = await new Promise(res => texLoader.load(SHOGI_TEXTURE, res));
+    shogiTex.flipY = false; // UV coords match WebGPU convention (v=0 at top)
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -136,7 +137,7 @@ async function initScene() {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(texCoords, 2));
     geo.setIndex(new THREE.Uint16BufferAttribute(indices, 1));
 
-    const mat = new THREE.MeshLambertMaterial({ map: shogiTex });
+    const mat = new THREE.MeshLambertMaterial({ map: shogiTex, side: THREE.DoubleSide });
 
     const wireGeo = new THREE.EdgesGeometry(
         new THREE.BoxGeometry(SHE[0] * 2, SHE[1] * 2, SHE[2] * 2)
