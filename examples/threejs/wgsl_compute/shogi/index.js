@@ -137,7 +137,7 @@ async function initScene() {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(texCoords, 2));
     geo.setIndex(new THREE.Uint16BufferAttribute(indices, 1));
 
-    const mat = new THREE.MeshLambertMaterial({ map: shogiTex });
+    const mat = new THREE.MeshLambertMaterial({ map: shogiTex, side: THREE.DoubleSide });
 
     const wireGeo = new THREE.EdgesGeometry(
         new THREE.BoxGeometry(SHE[0] * 2, SHE[1] * 2, SHE[2] * 2)
