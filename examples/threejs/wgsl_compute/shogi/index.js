@@ -129,6 +129,7 @@ async function initScene() {
 
     const texLoader = new THREE.TextureLoader();
     const shogiTex = await new Promise(res => texLoader.load(SHOGI_TEXTURE, res));
+    shogiTex.flipY = false; // UV coords match WebGPU convention (v=0 at top)
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
