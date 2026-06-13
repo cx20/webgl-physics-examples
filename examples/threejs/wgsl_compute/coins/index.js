@@ -40,7 +40,8 @@ let stateBuffers = [], coinInfoBuffer, simParamsBuffer, readbackBuffer, gridBuff
 let computePipeline, clearGridPipeline, buildGridPipeline;
 let computeBindGroups = [], clearGridBindGroup, buildGridBindGroups = [];
 let currentState = 0;
-const coinMeshes   = [];   // InstancedMesh per coin type
+const coinMeshes      = [];   // InstancedMesh per coin type
+const coinDebugMeshes = [];   // wireframe InstancedMesh per coin type
 let   groundDebug;
 let   readbackBusy = false;
 let   lastTime     = -1;
@@ -121,6 +122,19 @@ async function initScene() {
         mesh.instanceMatrix.needsUpdate = true;
         scene.add(mesh);
         coinMeshes.push(mesh);
+
+        const debugGeo  = new THREE.SphereGeometry(type.radius, 16, 12);
+        const debugMesh = new THREE.InstancedMesh(
+            debugGeo,
+            new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true }),
+            typeGroups[t].length
+        );
+        debugMesh.frustumCulled = false;
+        for (let j = 0; j < typeGroups[t].length; j++) debugMesh.setMatrixAt(j, offMat);
+        debugMesh.instanceMatrix.needsUpdate = true;
+        debugMesh.visible = showWireframe;
+        scene.add(debugMesh);
+        coinDebugMeshes.push(debugMesh);
     }
 }
 
@@ -230,8 +244,10 @@ function updateCoins(data) {
             _mat.compose(_pos, _quat, _scale);
         }
         coinMeshes[typeIdx].setMatrixAt(instIdx, _mat);
+        coinDebugMeshes[typeIdx].setMatrixAt(instIdx, _mat);
     }
-    for (const mesh of coinMeshes) mesh.instanceMatrix.needsUpdate = true;
+    for (const mesh of coinMeshes)      mesh.instanceMatrix.needsUpdate = true;
+    for (const mesh of coinDebugMeshes) mesh.instanceMatrix.needsUpdate = true;
 }
 
 function animate(timeMs) {
@@ -292,6 +308,7 @@ function animate(timeMs) {
 function setWireframeVisible(visible) {
     showWireframe = visible;
     if (groundDebug) groundDebug.visible = visible;
+    for (const mesh of coinDebugMeshes) mesh.visible = visible;
     const hint = document.getElementById('hint');
     if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
 }
