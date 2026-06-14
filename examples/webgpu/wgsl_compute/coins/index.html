@@ -91,6 +91,8 @@ fn rndU(seed : u32) -> f32 {
     return f32(pcgHash(seed)) * (1.0 / 4294967296.0);
 }
 
+const ANG_SCALE : f32 = 0.3;
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     let i = id.x;
@@ -141,21 +143,30 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     vel.y -= params.gravity * params.dt;
     pos += vel * params.dt;
 
-    let hw = angVel * 0.5 * params.dt;
-    let dq = quatMul(vec4<f32>(hw, 0.0), rot);
-    rot = normalizeQ(rot + dq);
-
-    // Treat the coin's physics shape as a sphere of the coin radius. The visual
-    // tumble (rot/angVel) is integrated independently and does not feed back from
-    // these collisions, since a sphere carries no orientation.
+    let sp = length(angVel);
+    if (sp > 0.0001) {
+        let axis = angVel / sp;
+        let half = sp * params.dt * 0.5;
+        rot = normalizeQ(quatMul(vec4<f32>(axis * sin(half), cos(half)), rot));
+    }
 
     // Sphere vs ground plane: keep the sphere centre one radius above the floor.
     if (pos.y - radius < params.groundY && abs(pos.x) < GROUND_HALF && abs(pos.z) < GROUND_HALF) {
         pos.y = params.groundY + radius;
         if (vel.y < 0.0) {
-            vel.y = -vel.y * params.restitution;
-            vel.x *= params.friction;
-            vel.z *= params.friction;
+            let vn = vel.y;
+            let Jn = -vn * (1.0 + params.restitution);
+            vel.y = -vn * params.restitution;
+            let r_c = vec3<f32>(0.0, -radius, 0.0);
+            let contactVel = vel + cross(angVel, r_c);
+            let tangVel = vec3<f32>(contactVel.x, 0.0, contactVel.z);
+            let tLen = length(tangVel);
+            if (tLen > 0.001) {
+                let tDir = tangVel / tLen;
+                let Jt = min(params.friction * Jn, tLen);
+                vel -= vec3<f32>(tDir.x * Jt, 0.0, tDir.z * Jt);
+                angVel += cross(r_c, -tDir * Jt) * ANG_SCALE;
+            }
         }
     }
 
@@ -182,11 +193,21 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
                     if (dist < minDist && dist > 1e-4) {
                         let n = delta / dist;
                         let overlap = minDist - dist;
-                        pos += n * (overlap * 0.5);          // push half-way out of the other sphere
+                        pos += n * (overlap * 0.5);
                         let relVel = vel - other.velocity.xyz;
                         let vn = dot(relVel, n);
-                        if (vn < 0.0) {                      // only resolve when approaching
-                            vel -= n * (vn * (1.0 + params.restitution) * 0.5);
+                        if (vn < 0.0) {
+                            let Jn = -(vn * (1.0 + params.restitution) * 0.5);
+                            vel += n * Jn;
+                            let r_c = -n * radius;
+                            let relVt = relVel - vn * n;
+                            let vtLen = length(relVt);
+                            if (vtLen > 0.001) {
+                                let tDir = relVt / vtLen;
+                                let Jt = min(params.friction * Jn, vtLen * 0.5);
+                                vel -= tDir * Jt;
+                                angVel += cross(r_c, -tDir * Jt) * ANG_SCALE;
+                            }
                         }
                     }
                 }
