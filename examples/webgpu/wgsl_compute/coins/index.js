@@ -535,7 +535,7 @@ function frame(timeMs) {
     simFloats[1] = 9.81;               // gravity
     simFloats[2] = GROUND_Y;           // ground plane height
     simFloats[3] = 0.9992;             // linear damping
-    simFloats[4] = 0.992;              // angular damping
+    simFloats[4] = 0.999;              // angular damping
     simFloats[5] = 0.2;                // restitution
     // Ground tangential friction (velocity retained per ground contact). Spheres
     // need low friction to slide outward, otherwise they jam into a steep mound.
