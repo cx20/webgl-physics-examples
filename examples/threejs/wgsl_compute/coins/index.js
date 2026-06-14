@@ -53,6 +53,7 @@ const coinMeshInfo = new Array(MAX_COINS);
 const typeGroups   = [[], [], []];
 
 const _pos   = new THREE.Vector3();
+const _axis  = new THREE.Vector3();
 const _quat  = new THREE.Quaternion();
 const _scale = new THREE.Vector3(1, 1, 1);
 const _mat   = new THREE.Matrix4();
@@ -141,11 +142,20 @@ async function initScene() {
 function createInitialStates() {
     const states = new Float32Array(MAX_COINS * STATE_FLOATS);
     for (let coin = 0; coin < MAX_COINS; coin++) {
-        const seed = ((coin * 37) % 101) / 101;
-        const base = coin * STATE_FLOATS;
-        states[base + 1]  = -1000 - coin * 0.01; // y: parked below floor
-        states[base + 3]  = seed;                 // position.w = seed
-        states[base + 11] = 1;                    // rotation.w = 1 (identity quat)
+        const seed  = ((coin * 37) % 101) / 101;
+        const base  = coin * STATE_FLOATS;
+        states[base + 1] = -1000 - coin * 0.01; // y: parked below floor
+        states[base + 3] = seed;                 // position.w = seed
+
+        // Random unit axis on the sphere (Marsaglia / spherical coords)
+        const u     = randomFromIndex(coin * 3);
+        const v     = randomFromIndex(coin * 3 + 1);
+        const theta = u * Math.PI * 2;
+        const phi   = Math.acos(2 * v - 1);
+        states[base + 8]  = Math.sin(phi) * Math.cos(theta); // axis.x
+        states[base + 9]  = Math.sin(phi) * Math.sin(theta); // axis.y
+        states[base + 10] = Math.cos(phi);                   // axis.z
+        states[base + 13] = 0.5 + randomFromIndex(coin * 3 + 2) * 1.5; // spin rate
     }
     return states;
 }
@@ -240,7 +250,8 @@ function updateCoins(data) {
             _mat.makeTranslation(0, -10000, 0);
         } else {
             _pos.set(data[off], y, data[off + 2]);
-            _quat.set(data[off + 8], data[off + 9], data[off + 10], data[off + 11]);
+            _axis.set(data[off + 8], data[off + 9], data[off + 10]);
+            _quat.setFromAxisAngle(_axis, data[off + 12]);
             _mat.compose(_pos, _quat, _scale);
         }
         coinMeshes[typeIdx].setMatrixAt(instIdx, _mat);
@@ -259,7 +270,7 @@ function animate(timeMs) {
 
     device.queue.writeBuffer(simParamsBuffer, 0, new Float32Array([
         dt / SUBSTEPS, 9.81, GROUND_Y, 0.9992,
-        0.999, 0.2, 0.98, time,
+        0, 0.2, 0.92, time,
     ]));
 
     const encoder        = device.createCommandEncoder();

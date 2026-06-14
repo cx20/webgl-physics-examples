@@ -424,7 +424,16 @@ async function createInitialData() {
         // being dumped into the scene all at once. (Other state floats stay zero.)
         states[stateBase + 1] = -1000 - coin * 0.01;   // y: parked below the floor
         states[stateBase + 3] = seed;                  // position.w carries the seed
-        states[stateBase + 11] = 1;                    // rotation = identity quaternion
+        // Random unit rotation axis (axis.xyz) — fixed per coin throughout the simulation.
+        const u = randomFromIndex(coin * 3);
+        const v = randomFromIndex(coin * 3 + 1);
+        const theta = u * Math.PI * 2;
+        const phi   = Math.acos(2 * v - 1);
+        states[stateBase + 8]  = Math.sin(phi) * Math.cos(theta); // axis.x
+        states[stateBase + 9]  = Math.sin(phi) * Math.sin(theta); // axis.y
+        states[stateBase + 10] = Math.cos(phi);                   // axis.z
+        // spin.y = per-coin rate (0.5–2.0), spin.x starts at 0
+        states[stateBase + 13] = 0.5 + randomFromIndex(coin * 3 + 2) * 1.5;
         const infoBase = coin * INFO_FLOATS;
         infos[infoBase + 0] = type.radius;
         infos[infoBase + 1] = type.halfHeight;
@@ -535,11 +544,9 @@ function frame(timeMs) {
     simFloats[1] = 9.81;               // gravity
     simFloats[2] = GROUND_Y;           // ground plane height
     simFloats[3] = 0.9992;             // linear damping
-    simFloats[4] = 0.999;              // angular damping
+    simFloats[4] = 0;                  // unused (_pad0)
     simFloats[5] = 0.2;                // restitution
-    // Ground tangential friction (velocity retained per ground contact). Spheres
-    // need low friction to slide outward, otherwise they jam into a steep mound.
-    simFloats[6] = 0.98;               // friction
+    simFloats[6] = 0.92;               // floor friction multiplier (x/z velocity scale on contact)
     simFloats[7] = time;               // elapsed seconds (drives streamed spawning)
     device.queue.writeBuffer(simParamsBuffer, 0, simData);
 
