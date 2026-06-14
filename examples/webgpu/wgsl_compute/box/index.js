@@ -30,16 +30,13 @@ const SUBSTEPS = 5;
 const BOX_HALF = 0.5;
 const GROUND_Y = -2.0;
 
-let showWireframe = true;
 let device, context, format, depthTexture;
-let renderPipeline, computePipeline, wirePipeline;
+let renderPipeline, computePipeline;
 let vertexBuffer, normalBuffer, indexBuffer, indexCount;
-let wireVertexBuffer, wireIndexBuffer, wireIndexCount;
 let cameraBuffer, colorBuffer, simParamsBuffer;
 let stateBuffers = [];
 let renderBindGroups = [];
 let computeBindGroups = [];
-let wireBindGroups = [];
 let currentState = 0;
 let lastTime = -1;
 
@@ -102,27 +99,6 @@ function createBoxGeometry() {
     device.queue.writeBuffer(normalBuffer, 0, normals);
     device.queue.writeBuffer(indexBuffer, 0, indices);
     indexCount = indices.length;
-}
-
-function createWireframeGeometry() {
-    // 8 unique corners of a unit box
-    const corners = new Float32Array([
-        -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,
-         0.5,  0.5, -0.5,  -0.5,  0.5, -0.5,
-        -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,
-         0.5,  0.5,  0.5,  -0.5,  0.5,  0.5,
-    ]);
-    // 12 edges as line-list pairs
-    const edges = new Uint16Array([
-        0,1, 1,5, 5,4, 4,0,   // bottom face
-        3,2, 2,6, 6,7, 7,3,   // top face
-        0,3, 1,2, 5,6, 4,7,   // vertical edges
-    ]);
-    wireVertexBuffer = device.createBuffer({ size: corners.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    wireIndexBuffer  = device.createBuffer({ size: edges.byteLength,   usage: GPUBufferUsage.INDEX  | GPUBufferUsage.COPY_DST });
-    device.queue.writeBuffer(wireVertexBuffer, 0, corners);
-    device.queue.writeBuffer(wireIndexBuffer,  0, edges);
-    wireIndexCount = edges.length;
 }
 
 function createInitialStates() {
@@ -203,18 +179,15 @@ function frame(timeMs) {
         currentState = 1 - currentState;
     }
 
-    const colorView = context.getCurrentTexture().createView();
-    const depthView = depthTexture.createView();
-
     const renderPass = encoder.beginRenderPass({
         colorAttachments: [{
-            view: colorView,
+            view: context.getCurrentTexture().createView(),
             clearValue: { r: 0.97, g: 0.97, b: 0.98, a: 1.0 },
             loadOp: 'clear',
             storeOp: 'store',
         }],
         depthStencilAttachment: {
-            view: depthView,
+            view: depthTexture.createView(),
             depthClearValue: 1.0,
             depthLoadOp: 'clear',
             depthStoreOp: 'store',
@@ -229,27 +202,6 @@ function frame(timeMs) {
     renderPass.drawIndexed(indexCount, INSTANCE_COUNT);
     renderPass.end();
 
-    if (showWireframe) {
-        const wirePass = encoder.beginRenderPass({
-            colorAttachments: [{
-                view: colorView,
-                loadOp: 'load',
-                storeOp: 'store',
-            }],
-            depthStencilAttachment: {
-                view: depthView,
-                depthLoadOp: 'load',
-                depthStoreOp: 'store',
-            },
-        });
-        wirePass.setPipeline(wirePipeline);
-        wirePass.setVertexBuffer(0, wireVertexBuffer);
-        wirePass.setIndexBuffer(wireIndexBuffer, 'uint16');
-        wirePass.setBindGroup(0, wireBindGroups[currentState]);
-        wirePass.drawIndexed(wireIndexCount, INSTANCE_COUNT);
-        wirePass.end();
-    }
-
     device.queue.submit([encoder.finish()]);
     requestAnimationFrame(frame);
 }
@@ -263,7 +215,6 @@ async function init() {
     format = navigator.gpu.getPreferredCanvasFormat();
 
     createBoxGeometry();
-    createWireframeGeometry();
 
     const initialStates = createInitialStates();
     for (let i = 0; i < 2; i++) {
@@ -315,22 +266,6 @@ async function init() {
         },
     });
 
-    wirePipeline = device.createRenderPipeline({
-        layout: 'auto',
-        vertex: {
-            module: device.createShaderModule({ code: document.getElementById('wvs').textContent }),
-            entryPoint: 'main',
-            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] }],
-        },
-        fragment: {
-            module: device.createShaderModule({ code: document.getElementById('wfs').textContent }),
-            entryPoint: 'main',
-            targets: [{ format }],
-        },
-        primitive: { topology: 'line-list' },
-        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
-    });
-
     for (let i = 0; i < 2; i++) {
         renderBindGroups.push(device.createBindGroup({
             layout: renderPipeline.getBindGroupLayout(0),
@@ -347,14 +282,6 @@ async function init() {
                 { binding: 0, resource: { buffer: stateBuffers[i] } },
                 { binding: 1, resource: { buffer: stateBuffers[1 - i] } },
                 { binding: 2, resource: { buffer: simParamsBuffer } },
-            ],
-        }));
-
-        wireBindGroups.push(device.createBindGroup({
-            layout: wirePipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: cameraBuffer } },
-                { binding: 1, resource: { buffer: stateBuffers[i] } },
             ],
         }));
     }
@@ -412,18 +339,5 @@ function mat4Multiply(out, a, b) {
         }
     }
 }
-
-function setWireframeVisible(visible) {
-    showWireframe = visible;
-    const hint = document.getElementById('hint');
-    if (hint) hint.textContent = 'W: wireframe ' + (visible ? 'ON' : 'OFF');
-}
-
-window.addEventListener('keydown', (event) => {
-    if (event.repeat) return;
-    if (event.code === 'KeyW' || event.key === 'w' || event.key === 'W') {
-        setWireframeVisible(!showWireframe);
-    }
-});
 
 init().catch(err => console.error(err));
