@@ -254,6 +254,112 @@ if (pos.y < RESET_Y) {
 A small downward velocity (rather than exactly zero) keeps the recycled body from being considered
 asleep in mid‑air.
 
+### 3.8 Falling Coins — fixed‑axis spin model
+
+The *Falling Coins* samples (`wgsl_compute/coins`) use a different rotation scheme from the OBB
+boxes. Coins are sphere colliders, so spin has no effect on collisions, but it must look right
+visually — a coin tumbling through the air must *spin*, slow down when it hits the floor, and
+not accumulate angular error over thousands of frames.
+
+#### State layout (per coin, 4 × `vec4<f32>` = 64 bytes)
+
+```wgsl
+struct CoinState {
+    position : vec4<f32>,   // xyz = world position, w = seed (packed scalar)
+    velocity : vec4<f32>,   // xyz = linear velocity,  w unused
+    axis     : vec4<f32>,   // xyz = fixed unit rotation axis (set once at spawn, w unused)
+    spin     : vec4<f32>,   // x = accumulated angle (radians), y = per‑coin spin rate (zw unused)
+}
+```
+
+The key design choice is that **each coin has one fixed rotation axis** assigned at spawn time
+(uniformly distributed on the sphere) and a **fixed spin rate** (uniform in `[0.5, 2.0]` rad/s
+base). The visible spin is driven by those two constants plus the current linear speed:
+
+```wgsl
+const SPIN_BASE    : f32 = 4.0;   // base angular rate multiplier
+const SPIN_SPEED_K : f32 = 0.5;   // extra rate per (m/s) of linear speed
+const FLOOR_SPIN_F : f32 = 0.3;   // spin factor while on the floor
+
+let inAir      = !onFloor || pos.y - radius > groundY + 0.05;
+let spinFactor = select(FLOOR_SPIN_F, 1.0, inAir);
+angle += spinRate * (SPIN_BASE + speed * SPIN_SPEED_K) * spinFactor * dt;
+```
+
+- **Why fixed axis, not quaternion × angular velocity?** Quaternion integration needs angular
+  damping to converge; over many substeps a coin's spin decays to near‑zero and it slides without
+  rotating. The fixed‑axis model removes the damping problem: every coin always has its assigned
+  rate, driven by how fast it is moving, so coins moving slowly spin slowly and fast‑moving or
+  airborne coins tumble quickly.
+- **Why `spinFactor`?** Coins tumble freely in air (`spinFactor=1.0`) but visually slow down when
+  they touch the floor (`spinFactor=0.3`), mimicking friction without coupling the physics into
+  the rotation model.
+- **Speed cap.** A `MAX_SPEED = 25 m/s` clamp prevents runaway coins from accumulating infinite
+  speed after many substeps of overlapping collisions.
+
+#### Jacobi collision response
+
+The old sequential model accumulated impulses *in‑place* inside the neighbour loop:
+
+```wgsl
+// sequential (old)
+for j in neighbours { pos += halfCorrection; vel += impulse; }
+```
+
+Because reads came from `srcStates` (previous frame) but writes went directly to the
+current local `pos`/`vel`, corrections from later neighbours in the scan built on partially‑corrected
+state. The scan order isn't random — it follows the grid cell order — so one hemisphere of
+contacts consistently "wins", creating a subtle but visible directional drift in dense piles.
+
+The **Jacobi** model accumulates all corrections into separate accumulators and applies once:
+
+```wgsl
+// Jacobi (new)
+var posCorr = vec3<f32>(0.0);
+var velCorr = vec3<f32>(0.0);
+for j in neighbours {
+    posCorr += halfCorrection;
+    velCorr += impulse;
+}
+pos += posCorr;
+vel += velCorr;
+```
+
+All inputs come from `srcStates` (the ping‑pong read buffer), so no contact overrides another;
+the response to all neighbours is symmetric and order‑independent.
+
+#### Update ordering
+
+The old code applied `pos += vel * dt` before the floor and collision tests, meaning gravity
+could push a coin through the floor before the floor correction ran. The Babylon.js‑style
+ordering fixes this:
+
+```text
+1. gravity        → vel.y -= g * dt
+2. coin–coin      → Jacobi posCorr / velCorr
+3. floor contact  → clamp pos.y, apply restitution + friction multiplier
+4. speed cap      → clamp |vel| to MAX_SPEED
+5. position step  → pos += vel * dt     ← always last
+6. spin update    → angle += …
+7. linear damping → vel *= damping
+```
+
+Moving the position step to after all collision corrections means the floor and coin–coin
+responses act on the *updated* velocity, not the pre‑collision one, giving more stable stacking.
+
+#### Floor friction
+
+Rather than a full tangential impulse model, the floor applies a simple velocity multiplier to
+the horizontal components:
+
+```wgsl
+vel.x *= params.friction;   // friction = 0.92
+vel.z *= params.friction;
+```
+
+This is enough to make coins slow their lateral drift when they land, without the oscillation
+that a full Coulomb friction model can introduce in a simple explicit integrator.
+
 ---
 
 ## 4. Debugging GPU physics

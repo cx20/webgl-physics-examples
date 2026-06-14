@@ -8,20 +8,22 @@
 
 <script id="cs" type="x-shader/x-compute">
 const COIN_CAPACITY : u32 = 8192u;
-// Uniform spatial grid for broad-phase collision (see cs-build / cs-clear).
-// CELL_SIZE must be >= the largest coin diameter so the 3x3x3 neighbour scan
-// catches every overlapping pair.
 const GRID_X : u32 = 64u;
 const GRID_Y : u32 = 64u;
 const GRID_Z : u32 = 64u;
 const CELL_CAPACITY : u32 = 8u;
 const CELL_SIZE : f32 = 1.7;
 const FLOOR_Y_C : f32 = -10.0;
+
+// axis  = fixed random rotation axis per coin (set at init, never changed).
+// spin  = x: accumulated angle, y: per-coin spin rate (set at init, never changed).
+// Using a fixed axis + speed-driven angle instead of full angular momentum keeps the
+// tumble visually convincing while avoiding angular-velocity integration instability.
 struct CoinState {
-    position   : vec4<f32>,
-    velocity   : vec4<f32>,
-    rotation   : vec4<f32>,
-    angularVel : vec4<f32>,
+    position : vec4<f32>,
+    velocity : vec4<f32>,
+    axis     : vec4<f32>,   // xyz = unit rotation axis (w unused)
+    spin     : vec4<f32>,   // x = current angle, y = spin rate (zw unused)
 }
 
 struct CoinInfo {
@@ -35,21 +37,25 @@ struct SimParams {
     gravity     : f32,
     groundY     : f32,
     damping     : f32,
-    angDamping  : f32,
+    _pad0       : f32,
     restitution : f32,
-    friction    : f32,
+    friction    : f32,   // floor friction multiplier (applied to x/z velocity on contact)
     time        : f32,
 }
 
-const GROUND_HALF : f32 = 13.0;
-const SPAWN_RADIUS : f32 = 3.0;     // radius of the narrow spawn column at the top
-const SPAWN_RATE : f32 = 350.0;     // coins per second streamed into the column
+const GROUND_HALF  : f32 = 13.0;
+const SPAWN_RADIUS : f32 = 3.0;
+const SPAWN_RATE   : f32 = 350.0;
+const MAX_SPEED    : f32 = 25.0;
+const SPIN_BASE    : f32 = 4.0;    // minimum spin speed (rad/s per unit spin rate)
+const SPIN_SPEED_K : f32 = 0.5;   // extra spin per m/s of linear speed
+const FLOOR_SPIN_F : f32 = 0.3;   // spin factor when resting on the floor
 
-@group(0) @binding(0) var<storage, read> srcStates : array<CoinState>;
-@group(0) @binding(1) var<storage, read_write> dstStates : array<CoinState>;
-@group(0) @binding(2) var<storage, read> infos : array<CoinInfo>;
-@group(0) @binding(3) var<uniform> params : SimParams;
-@group(0) @binding(4) var<storage, read> grid : array<u32>;
+@group(0) @binding(0) var<storage, read>            srcStates : array<CoinState>;
+@group(0) @binding(1) var<storage, read_write>      dstStates : array<CoinState>;
+@group(0) @binding(2) var<storage, read>            infos     : array<CoinInfo>;
+@group(0) @binding(3) var<uniform>                  params    : SimParams;
+@group(0) @binding(4) var<storage, read>            grid      : array<u32>;
 
 fn cellCoord(p : vec3<f32>) -> vec3<i32> {
     return vec3<i32>(
@@ -65,23 +71,6 @@ fn cellHash(c : vec3<i32>) -> i32 {
     return c.x + c.y * i32(GRID_X) + c.z * i32(GRID_X) * i32(GRID_Y);
 }
 
-fn quatMul(a : vec4<f32>, b : vec4<f32>) -> vec4<f32> {
-    return vec4<f32>(
-        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
-        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
-        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
-        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
-    );
-}
-
-fn normalizeQ(q : vec4<f32>) -> vec4<f32> {
-    let l = length(q);
-    return select(vec4<f32>(0.0, 0.0, 0.0, 1.0), q / l, l > 0.0001);
-}
-
-// A sin-based hash correlates its outputs when the inputs are linear
-// (s, s+1, s+2 ...), biasing spawn positions along a diagonal. Use a
-// statistically stronger PCG hash instead.
 fn pcgHash(v : u32) -> u32 {
     let state = v * 747796405u + 2891336453u;
     let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -91,89 +80,48 @@ fn rndU(seed : u32) -> f32 {
     return f32(pcgHash(seed)) * (1.0 / 4294967296.0);
 }
 
-const ANG_SCALE : f32 = 0.3;
-
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     let i = id.x;
-    if (i >= COIN_CAPACITY) {
-        return;
-    }
+    if (i >= COIN_CAPACITY) { return; }
 
-    let info = infos[i];
-    let radius = info.size.x;
-    let seed = srcStates[i].position.w;
+    let info     = infos[i];
+    let radius   = info.size.x;
+    let seed     = srcStates[i].position.w;
+    let axis     = srcStates[i].axis;        // pass through unchanged
+    let spinRate = srcStates[i].spin.y;      // pass through unchanged
 
-    var pos = srcStates[i].position.xyz;
-    var vel = srcStates[i].velocity.xyz;
-    var rot = srcStates[i].rotation;
-    var angVel = srcStates[i].angularVel.xyz;
+    var pos   = srcStates[i].position.xyz;
+    var vel   = srcStates[i].velocity.xyz;
+    var angle = srcStates[i].spin.x;
 
-    let sleepY = params.groundY - 30.0;
-    let spawnY = params.groundY + 50.0;
+    let sleepY    = params.groundY - 30.0;
+    let spawnY    = params.groundY + 50.0;
     let spawnTime = f32(i) / SPAWN_RATE;
 
-    // Coins start asleep below the floor and stream in over time (a few per frame)
-    // through a narrow column, so they fall like a waterfall instead of being dumped
-    // all at once. Spilled coins drop past the floor, sleep, and re-stream (see below),
-    // which keeps the pile at a steady height instead of growing into a mountain.
     if (pos.y < sleepY) {
         if (params.time >= spawnTime) {
-            // Fresh random position/spin each spawn; the per-frame term in the salt
-            // makes a recycled coin reappear at a different point in the column.
             let salt = i * 2654435761u + u32(params.time * 60.0) * 40503u;
-            let ang = rndU(salt) * 6.28318530718;
-            let rad = sqrt(rndU(salt + 1u)) * SPAWN_RADIUS;
-            pos = vec3<f32>(cos(ang) * rad, spawnY, sin(ang) * rad);
-            vel = vec3<f32>(0.0, -1.0, 0.0);
-            angVel = vec3<f32>(
-                (rndU(salt + 3u) - 0.5) * 6.0,
-                (rndU(salt + 4u) - 0.5) * 2.0,
-                (rndU(salt + 5u) - 0.5) * 6.0,
-            );
-            rot = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+            let ang  = rndU(salt) * 6.28318530718;
+            let rad  = sqrt(rndU(salt + 1u)) * SPAWN_RADIUS;
+            pos   = vec3<f32>(cos(ang) * rad, spawnY, sin(ang) * rad);
+            vel   = vec3<f32>(0.0, -1.0, 0.0);
+            angle = 0.0;
         }
         dstStates[i].position = vec4<f32>(pos, seed);
         dstStates[i].velocity = vec4<f32>(vel, 0.0);
-        dstStates[i].rotation = rot;
-        dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+        dstStates[i].axis     = axis;
+        dstStates[i].spin     = vec4<f32>(angle, spinRate, 0.0, 0.0);
         return;
     }
 
+    // 1. Gravity
     vel.y -= params.gravity * params.dt;
-    pos += vel * params.dt;
 
-    let sp = length(angVel);
-    if (sp > 0.0001) {
-        let axis = angVel / sp;
-        let half = sp * params.dt * 0.5;
-        rot = normalizeQ(quatMul(vec4<f32>(axis * sin(half), cos(half)), rot));
-    }
-
-    // Sphere vs ground plane: keep the sphere centre one radius above the floor.
-    if (pos.y - radius < params.groundY && abs(pos.x) < GROUND_HALF && abs(pos.z) < GROUND_HALF) {
-        pos.y = params.groundY + radius;
-        if (vel.y < 0.0) {
-            let vn = vel.y;
-            let Jn = -vn * (1.0 + params.restitution);
-            vel.y = -vn * params.restitution;
-            let r_c = vec3<f32>(0.0, -radius, 0.0);
-            let contactVel = vel + cross(angVel, r_c);
-            let tangVel = vec3<f32>(contactVel.x, 0.0, contactVel.z);
-            let tLen = length(tangVel);
-            if (tLen > 0.001) {
-                let tDir = tangVel / tLen;
-                let Jt = min(params.friction * Jn, tLen);
-                vel -= vec3<f32>(tDir.x * Jt, 0.0, tDir.z * Jt);
-                angVel += cross(r_c, -tDir * Jt) * ANG_SCALE;
-            }
-        }
-    }
-
-    // Sphere vs sphere using a uniform spatial grid: only the 3x3x3 neighbouring cells
-    // are scanned instead of every other coin, turning the broad phase from O(N^2) into
-    // roughly O(N) so far more coins can be simulated. Asleep coins are never inserted
-    // into the grid, so they are skipped automatically.
+    // 2. Coin–coin collision: Jacobi (accumulate all corrections, apply once) so the
+    //    push-out is independent of the cell scan order and the pile spreads evenly.
+    var posCorr = vec3<f32>(0.0);
+    var velCorr = vec3<f32>(0.0);
     let myCoord = cellCoord(pos);
     for (var dz = -1; dz <= 1; dz = dz + 1) {
         for (var dy = -1; dy <= 1; dy = dy + 1) {
@@ -181,45 +129,56 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
                 let cidx = cellHash(myCoord + vec3<i32>(dx, dy, dz));
                 if (cidx < 0) { continue; }
                 let cellBase = u32(cidx) * (CELL_CAPACITY + 1u);
-                let count = min(grid[cellBase], CELL_CAPACITY);
+                let count    = min(grid[cellBase], CELL_CAPACITY);
                 for (var k = 0u; k < count; k = k + 1u) {
                     let j = grid[cellBase + 1u + k];
                     if (j == i) { continue; }
-                    let other = srcStates[j];
+                    let other      = srcStates[j];
                     let otherRadius = infos[j].size.x;
-                    let delta = pos - other.position.xyz;   // points from the other coin to this one
-                    let dist = length(delta);
-                    let minDist = radius + otherRadius;
+                    let delta      = pos - other.position.xyz;
+                    let dist       = length(delta);
+                    let minDist    = radius + otherRadius;
                     if (dist < minDist && dist > 1e-4) {
-                        let n = delta / dist;
+                        let n       = delta / dist;
                         let overlap = minDist - dist;
-                        pos += n * (overlap * 0.5);
+                        posCorr += n * (overlap * 0.5);
                         let relVel = vel - other.velocity.xyz;
-                        let vn = dot(relVel, n);
+                        let vn     = dot(relVel, n);
                         if (vn < 0.0) {
-                            let Jn = -(vn * (1.0 + params.restitution) * 0.5);
-                            vel += n * Jn;
-                            let r_c = -n * radius;
-                            let relVt = relVel - vn * n;
-                            let vtLen = length(relVt);
-                            if (vtLen > 0.001) {
-                                let tDir = relVt / vtLen;
-                                let Jt = min(params.friction * Jn, vtLen * 0.5);
-                                vel -= tDir * Jt;
-                                angVel += cross(r_c, -tDir * Jt) * ANG_SCALE;
-                            }
+                            velCorr += n * (-(vn * (1.0 + params.restitution) * 0.5));
                         }
                     }
                 }
             }
         }
     }
+    pos += posCorr;
+    vel += velCorr;
 
+    // 3. Floor
+    let onFloor = abs(pos.x) < GROUND_HALF && abs(pos.z) < GROUND_HALF;
+    if (onFloor && pos.y - radius < params.groundY) {
+        pos.y = params.groundY + radius;
+        if (vel.y < 0.0) { vel.y = -vel.y * params.restitution; }
+        vel.x *= params.friction;
+        vel.z *= params.friction;
+    }
+
+    // 4. Speed cap
+    let speed = length(vel);
+    if (speed > MAX_SPEED) { vel = vel * (MAX_SPEED / speed); }
+
+    // 5. Position update
+    pos += vel * params.dt;
+
+    // 6. Spin: speed-proportional, slows when resting on the floor
+    let inAir      = !onFloor || pos.y - radius > params.groundY + 0.05;
+    let spinFactor = select(FLOOR_SPIN_F, 1.0, inAir);
+    angle += spinRate * (SPIN_BASE + speed * SPIN_SPEED_K) * spinFactor * params.dt;
+
+    // 7. Linear damping
     vel *= params.damping;
-    angVel *= params.angDamping;
 
-    // Recycle: a coin that fell past the floor (spilled off the edge) goes back to
-    // sleep below and re-streams from the top next frame.
     if (pos.y < sleepY) {
         pos = vec3<f32>(0.0, -1000.0 - f32(i) * 0.01, 0.0);
         vel = vec3<f32>(0.0, 0.0, 0.0);
@@ -227,8 +186,8 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
 
     dstStates[i].position = vec4<f32>(pos, seed);
     dstStates[i].velocity = vec4<f32>(vel, 0.0);
-    dstStates[i].rotation = rot;
-    dstStates[i].angularVel = vec4<f32>(angVel, 0.0);
+    dstStates[i].axis     = axis;
+    dstStates[i].spin     = vec4<f32>(angle, spinRate, 0.0, 0.0);
 }
 </script>
 
@@ -251,10 +210,10 @@ const CELL_CAPACITY : u32 = 8u;
 const CELL_SIZE : f32 = 1.7;
 const FLOOR_Y_C : f32 = -10.0;
 struct CoinState {
-    position   : vec4<f32>,
-    velocity   : vec4<f32>,
-    rotation   : vec4<f32>,
-    angularVel : vec4<f32>,
+    position : vec4<f32>,
+    velocity : vec4<f32>,
+    axis     : vec4<f32>,
+    spin     : vec4<f32>,
 }
 @group(0) @binding(0) var<storage, read> states : array<CoinState>;
 @group(0) @binding(1) var<storage, read_write> grid : array<atomic<u32>>;
@@ -292,10 +251,10 @@ struct Camera {
 }
 
 struct CoinState {
-    position   : vec4<f32>,
-    velocity   : vec4<f32>,
-    rotation   : vec4<f32>,
-    angularVel : vec4<f32>,
+    position : vec4<f32>,
+    velocity : vec4<f32>,
+    axis     : vec4<f32>,   // xyz = unit rotation axis
+    spin     : vec4<f32>,   // x = current angle
 }
 
 struct CoinInfo {
@@ -328,9 +287,10 @@ const COIN_CAPACITY : u32 = 8192u;
 @group(0) @binding(2) var<storage, read> infos : array<CoinInfo>;
 @group(0) @binding(3) var<storage, read> staticItems : array<StaticItem>;
 
-fn rotByQuat(v : vec3<f32>, q : vec4<f32>) -> vec3<f32> {
-    let t = 2.0 * cross(q.xyz, v);
-    return v + q.w * t + cross(q.xyz, t);
+fn rotByAxisAngle(v : vec3<f32>, axis : vec3<f32>, angle : f32) -> vec3<f32> {
+    let cs = cos(angle);
+    let sn = sin(angle);
+    return v * cs + cross(axis, v) * sn + axis * dot(axis, v) * (1.0 - cs);
 }
 
 @vertex
@@ -338,11 +298,13 @@ fn main(@location(0) position : vec3<f32>, @location(1) normal : vec3<f32>, @loc
     var out : VSOut;
     if (instance < COIN_CAPACITY) {
         let state = states[instance];
-        let info = infos[instance];
+        let info  = infos[instance];
+        let axis  = normalize(state.axis.xyz);
+        let angle = state.spin.x;
         let local = vec3<f32>(position.x * info.size.x, position.y * info.size.y * 2.0, position.z * info.size.x);
-        let world = rotByQuat(local, state.rotation) + state.position.xyz;
+        let world = rotByAxisAngle(local, axis, angle) + state.position.xyz;
         out.position = camera.viewProjection * vec4<f32>(world, 1.0);
-        out.normal = normalize(rotByQuat(normal, state.rotation));
+        out.normal = normalize(rotByAxisAngle(normal, axis, angle));
         out.uv = uv;
         out.color = info.color;
         out.atlas = info.size.z;
@@ -426,10 +388,10 @@ struct Camera {
 }
 
 struct CoinState {
-    position   : vec4<f32>,
-    velocity   : vec4<f32>,
-    rotation   : vec4<f32>,
-    angularVel : vec4<f32>,
+    position : vec4<f32>,
+    velocity : vec4<f32>,
+    axis     : vec4<f32>,
+    spin     : vec4<f32>,
 }
 
 struct CoinInfo {
