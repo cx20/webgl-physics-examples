@@ -94,8 +94,12 @@ async function init() {
 
     scene = createScene();
 
+    const fpsEl = document.getElementById('fps');
     engine.runRenderLoop(function () {
         scene.render();
+        if (fpsEl) {
+            fpsEl.textContent = 'FPS: ' + engine.getFps().toFixed(1);
+        }
     });
 };
 
