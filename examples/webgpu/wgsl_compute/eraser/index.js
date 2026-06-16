@@ -612,7 +612,9 @@ function render() {
         fps = (frameCount * 1000 / (now - lastFpsT)) | 0;
         frameCount = 0; lastFpsT = now;
         const hint = document.getElementById('hint');
-        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF') + ' · ' + fps + ' FPS';
+        const fpsEl = document.getElementById('fps');
+        if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+        if (fpsEl) fpsEl.textContent = fps + ' FPS';
     }
 
     requestAnimationFrame(render);

@@ -12,6 +12,20 @@ body {
   font: 30px sans-serif;
 }
 
+#fps {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  width: auto;
+  height: auto;
+  color: #0f0;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font: 13px monospace;
+  pointer-events: none;
+}
+
 #hint {
   position: fixed;
   top: 8px;

@@ -251,6 +251,7 @@ fn main() {
     const inertiaInv = 1.0 / Math.max(halfExtents.x * halfExtents.x + halfExtents.z * halfExtents.z, 0.001);
 
     const hint = document.getElementById('hint');
+    const fpsEl = document.getElementById('fps');
     let frameCount = 0, lastFpsT = performance.now(), fps = 0;
     let readbackBusy = false;
 
@@ -294,7 +295,8 @@ fn main() {
         if (now - lastFpsT > 500) {
             fps = (frameCount * 1000 / (now - lastFpsT)) | 0;
             frameCount = 0; lastFpsT = now;
-            if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF') + ' · ' + fps + ' FPS';
+            if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+            if (fpsEl) fpsEl.textContent = fps + ' FPS';
         }
     });
 

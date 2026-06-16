@@ -700,6 +700,7 @@ fn fs(@location(0) color : vec4<f32>) -> @location(0) vec4<f32> { return color; 
     };
 
     const hint = document.getElementById('hint');
+    const fpsEl = document.getElementById('fps');
     let frameCount = 0, lastFpsT = performance.now(), fps = 0;
     let currentState = 0;
     const startTime = performance.now();
@@ -769,7 +770,8 @@ fn fs(@location(0) color : vec4<f32>) -> @location(0) vec4<f32> { return color; 
         if (now - lastFpsT > 500) {
             fps = (frameCount * 1000 / (now - lastFpsT)) | 0;
             frameCount = 0; lastFpsT = now;
-            if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF') + ' · ' + fps + ' FPS';
+            if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+            if (fpsEl) fpsEl.textContent = fps + ' FPS';
         }
     });
 
