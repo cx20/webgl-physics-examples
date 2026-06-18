@@ -3,7 +3,7 @@ import {
     createHavokWorld, createHemisphericLight, createPhysicsAggregate,
     createPhysicsViewer, createSceneContext, createStandardMaterial,
     hidePhysicsBody, loadGltf, onBeforeRender, PhysicsShapeType,
-    registerScene, setParent, setMeshVisible, showPhysicsBody, startEngine,
+    registerScene, setMeshVisible, showPhysicsBody, startEngine,
     setPhysicsBodyLinearVelocity,
 } from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
 import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
@@ -11,29 +11,46 @@ import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/l
 const DUCK_URL = 'https://rawcdn.githack.com/cx20/gltf-test/1f6515ce/sampleModels/Duck/glTF/Duck.gltf';
 const PHYSICS_FPS = 30;
 
-// Collect every renderable mesh under a node (loaded glTF meshes carry _gpu + boundMin/boundMax).
+// Collect every renderable mesh under a node (loaded glTF meshes carry _gpu).
 function collectMeshes(node, out) {
-    if (node._gpu && node.boundMin && node.boundMax) out.push(node);
+    if (node._gpu) out.push(node);
     if (node.children) for (const c of node.children) collectMeshes(c, out);
 }
 
-// World-space AABB of the given meshes.
+// World-space AABB of the given meshes, computed from their CPU vertex positions transformed by
+// each mesh's world matrix (glTF meshes expose _cpuPositions but not boundMin/boundMax).
 function worldAabb(meshes) {
     const min = [Infinity, Infinity, Infinity];
     const max = [-Infinity, -Infinity, -Infinity];
+    const acc = (wx, wy, wz) => {
+        if (wx < min[0]) min[0] = wx; if (wx > max[0]) max[0] = wx;
+        if (wy < min[1]) min[1] = wy; if (wy > max[1]) max[1] = wy;
+        if (wz < min[2]) min[2] = wz; if (wz > max[2]) max[2] = wz;
+    };
     for (const mesh of meshes) {
         const m = mesh.worldMatrix;
-        const bmin = mesh.boundMin, bmax = mesh.boundMax;
-        for (let ci = 0; ci < 8; ci++) {
-            const lx = ci & 1 ? bmax[0] : bmin[0];
-            const ly = ci & 2 ? bmax[1] : bmin[1];
-            const lz = ci & 4 ? bmax[2] : bmin[2];
-            const wx = m[0] * lx + m[4] * ly + m[8] * lz + m[12];
-            const wy = m[1] * lx + m[5] * ly + m[9] * lz + m[13];
-            const wz = m[2] * lx + m[6] * ly + m[10] * lz + m[14];
-            if (wx < min[0]) min[0] = wx; if (wx > max[0]) max[0] = wx;
-            if (wy < min[1]) min[1] = wy; if (wy > max[1]) max[1] = wy;
-            if (wz < min[2]) min[2] = wz; if (wz > max[2]) max[2] = wz;
+        const p = mesh._cpuPositions;
+        if (p) {
+            for (let i = 0; i < p.length; i += 3) {
+                const x = p[i], y = p[i + 1], z = p[i + 2];
+                acc(
+                    m[0] * x + m[4] * y + m[8] * z + m[12],
+                    m[1] * x + m[5] * y + m[9] * z + m[13],
+                    m[2] * x + m[6] * y + m[10] * z + m[14],
+                );
+            }
+        } else if (mesh.boundMin && mesh.boundMax) {
+            const bmin = mesh.boundMin, bmax = mesh.boundMax;
+            for (let ci = 0; ci < 8; ci++) {
+                const x = ci & 1 ? bmax[0] : bmin[0];
+                const y = ci & 2 ? bmax[1] : bmin[1];
+                const z = ci & 4 ? bmax[2] : bmin[2];
+                acc(
+                    m[0] * x + m[4] * y + m[8] * z + m[12],
+                    m[1] * x + m[5] * y + m[9] * z + m[13],
+                    m[2] * x + m[6] * y + m[10] * z + m[14],
+                );
+            }
         }
     }
     return { min, max };
@@ -103,7 +120,12 @@ async function main() {
     wrapper.position.set(center.x, center.y, center.z);
     setMeshVisible(wrapper, false);
     addToScene(scene, wrapper);
-    setParent(duckRoot, wrapper);
+
+    // Parent the duck to the wrapper manually instead of via setParent: setParent decomposes the
+    // world matrix and loses the glTF root's -1 X scale (sqrt drops the sign), which mangles the
+    // duck. Offsetting the root by -center keeps it centred on the wrapper while preserving scale.
+    duckRoot.parent = wrapper;
+    duckRoot.position.set(-center.x, -center.y, -center.z);
 
     // Drop the duck from a height (the duck follows because it is parented to the wrapper).
     wrapper.position.set(center.x, center.y + 10, center.z);
