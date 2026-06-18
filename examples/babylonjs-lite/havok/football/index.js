@@ -1,8 +1,8 @@
 import {
-    addToScene, attachControl, createArcRotateCamera, createBox,
-    createDirectionalLight, createEngine, createGround, createHavokWorld,
+    addToScene, attachControl, createArcRotateCamera, createGround,
+    createDirectionalLight, createEngine, createHavokWorld,
     createHemisphericLight, createPhysicsAggregate, createPhysicsViewer,
-    createSceneContext, createStandardMaterial,
+    createSceneContext, createSphere, createStandardMaterial,
     hidePhysicsBody, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerScene, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
@@ -58,7 +58,7 @@ async function main() {
     const scene = createSceneContext(engine);
     scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
 
-    const camera = createArcRotateCamera(-2.2, 1.0, 50, { x: 0, y: 15 * PHYSICS_SCALE, z: 0 });
+    const camera = createArcRotateCamera(-2.2, 1.0, 50, { x: 0, y: 20 * PHYSICS_SCALE, z: 0 });
     scene.camera = camera;
     attachControl(camera, canvas, scene);
 
@@ -70,13 +70,14 @@ async function main() {
     addToScene(scene, dir);
 
     const grassTex = await loadTexture2D(engine, '../../../../assets/textures/grass.jpg');
+    const footballTex = await loadTexture2D(engine, '../../../../assets/textures/football.png');
 
     const groundMat = createStandardMaterial();
     groundMat.diffuseTexture = grassTex;
     groundMat.specularColor = [0, 0, 0];
     const ground = createGround(engine, { width: 400 * PHYSICS_SCALE, height: 400 * PHYSICS_SCALE });
     ground.material = groundMat;
-    ground.position.set(0, -100 * PHYSICS_SCALE, 0);
+    ground.position.set(0, -20 * PHYSICS_SCALE, 0);
     addToScene(scene, ground);
 
     const fpsEl = document.getElementById('fps');
@@ -107,30 +108,33 @@ async function main() {
         z: randomNumber(-25, 25) * PHYSICS_SCALE,
     });
 
-    // Stacked boxes (16x16 grid with pixel-art colors)
-    const BOX_SIZE = 15;
+    // Footballs forming a pixel-art picture (16x16 grid)
+    const BALL_SIZE = 15;
     const objects = [];
     for (let y = 0; y < 16; y++) {
         for (let x = 0; x < 16; x++) {
             const i = x + (15 - y) * 16;
-            const s = createBox(engine, BOX_SIZE * PHYSICS_SCALE);
-            const x1 = (-130 + x * BOX_SIZE * 1.2 + Math.random()) * PHYSICS_SCALE;
-            const y1 = (30 + y * BOX_SIZE * 1.2) * PHYSICS_SCALE;
+            const s = createSphere(engine, { diameter: BALL_SIZE * PHYSICS_SCALE, segments: 16 });
+            const x1 = (-130 + x * BALL_SIZE * 1.2 + Math.random()) * PHYSICS_SCALE;
+            const y1 = (30 + y * BALL_SIZE * 1.2) * PHYSICS_SCALE;
             const z1 = Math.random() * PHYSICS_SCALE;
             s.position.set(x1, y1, z1);
             const mat = createStandardMaterial();
-            mat.diffuseColor = getRgbColor(dataSet[i]);
+            mat.diffuseTexture = footballTex;
+            const rgb = getRgbColor(dataSet[i]);
+            mat.diffuseColor = rgb;
+            mat.emissiveColor = rgb;
             s.material = mat;
             addToScene(scene, s);
-            const agg = createPhysicsAggregate(world, s, PhysicsShapeType.BOX, {
-                mass: 1, friction: 1.0, restitution: 0.0,
+            const agg = createPhysicsAggregate(world, s, PhysicsShapeType.SPHERE, {
+                mass: 1, friction: 0.4, restitution: 0.6,
             });
             objects.push({ mesh: s, body: agg.body });
             allBodies.push(agg.body);
         }
     }
 
-    // Recycle boxes that fall below the floor
+    // Recycle balls that fall below the floor
     onBeforeRender(scene, () => {
         for (const obj of objects) {
             if (obj.mesh.position.y < -100 * PHYSICS_SCALE) {
