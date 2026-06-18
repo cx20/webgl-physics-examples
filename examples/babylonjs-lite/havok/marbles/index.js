@@ -110,6 +110,11 @@ async function main() {
     // The model is a flat hierarchy: each node is named SphereN (with a child mesh "Mesh_N") or is
     // a label plane (ThicknessPlane / IorPlane / ThinFilmIorPlane). Lite names meshes after the
     // glTF mesh ("Mesh_N"), so filter on the parent node's name, not the mesh name.
+    //
+    // Physics is applied to the SphereN transform node (not its child mesh): the node only
+    // translates and, with the root reset to identity above, its local transform equals its world
+    // transform, so the body can drive it directly while the mesh stays attached and follows. (An
+    // earlier attempt that detached the mesh with parent = null left it out of sync with the body.)
     const root = asset.entities[0];
     const spheres = [];
     for (const node of root.children) {
@@ -119,32 +124,25 @@ async function main() {
             for (const m of childMeshes) setMeshVisible(m, false);
             continue;
         }
-        if (name.indexOf('Sphere') === -1) continue;
-        for (const mesh of childMeshes) {
-            // Read the world centre/radius while still parented, then detach. The sphere nodes
-            // only translate (no rotation/scale) and the geometry is origin-centred, so set the
-            // mesh's transform explicitly instead of using setParent (whose matrix decomposition
-            // produced an invalid quaternion that corrupted the physics body).
-            const { center, radius } = worldBounds(mesh);
-            mesh.parent = null;
-            mesh.position.set(center.x + Math.random(), center.y, center.z + Math.random());
-            mesh.rotationQuaternion.set(0, 0, 0, 1);
-            mesh.scaling.set(1, 1, 1);
-            const agg = createPhysicsAggregate(world, mesh, PhysicsShapeType.SPHERE, {
-                mass: 1, friction: 0.1, restitution: 0.3, radius,
-            });
-            spheres.push({ mesh, body: agg.body });
-            allBodies.push(agg.body);
-        }
+        if (name.indexOf('Sphere') === -1 || childMeshes.length === 0) continue;
+
+        const { radius } = worldBounds(childMeshes[0]);
+        // Small random offset like the Babylon.js sample.
+        node.position.set(node.position.x + Math.random(), node.position.y, node.position.z + Math.random());
+        const agg = createPhysicsAggregate(world, node, PhysicsShapeType.SPHERE, {
+            mass: 1, friction: 0.1, restitution: 0.3, radius,
+        });
+        spheres.push({ node, body: agg.body });
+        allBodies.push(agg.body);
     }
 
     // Recycle spheres that fall away.
     onBeforeRender(scene, () => {
         for (const s of spheres) {
-            if (s.mesh.position.y < -100 * PHYSICS_SCALE) {
+            if (s.node.position.y < -100 * PHYSICS_SCALE) {
                 const pos = getNextPosition(200);
                 setPhysicsBodyPreStep(s.body, true);
-                s.mesh.position.set(pos.x, pos.y, pos.z);
+                s.node.position.set(pos.x, pos.y, pos.z);
                 setPhysicsBodyLinearVelocity(world, s.body, { x: 0, y: 0, z: 0 });
                 setPhysicsBodyAngularVelocity(world, s.body, { x: 0, y: 0, z: 0 });
             }
