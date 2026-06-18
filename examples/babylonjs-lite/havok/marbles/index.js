@@ -62,14 +62,11 @@ async function main() {
     const hemi = createHemisphericLight([1, 1, 0]);
     addToScene(scene, hemi);
 
-    // IBL + skybox + BRDF LUT for the model's PBR materials.
+    // IBL + skybox + BRDF LUT for the model's PBR materials. loadEnvironment also enables ACES
+    // tone mapping (exposure 0.8), which lifts the HDR reflections into a bright, vivid range —
+    // the metallic spheres are lit purely by this IBL, so the tone mapping is kept on (matching
+    // the Babylon.js Lite glTF reference at cx20/gltf-test).
     await loadEnvironment(scene, ENV_URL, { brdfUrl: BRDF_URL, skyboxUrl: ENV_URL, skyboxSize: 10000, skipGround: true });
-    // loadEnvironment turns on ACES tone mapping + exposure 0.8, which darkens and desaturates the
-    // metallic spheres. Babylon.js renders these PBR materials without tone mapping, so disable it
-    // (and reset exposure/contrast) to match the brighter, more reflective Babylon.js look.
-    scene.imageProcessing.toneMappingEnabled = false;
-    scene.imageProcessing.exposure = 1.0;
-    scene.imageProcessing.contrast = 1.0;
 
     const fpsEl = document.getElementById('fps');
     let lastTime = performance.now();
