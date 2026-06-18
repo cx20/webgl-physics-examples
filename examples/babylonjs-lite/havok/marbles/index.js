@@ -101,6 +101,12 @@ async function main() {
     const asset = await loadGltf(engine, MODEL_URL);
     addToScene(scene, asset);
 
+    // The glTF root carries a -1 X scale (right-handed -> left-handed flip). Its negative
+    // determinant makes setParent's matrix decomposition produce an invalid quaternion, which
+    // corrupts the physics body transforms. The spheres are symmetric, so reset the root to a
+    // positive uniform scale before detaching them.
+    asset.entities[0].scaling.set(1, 1, 1);
+
     // The model is a flat hierarchy: each node is named SphereN (with a child mesh "Mesh_N") or is
     // a label plane (ThicknessPlane / IorPlane / ThinFilmIorPlane). Lite names meshes after the
     // glTF mesh ("Mesh_N"), so filter on the parent node's name, not the mesh name.
