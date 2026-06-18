@@ -14,6 +14,10 @@ const ENV_URL = BASE_URL + '/textures/env/papermillSpecularHDR.env';
 const BRDF_URL = 'https://cdn.jsdelivr.net/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
 const PHYSICS_SCALE = 1 / 10;
 const PHYSICS_FPS = 60;
+// IBL multiplier for the spheres. They are black-based metals coloured only by
+// KHR_materials_iridescence reflecting the environment, which Lite's ACES tone mapping dims;
+// boosting the environment contribution restores the bright, vivid iridescence (tunable).
+const ENV_INTENSITY = 2.0;
 
 function randomNumber(min, max) {
     return min === max ? min : Math.random() * (max - min) + min;
@@ -134,6 +138,13 @@ async function main() {
             continue;
         }
         if (name.indexOf('Sphere') === -1 || childMeshes.length === 0) continue;
+
+        // These spheres have a black base colour and are coloured purely by KHR_materials_iridescence
+        // reflecting the environment. Lite's ACES tone mapping dims that reflection, so boost the
+        // material's IBL contribution to bring back the vivid, bright iridescence (tunable).
+        for (const m of childMeshes) {
+            if (m.material) m.material.environmentIntensity = ENV_INTENSITY;
+        }
 
         const { radius } = worldBounds(childMeshes[0]);
         // Small random offset like the Babylon.js sample.
