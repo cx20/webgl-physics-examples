@@ -119,7 +119,7 @@ async function main() {
             const y1 = -10 * PHYSICS_SCALE;
             const z1 = (-150 + y * DOMINO_SIZE * 1.2) * PHYSICS_SCALE;
             const domino = createBox(engine, 1);
-            updateMeshPositions(domino, DOMINO_POSITIONS);
+            updateMeshPositions(engine, domino, DOMINO_POSITIONS);
             domino.position.set(x1, y1, z1);
             const mat = createStandardMaterial();
             mat.diffuseColor = getRgbColor(dataSet[pos]);
