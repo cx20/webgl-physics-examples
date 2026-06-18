@@ -148,8 +148,8 @@ async function main() {
                 const pos = getPosition(100);
                 setPhysicsBodyPreStep(obj.body, true);
                 obj.mesh.position.set(pos.x, pos.y, pos.z);
-                setPhysicsBodyLinearVelocity(obj.body, { x: 0, y: 0, z: 0 });
-                setPhysicsBodyAngularVelocity(obj.body, { x: 0, y: 0, z: 0 });
+                setPhysicsBodyLinearVelocity(world, obj.body, { x: 0, y: 0, z: 0 });
+                setPhysicsBodyAngularVelocity(world, obj.body, { x: 0, y: 0, z: 0 });
             }
         }
         // Slow ~0.2 rad/s rotation to match the WebGL/WebGPU samples.
