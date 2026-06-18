@@ -59,7 +59,7 @@ async function main() {
     addToScene(scene, hemi);
 
     // IBL + skybox + BRDF LUT (PBR materials need these; also enables tone mapping).
-    await loadEnvironment(scene, ENV_URL, { brdfUrl: BRDF_URL, skyboxUrl: ENV_URL, skyboxSize: 10000 });
+    await loadEnvironment(scene, ENV_URL, { brdfUrl: BRDF_URL, skyboxUrl: ENV_URL, skyboxSize: 10000, skipGround: true });
 
     const fpsEl = document.getElementById('fps');
     let lastTime = performance.now();
