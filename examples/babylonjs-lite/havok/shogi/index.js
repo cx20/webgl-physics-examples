@@ -3,7 +3,7 @@ import {
     createDirectionalLight, createHavokWorld, createHemisphericLight,
     createMeshFromData, createPbrMaterial, createPcfDirectionalShadowGenerator,
     createPhysicsAggregate, createPhysicsViewer,
-    createSceneContext, createStandardMaterial,
+    createSceneContext, createSolidTexture2D, createStandardMaterial,
     hidePhysicsBody, loadEnvironment, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerSceneWithShadowSupport, setShadowTaskCasterMeshes,
     showPhysicsBody, startEngine,
@@ -155,8 +155,12 @@ async function main() {
     const pieceTex = await loadTexture2D(engine, '../../../../assets/textures/shogi_001/shogi.png', {
         addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', invertY: false, srgb: true,
     });
+    // PBR always binds a baseColor and an ORM (occlusion/roughness/metallic) texture, so supply a
+    // 1x1 white ORM; the metallic/roughness factors then set the actual values (matte, non-metal).
+    const ormTex = createSolidTexture2D(engine, 1, 1, 1, 1);
     const pieceMat = createPbrMaterial({
         baseColorTexture: pieceTex,
+        ormTexture: ormTex,
         baseColorFactor: [1, 1, 1, 1],
         metallicFactor: 0,
         roughnessFactor: 0.9,
