@@ -128,6 +128,10 @@ async function main() {
 
     const hemi = createHemisphericLight([1, 1, 0]);
     hemi.intensity = 0.9;
+    // Lift the ground (down-facing) hemisphere off black so faces pointing away from the
+    // light keep a bright fill, matching the Babylon.js render where the pieces stay a uniform
+    // cream colour instead of dropping to near-black on their shadowed sides.
+    hemi.groundColor = [0.6, 0.6, 0.6];
     addToScene(scene, hemi);
 
     const dir = createDirectionalLight([-0.4, -1.0, -0.3]);
