@@ -27,11 +27,6 @@ function getNextPosition(y) {
     };
 }
 
-function collectMeshes(node, out) {
-    if (node._gpu) out.push(node);
-    if (node.children) for (const c of node.children) collectMeshes(c, out);
-}
-
 // World-space AABB (centre + half-extents) of a mesh from its CPU positions.
 function worldBounds(mesh) {
     const m = mesh.worldMatrix;
@@ -106,29 +101,31 @@ async function main() {
     const asset = await loadGltf(engine, MODEL_URL);
     addToScene(scene, asset);
 
-    const meshes = [];
-    collectMeshes(asset.entities[0], meshes);
-
+    // The model is a flat hierarchy: each node is named SphereN (with a child mesh "Mesh_N") or is
+    // a label plane (ThicknessPlane / IorPlane / ThinFilmIorPlane). Lite names meshes after the
+    // glTF mesh ("Mesh_N"), so filter on the parent node's name, not the mesh name.
+    const root = asset.entities[0];
     const spheres = [];
-    for (const mesh of meshes) {
-        if (!mesh.name) continue;
-        if (mesh.name.indexOf('Plane') !== -1) {
-            // Label planes: hide them.
-            setMeshVisible(mesh, false);
+    for (const node of root.children) {
+        const name = node.name || '';
+        const childMeshes = (node.children || []).filter((c) => c._gpu && c._cpuPositions);
+        if (name.indexOf('Plane') !== -1) {
+            for (const m of childMeshes) setMeshVisible(m, false);
             continue;
         }
-        if (mesh.name.indexOf('Sphere') === -1 || !mesh._cpuPositions) continue;
-
-        const { center, radius } = worldBounds(mesh);
-        // Detach from the glTF hierarchy (preserving world transform) so the body drives it.
-        setParent(mesh, null);
-        // Small random offset like the Babylon.js sample.
-        mesh.position.set(center.x + Math.random(), center.y, center.z + Math.random());
-        const agg = createPhysicsAggregate(world, mesh, PhysicsShapeType.SPHERE, {
-            mass: 1, friction: 0.1, restitution: 0.3, radius,
-        });
-        spheres.push({ mesh, body: agg.body });
-        allBodies.push(agg.body);
+        if (name.indexOf('Sphere') === -1) continue;
+        for (const mesh of childMeshes) {
+            const { center, radius } = worldBounds(mesh);
+            // Detach from the glTF hierarchy (preserving world transform) so the body drives it.
+            setParent(mesh, null);
+            // Small random offset like the Babylon.js sample.
+            mesh.position.set(center.x + Math.random(), center.y, center.z + Math.random());
+            const agg = createPhysicsAggregate(world, mesh, PhysicsShapeType.SPHERE, {
+                mass: 1, friction: 0.1, restitution: 0.3, radius,
+            });
+            spheres.push({ mesh, body: agg.body });
+            allBodies.push(agg.body);
+        }
     }
 
     // Recycle spheres that fall away.
