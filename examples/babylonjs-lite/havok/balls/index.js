@@ -1,10 +1,11 @@
 import {
     addToScene, attachControl, createArcRotateCamera, createBox, createGround,
-    createDirectionalLight, createEngine, createHavokWorld,
-    createPhysicsAggregate, createPhysicsViewer,
+    createDirectionalLight, createEngine, createEsmDirectionalShadowGenerator,
+    createHavokWorld, createPhysicsAggregate, createPhysicsViewer,
     createSceneContext, createSphere, createStandardMaterial,
     hidePhysicsBody, loadTexture2D, onBeforeRender, PhysicsShapeType,
-    registerScene, showPhysicsBody, startEngine,
+    registerSceneWithShadowSupport, setShadowTaskCasterMeshes,
+    showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
 } from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
 import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
@@ -43,6 +44,12 @@ async function main() {
     light2.intensity = 1.0;
     addToScene(scene, light2);
 
+    // Exponential shadow map cast by light1 (matches the Babylon.js scene's
+    // useExponentialShadowMap). The directional frustum auto-fits the caster
+    // meshes registered later via setShadowTaskCasterMeshes.
+    const shadowGenerator = createEsmDirectionalShadowGenerator(engine, light1, { mapSize: 1024 });
+    light1.shadowGenerator = shadowGenerator;
+
     const grassTex = await loadTexture2D(engine, '../../../../assets/textures/grass.jpg');
 
     const groundMat = createStandardMaterial();
@@ -51,6 +58,7 @@ async function main() {
     const ground = createGround(engine, { width: 400 * PHYSICS_SCALE, height: 400 * PHYSICS_SCALE });
     ground.material = groundMat;
     ground.position.set(0, -15 * PHYSICS_SCALE, 0);
+    ground.receiveShadows = true;
     addToScene(scene, ground);
 
     const fpsEl = document.getElementById('fps');
@@ -141,6 +149,9 @@ async function main() {
         y += 0.2;
     }
 
+    // Balls cast shadows onto the ground.
+    setShadowTaskCasterMeshes(shadowGenerator, objects.map((o) => o.mesh));
+
     // Recycle balls that fall below the floor
     onBeforeRender(scene, () => {
         for (const obj of objects) {
@@ -173,7 +184,7 @@ async function main() {
         }
     });
 
-    await registerScene(scene);
+    await registerSceneWithShadowSupport(scene);
     await startEngine(engine);
 }
 
