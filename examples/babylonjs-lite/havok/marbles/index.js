@@ -17,7 +17,7 @@ const PHYSICS_FPS = 60;
 // IBL multiplier for the spheres. They are black-based metals coloured only by
 // KHR_materials_iridescence reflecting the environment, which Lite's ACES tone mapping dims;
 // boosting the environment contribution restores the bright, vivid iridescence (tunable).
-const ENV_INTENSITY = 2.0;
+const ENV_INTENSITY = 4.0;
 
 function randomNumber(min, max) {
     return min === max ? min : Math.random() * (max - min) + min;
