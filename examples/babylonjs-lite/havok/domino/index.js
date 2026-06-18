@@ -107,7 +107,8 @@ async function main() {
             const x1 = (-100 + x * DOMINO_SIZE) * PHYSICS_SCALE;
             const y1 = -10 * PHYSICS_SCALE;
             const z1 = (-150 + y * DOMINO_SIZE * 1.2) * PHYSICS_SCALE;
-            const domino = createBox(engine, { width: 0.2, height: 1.8, depth: 1.5 });
+            const domino = createBox(engine, 1);
+            domino.scaling.set(0.2, 1.8, 1.5);
             domino.position.set(x1, y1, z1);
             const mat = createStandardMaterial();
             mat.diffuseColor = getRgbColor(dataSet[pos]);
