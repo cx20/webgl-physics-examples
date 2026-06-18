@@ -14,10 +14,6 @@ const ENV_URL = BASE_URL + '/textures/env/papermillSpecularHDR.env';
 const BRDF_URL = 'https://cdn.jsdelivr.net/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
 const PHYSICS_SCALE = 1 / 10;
 const PHYSICS_FPS = 60;
-// IBL multiplier for the spheres. They are black-based metals coloured only by
-// KHR_materials_iridescence reflecting the environment, which Lite's ACES tone mapping dims;
-// boosting the environment contribution restores the bright, vivid iridescence (tunable).
-const ENV_INTENSITY = 4.0;
 
 function randomNumber(min, max) {
     return min === max ? min : Math.random() * (max - min) + min;
@@ -110,24 +106,23 @@ async function main() {
     });
     allBodies.push(groundAgg.body);
 
-    // Load the metallic spheres model; its PBR materials render via the loaded environment.
+    // Load the metallic spheres model; its PBR materials render via the loaded environment. The
+    // glTF root is left untouched, including its -1 X scale (right-handed -> left-handed flip):
+    // that flip is needed for correct normals/winding, and removing it broke the iridescent IBL
+    // reflection (the spheres went near-black). This matches the Babylon.js Lite glTF reference,
+    // which never modifies the loaded transform.
     const asset = await loadGltf(engine, MODEL_URL);
     addToScene(scene, asset);
-
-    // The glTF root carries a -1 X scale (right-handed -> left-handed flip). Its negative
-    // determinant makes setParent's matrix decomposition produce an invalid quaternion, which
-    // corrupts the physics body transforms. The spheres are symmetric, so reset the root to a
-    // positive uniform scale before detaching them.
-    asset.entities[0].scaling.set(1, 1, 1);
 
     // The model is a flat hierarchy: each node is named SphereN (with a child mesh "Mesh_N") or is
     // a label plane (ThicknessPlane / IorPlane / ThinFilmIorPlane). Lite names meshes after the
     // glTF mesh ("Mesh_N"), so filter on the parent node's name, not the mesh name.
     //
-    // Physics is applied to the SphereN transform node (not its child mesh): the node only
-    // translates and, with the root reset to identity above, its local transform equals its world
-    // transform, so the body can drive it directly while the mesh stays attached and follows. (An
-    // earlier attempt that detached the mesh with parent = null left it out of sync with the body.)
+    // Physics is applied to the SphereN transform node (the node only translates). The body is
+    // seeded from the node's local transform; because the root carries a -1 X scale the body runs
+    // in a mirrored-X frame, but the scene is symmetric (symmetric ground, random spheres) so the
+    // mesh still falls and piles correctly. (The W-key collider wireframe is drawn at the body
+    // transform, so it appears mirrored in X — debug only.)
     const root = asset.entities[0];
     const spheres = [];
     for (const node of root.children) {
@@ -138,13 +133,6 @@ async function main() {
             continue;
         }
         if (name.indexOf('Sphere') === -1 || childMeshes.length === 0) continue;
-
-        // These spheres have a black base colour and are coloured purely by KHR_materials_iridescence
-        // reflecting the environment. Lite's ACES tone mapping dims that reflection, so boost the
-        // material's IBL contribution to bring back the vivid, bright iridescence (tunable).
-        for (const m of childMeshes) {
-            if (m.material) m.material.environmentIntensity = ENV_INTENSITY;
-        }
 
         const { radius } = worldBounds(childMeshes[0]);
         // Small random offset like the Babylon.js sample.
