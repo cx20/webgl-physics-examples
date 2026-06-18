@@ -97,8 +97,9 @@ async function main() {
     const size = { x: max[0] - min[0], y: max[1] - min[1], z: max[2] - min[2] };
     const center = { x: (min[0] + max[0]) / 2, y: (min[1] + max[1]) / 2, z: (min[2] + max[2]) / 2 };
 
+    // The wrapper stays at unit scale (it is invisible, so its mesh size is irrelevant) and the
+    // collider size is given via `extents`. Scaling the wrapper would distort the parented duck.
     const wrapper = createBox(engine, 1);
-    wrapper.scaling.set(size.x, size.y, size.z);
     wrapper.position.set(center.x, center.y, center.z);
     setMeshVisible(wrapper, false);
     addToScene(scene, wrapper);
