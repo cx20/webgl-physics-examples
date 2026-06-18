@@ -84,14 +84,15 @@ async function main() {
         mass: 0, friction: 0.1, restitution: 0.2, extents: { x: GW, y: GH, z: GD },
     });
 
-    // Load the duck and add it to the scene.
+    // Load the duck and add it to the scene. loadGltf returns { entities: [root], ... }.
     const duck = await loadGltf(engine, DUCK_URL);
-    addToScene(scene, duck.root);
+    addToScene(scene, duck);
+    const duckRoot = duck.entities[0];
 
     // Wrap the duck in an invisible box collider sized to its world AABB, then reparent the
     // duck (preserving its world transform) so it follows the physics body.
     const duckMeshes = [];
-    collectMeshes(duck.root, duckMeshes);
+    collectMeshes(duckRoot, duckMeshes);
     const { min, max } = worldAabb(duckMeshes);
     const size = { x: max[0] - min[0], y: max[1] - min[1], z: max[2] - min[2] };
     const center = { x: (min[0] + max[0]) / 2, y: (min[1] + max[1]) / 2, z: (min[2] + max[2]) / 2 };
@@ -101,7 +102,7 @@ async function main() {
     wrapper.position.set(center.x, center.y, center.z);
     setMeshVisible(wrapper, false);
     addToScene(scene, wrapper);
-    setParent(duck.root, wrapper);
+    setParent(duckRoot, wrapper);
 
     // Drop the duck from a height (the duck follows because it is parented to the wrapper).
     wrapper.position.set(center.x, center.y + 10, center.z);
