@@ -46,7 +46,13 @@ async function main() {
 
     // Exponential shadow map cast by light1 (matches the Babylon.js scene's
     // useExponentialShadowMap). The directional frustum auto-fits the caster
-    // meshes registered later via setShadowTaskCasterMeshes.
+    // meshes registered later via setShadowTaskCasterMeshes, but its depth
+    // range is fixed (orthoMinZ..orthoMaxZ) relative to the light's position.
+    // The default position is the origin, where the near plane clips balls
+    // resting near y=0 (e.g. on top of the pile), so place the shadow camera
+    // well above the scene (opposite the light direction) to keep every ball
+    // inside the depth range.
+    light1.position.set(-10, 50, -10);
     const shadowGenerator = createEsmDirectionalShadowGenerator(engine, light1, { mapSize: 1024 });
     light1.shadowGenerator = shadowGenerator;
 
