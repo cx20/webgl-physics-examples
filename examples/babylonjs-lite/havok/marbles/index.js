@@ -1,8 +1,8 @@
 import {
     addToScene, attachControl, createArcRotateCamera, createBox, createEngine,
-    createHavokWorld, createHemisphericLight, createPhysicsAggregate,
-    createPhysicsViewer, createSceneContext, createStandardMaterial,
-    hidePhysicsBody, loadEnvironment, loadGltf, onBeforeRender, PhysicsShapeType,
+    createHavokWorld, createHemisphericLight, createPbrMaterial, createPhysicsAggregate,
+    createPhysicsViewer, createSceneContext, createSolidTexture2D,
+    hidePhysicsBody, loadEnvironment, loadGltf, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerScene, setMeshVisible, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
 } from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
@@ -62,8 +62,14 @@ async function main() {
     const hemi = createHemisphericLight([1, 1, 0]);
     addToScene(scene, hemi);
 
-    // IBL + skybox + BRDF LUT for the model's PBR materials (also enables tone mapping).
+    // IBL + skybox + BRDF LUT for the model's PBR materials.
     await loadEnvironment(scene, ENV_URL, { brdfUrl: BRDF_URL, skyboxUrl: ENV_URL, skyboxSize: 10000, skipGround: true });
+    // loadEnvironment turns on ACES tone mapping + exposure 0.8, which darkens and desaturates the
+    // metallic spheres. Babylon.js renders these PBR materials without tone mapping, so disable it
+    // (and reset exposure/contrast) to match the brighter, more reflective Babylon.js look.
+    scene.imageProcessing.toneMappingEnabled = false;
+    scene.imageProcessing.exposure = 1.0;
+    scene.imageProcessing.contrast = 1.0;
 
     const fpsEl = document.getElementById('fps');
     let lastTime = performance.now();
@@ -83,10 +89,16 @@ async function main() {
 
     const allBodies = [];
 
-    // Ground slab (40 x ~0.4 x 40) at y = -15*SCALE.
-    const groundMat = createStandardMaterial();
-    groundMat.diffuseColor = [0.4, 0.42, 0.45];
-    groundMat.specularColor = [0, 0, 0];
+    // Ground slab (40 x ~0.4 x 40) at y = -15*SCALE, grass-textured to match the Babylon.js sample.
+    const grassTex = await loadTexture2D(engine, '../../../../assets/textures/grass.jpg', { srgb: true });
+    const groundMat = createPbrMaterial({
+        baseColorTexture: grassTex,
+        ormTexture: createSolidTexture2D(engine, 1, 1, 1, 1),
+        metallicFactor: 0,
+        roughnessFactor: 1,
+        uvScale: [4, 4],
+        _hasUvTx: true,
+    });
     const ground = createBox(engine, 1);
     ground.scaling.set(400 * PHYSICS_SCALE, 0.4, 400 * PHYSICS_SCALE);
     ground.position.set(0, -15 * PHYSICS_SCALE, 0);

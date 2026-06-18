@@ -60,6 +60,11 @@ async function main() {
 
     // IBL + skybox + BRDF LUT (PBR materials need these; also enables tone mapping).
     await loadEnvironment(scene, ENV_URL, { brdfUrl: BRDF_URL, skyboxUrl: ENV_URL, skyboxSize: 10000, skipGround: true });
+    // Babylon.js renders these PBR materials without tone mapping; disable the ACES tone mapping
+    // loadEnvironment enables so the metallic coins stay bright and reflective.
+    scene.imageProcessing.toneMappingEnabled = false;
+    scene.imageProcessing.exposure = 1.0;
+    scene.imageProcessing.contrast = 1.0;
 
     const fpsEl = document.getElementById('fps');
     let lastTime = performance.now();
