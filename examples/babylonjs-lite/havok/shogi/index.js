@@ -1,7 +1,7 @@
 import {
     addToScene, attachControl, createArcRotateCamera, createBox, createEngine,
     createDirectionalLight, createHavokWorld, createHemisphericLight,
-    createMeshFromData, createPcfDirectionalShadowGenerator,
+    createMeshFromData, createPbrMaterial, createPcfDirectionalShadowGenerator,
     createPhysicsAggregate, createPhysicsViewer,
     createSceneContext, createStandardMaterial,
     hidePhysicsBody, loadTexture2D, onBeforeRender, PhysicsShapeType,
@@ -128,10 +128,6 @@ async function main() {
 
     const hemi = createHemisphericLight([1, 1, 0]);
     hemi.intensity = 0.9;
-    // Lift the ground (down-facing) hemisphere off black so faces pointing away from the
-    // light keep a bright fill, matching the Babylon.js render where the pieces stay a uniform
-    // cream colour instead of dropping to near-black on their shadowed sides.
-    hemi.groundColor = [0.6, 0.6, 0.6];
     addToScene(scene, hemi);
 
     const dir = createDirectionalLight([-0.4, -1.0, -0.3]);
@@ -146,12 +142,19 @@ async function main() {
     groundMat.diffuseColor = [0.24, 0.25, 0.28];
     groundMat.specularColor = [0, 0, 0];
 
+    // Lite applies gamma + tone mapping to PBR materials but not to StandardMaterial (which is
+    // written linear), so the pieces use PBR to match the bright, gamma-correct Babylon.js look.
+    // PBR treats baseColor as sRGB, so the texture is loaded with srgb: true.
     const pieceTex = await loadTexture2D(engine, '../../../../assets/textures/shogi_001/shogi.png', {
-        addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', invertY: false,
+        addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', invertY: false, srgb: true,
     });
-    const pieceMat = createStandardMaterial();
-    pieceMat.diffuseTexture = pieceTex;
-    pieceMat.backFaceCulling = false;
+    const pieceMat = createPbrMaterial({
+        baseColorTexture: pieceTex,
+        baseColorFactor: [1, 1, 1, 1],
+        metallicFactor: 0,
+        roughnessFactor: 0.9,
+        doubleSided: true,
+    });
 
     const fpsEl = document.getElementById('fps');
     let lastTime = performance.now();
