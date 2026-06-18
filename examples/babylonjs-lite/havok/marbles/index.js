@@ -3,7 +3,7 @@ import {
     createHavokWorld, createHemisphericLight, createPhysicsAggregate,
     createPhysicsViewer, createSceneContext, createStandardMaterial,
     hidePhysicsBody, loadEnvironment, loadGltf, onBeforeRender, PhysicsShapeType,
-    registerScene, setMeshVisible, setParent, showPhysicsBody, startEngine,
+    registerScene, setMeshVisible, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
 } from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
 import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
@@ -121,11 +121,15 @@ async function main() {
         }
         if (name.indexOf('Sphere') === -1) continue;
         for (const mesh of childMeshes) {
+            // Read the world centre/radius while still parented, then detach. The sphere nodes
+            // only translate (no rotation/scale) and the geometry is origin-centred, so set the
+            // mesh's transform explicitly instead of using setParent (whose matrix decomposition
+            // produced an invalid quaternion that corrupted the physics body).
             const { center, radius } = worldBounds(mesh);
-            // Detach from the glTF hierarchy (preserving world transform) so the body drives it.
-            setParent(mesh, null);
-            // Small random offset like the Babylon.js sample.
+            mesh.parent = null;
             mesh.position.set(center.x + Math.random(), center.y, center.z + Math.random());
+            mesh.rotationQuaternion.set(0, 0, 0, 1);
+            mesh.scaling.set(1, 1, 1);
             const agg = createPhysicsAggregate(world, mesh, PhysicsShapeType.SPHERE, {
                 mass: 1, friction: 0.1, restitution: 0.3, radius,
             });
