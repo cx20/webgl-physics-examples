@@ -4,7 +4,7 @@ import {
     createMeshFromData, createPbrMaterial, createPcfDirectionalShadowGenerator,
     createPhysicsAggregate, createPhysicsViewer,
     createSceneContext, createStandardMaterial,
-    hidePhysicsBody, loadTexture2D, onBeforeRender, PhysicsShapeType,
+    hidePhysicsBody, loadEnvironment, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerSceneWithShadowSupport, setShadowTaskCasterMeshes,
     showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
@@ -13,6 +13,10 @@ import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/l
 
 const PHYSICS_FPS = 60;
 const PIECE_COUNT = 300;
+// PBR materials need IBL textures + a BRDF LUT; loadEnvironment supplies both (and enables the
+// tone mapping that gives the gamma-correct look). No skyboxUrl, so the background stays clearColor.
+const ENV_URL = 'https://cx20.github.io/gltf-test/textures/env/papermillSpecularHDR.env';
+const BRDF_URL = 'https://cdn.jsdelivr.net/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
 // Full box-collider extents, identical to the other Havok shogi samples' shape sizes.
 const SHOGI_PHYSICS_SIZE = [1.6, 1.92, 0.448];
 const GROUND_PHYSICS_SIZE = [13, 0.1, 13];
@@ -137,6 +141,9 @@ async function main() {
 
     const shadowGenerator = createPcfDirectionalShadowGenerator(engine, dir, { mapSize: 1024, bias: 5e-4 });
     dir.shadowGenerator = shadowGenerator;
+
+    // IBL + BRDF LUT required by PBR materials (also enables tone mapping). No skybox.
+    await loadEnvironment(scene, ENV_URL, { brdfUrl: BRDF_URL });
 
     const groundMat = createStandardMaterial();
     groundMat.diffuseColor = [0.24, 0.25, 0.28];
