@@ -1,5 +1,6 @@
 import {
-    addToScene, attachControl, createArcRotateCamera, createBox, createSphere,
+    addToScene, attachControl, bakeCurrentTransformIntoVertices,
+    createArcRotateCamera, createBox, createSphere,
     createDirectionalLight, createEngine, createGround, createHavokWorld,
     createHemisphericLight, createPhysicsAggregate, createPhysicsViewer,
     createSceneContext, createStandardMaterial,
@@ -109,6 +110,7 @@ async function main() {
             const z1 = (-150 + y * DOMINO_SIZE * 1.2) * PHYSICS_SCALE;
             const domino = createBox(engine, 1);
             domino.scaling.set(0.2, 1.8, 1.5);
+            bakeCurrentTransformIntoVertices(domino); // bake scale into vertices before physics reads bbox
             domino.position.set(x1, y1, z1);
             const mat = createStandardMaterial();
             mat.diffuseColor = getRgbColor(dataSet[pos]);
@@ -125,7 +127,7 @@ async function main() {
     ballMat.diffuseTexture = footballTex;
     ballMat.emissiveColor = [1, 1, 1];
     for (let y = 0; y < 16; y++) {
-        const ball = createSphere(engine, { diameter: BALL_SIZE * PHYSICS_SCALE, segments: 16 });
+        const ball = createSphere(engine, BALL_SIZE * PHYSICS_SCALE);
         const x1 = -105 * PHYSICS_SCALE;
         const y1 = (10 + Math.random()) * PHYSICS_SCALE;
         const z1 = (-150 + y * BALL_SIZE * 1.2) * PHYSICS_SCALE;
