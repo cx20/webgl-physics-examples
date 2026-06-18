@@ -3,7 +3,7 @@ import {
     createEngine, createHavokWorld, createHemisphericLight,
     createPbrMaterial, createPhysicsAggregate, createPhysicsViewer,
     createSceneContext, createSolidTexture2D, createStandardMaterial,
-    hidePhysicsBody, loadEnvironment, loadGltf, onBeforeRender, PhysicsShapeType,
+    hidePhysicsBody, loadEnvironment, loadGltf, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerScene, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
 } from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
@@ -15,13 +15,16 @@ const ENV_URL = BASE_URL + '/textures/env/papermillSpecularHDR.env';
 const BRDF_URL = 'https://cdn.jsdelivr.net/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
 const PHYSICS_SCALE = 1 / 10;
 const PHYSICS_FPS = 60;
-const MAX_COINS = 500;
+const COIN_INTERVAL = 3; // place a coin on every 3rd duck index, matching the Babylon.js sample
 
-// Gold / silver / copper coins (PBR factors + diameter from the Babylon.js sample).
+const TEXTURE_FLOOR = '../../../../assets/textures/floor_bump.png';
+const TEXTURE_ROCK = '../../../../assets/textures/rockn.png';
+
+// Gold / silver / copper coins (PBR factors, diameter and bump map from the Babylon.js sample).
 const COIN_TYPES = [
-    { color: [1.000, 0.766, 0.336], metallic: 1.0, roughness: 0.2, height: 0.1, diameter: 1.0 },
-    { color: [0.972, 0.960, 0.915], metallic: 1.0, roughness: 0.4, height: 0.075, diameter: 0.8 },
-    { color: [0.955, 0.637, 0.538], metallic: 1.0, roughness: 0.2, height: 0.05, diameter: 0.6 },
+    { color: [1.000, 0.766, 0.336], metallic: 1.0, roughness: 0.2, height: 0.1, diameter: 1.0, bump: TEXTURE_FLOOR },
+    { color: [0.972, 0.960, 0.915], metallic: 1.0, roughness: 0.4, height: 0.075, diameter: 0.8, bump: TEXTURE_ROCK },
+    { color: [0.955, 0.637, 0.538], metallic: 1.0, roughness: 0.2, height: 0.05, diameter: 0.6, bump: TEXTURE_ROCK },
 ];
 
 function randomNumber(min, max) {
@@ -100,23 +103,30 @@ async function main() {
         if ((m._cpuPositions?.length ?? 0) > (duckMesh._cpuPositions?.length ?? 0)) duckMesh = m;
     }
     const positions = duckMesh._cpuPositions;
+    const indices = duckMesh._cpuIndices;
 
     // One PBR material per coin type. PBR always binds a baseColor and an ORM texture, so use a
     // 1x1 white baseColor (tinted by baseColorFactor) and a 1x1 ORM encoding roughness/metallic.
+    // The bump map is supplied as a normal texture for surface relief (loaded linear, not sRGB).
     const whiteTex = createSolidTexture2D(engine, 1, 1, 1, 1);
-    const coinMaterials = COIN_TYPES.map((t) => createPbrMaterial({
-        baseColorTexture: whiteTex,
-        baseColorFactor: [t.color[0], t.color[1], t.color[2], 1],
-        ormTexture: createSolidTexture2D(engine, 1, t.roughness, t.metallic, 1),
-        metallicFactor: 1,
-        roughnessFactor: 1,
-    }));
+    const bumpCache = {};
+    const loadBump = async (url) => (bumpCache[url] ??= await loadTexture2D(engine, url));
+    const coinMaterials = [];
+    for (const t of COIN_TYPES) {
+        coinMaterials.push(createPbrMaterial({
+            baseColorTexture: whiteTex,
+            baseColorFactor: [t.color[0], t.color[1], t.color[2], 1],
+            ormTexture: createSolidTexture2D(engine, 1, t.roughness, t.metallic, 1),
+            normalTexture: await loadBump(t.bump),
+            metallicFactor: 1,
+            roughnessFactor: 1,
+        }));
+    }
 
-    // Scatter coins across the duck's vertices (stride-limited so Lite stays performant).
+    // Scatter coins over the duck's vertices: one on every COIN_INTERVAL-th index (as Babylon does).
     const coinObjects = [];
-    const vertCount = Math.floor(positions.length / 3);
-    const stride = Math.max(1, Math.ceil(vertCount / MAX_COINS));
-    for (let vi = 0; vi < vertCount; vi += stride) {
+    for (let i = 0; i < indices.length; i += COIN_INTERVAL) {
+        const vi = indices[i];
         const typeIdx = Math.floor(Math.random() * COIN_TYPES.length);
         const type = COIN_TYPES[typeIdx];
         const coin = createCylinder(engine, { height: type.height, diameter: type.diameter, tessellation: 16 });
