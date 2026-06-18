@@ -1,11 +1,10 @@
 import {
-    addToScene, attachControl, bakeCurrentTransformIntoVertices,
-    createArcRotateCamera, createBox, createSphere,
+    addToScene, attachControl, createArcRotateCamera, createBox, createSphere,
     createDirectionalLight, createEngine, createGround, createHavokWorld,
     createHemisphericLight, createPhysicsAggregate, createPhysicsViewer,
     createSceneContext, createStandardMaterial,
     hidePhysicsBody, loadTexture2D, onBeforeRender, PhysicsShapeType,
-    registerScene, showPhysicsBody, startEngine,
+    registerScene, showPhysicsBody, startEngine, updateMeshPositions,
 } from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
 import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
 
@@ -100,6 +99,17 @@ async function main() {
 
     const allBodies = [groundAggregate.body];
 
+    // Vertex positions for a 0.2 x 1.8 x 1.5 domino, matching Babylon.js CreateBox face order
+    // (6 faces x 4 vertices x 3 floats = 72 floats; unit cube ±0.5 scaled by 0.2/1.8/1.5)
+    const DOMINO_POSITIONS = new Float32Array([
+         0.1,-0.9,-0.75,  0.1, 0.9,-0.75,  0.1, 0.9, 0.75,  0.1,-0.9, 0.75,  // +x
+        -0.1,-0.9, 0.75, -0.1, 0.9, 0.75, -0.1, 0.9,-0.75, -0.1,-0.9,-0.75,  // -x
+        -0.1, 0.9, 0.75,  0.1, 0.9, 0.75,  0.1, 0.9,-0.75, -0.1, 0.9,-0.75,  // +y
+        -0.1,-0.9,-0.75,  0.1,-0.9,-0.75,  0.1,-0.9, 0.75, -0.1,-0.9, 0.75,  // -y
+         0.1,-0.9, 0.75,  0.1, 0.9, 0.75, -0.1, 0.9, 0.75, -0.1,-0.9, 0.75,  // +z
+        -0.1,-0.9,-0.75, -0.1, 0.9,-0.75,  0.1, 0.9,-0.75,  0.1,-0.9,-0.75,  // -z
+    ]);
+
     // Domino pieces (16x16 grid)
     const DOMINO_SIZE = 15;
     for (let y = 0; y < 16; y++) {
@@ -109,8 +119,7 @@ async function main() {
             const y1 = -10 * PHYSICS_SCALE;
             const z1 = (-150 + y * DOMINO_SIZE * 1.2) * PHYSICS_SCALE;
             const domino = createBox(engine, 1);
-            domino.scaling.set(0.2, 1.8, 1.5);
-            bakeCurrentTransformIntoVertices(domino); // bake scale into vertices before physics reads bbox
+            updateMeshPositions(domino, DOMINO_POSITIONS);
             domino.position.set(x1, y1, z1);
             const mat = createStandardMaterial();
             mat.diffuseColor = getRgbColor(dataSet[pos]);
