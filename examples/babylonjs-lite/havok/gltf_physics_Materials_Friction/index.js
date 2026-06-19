@@ -8,17 +8,16 @@ import HavokPhysics from '@babylonjs/havok';
 
 // Khronos glTF Physics sample (KHR_physics_rigid_bodies + KHR_implicit_shapes).
 // Same asset the three.js / Rhodonite / PlayCanvas examples load.
-const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Restitution/Materials_Restitution.glb';
+const MODEL_URL = 'https://raw.githubusercontent.com/eoineoineoin/glTF_Physics/master/samples/Materials_Friction/Materials_Friction.glb';
 const PHYSICS_FPS = 60;
 
 // Babylon.js Lite has no built-in glTF-physics loader, so we parse the glb's physics extensions
 // ourselves and drive each rigid body with the Lite Havok wrapper. The wrapper writes a body's
 // WORLD pose into its bound node's LOCAL transform, so each body binds to an invisible TOP-LEVEL
-// anchor placed at the node's Babylon left-handed world pose. The asset's own loaded subtree (its
-// mesh plus any decorative child meshes) is reparented under that anchor so it follows physics; the
-// decomposed scale carries the -X that reproduces the RH->LH winding flip loadGltf applies through
-// its `__root__`. Only the collider geometry comes from the KHR_implicit_shapes definition. A
-// basketball (high restitution) bounces while a bowling ball (low restitution) barely does.
+// anchor (unit scale). The asset's own loaded subtree (its mesh plus any decorative child meshes,
+// e.g. the honey surface) is reparented under that anchor so it follows physics; a -X scale on the
+// subtree reproduces the RH->LH winding flip loadGltf normally applies through its `__root__`.
+// Only the collider geometry comes from the KHR_implicit_shapes definition.
 
 async function fetchGltfJson(url) {
     const buffer = await fetch(url).then((r) => r.arrayBuffer());
@@ -145,8 +144,9 @@ async function main() {
     const scene = createSceneContext(engine);
     scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
 
-    // View the front of the scene (azimuth rotated 180 deg, matching the Materials Friction view).
-    const camera = createArcRotateCamera(Math.PI / 2, 1.15, 4.5, { x: 0, y: 0.6, z: 0 });
+    // View the front of the scene (azimuth rotated 180 deg from the Babylon.js example so the
+    // sloped floor's top faces the camera): ArcRotate at alpha +PI/2, beta PI/2.2.
+    const camera = createArcRotateCamera(Math.PI / 2, Math.PI / 2.2, 11, { x: 0, y: 2.6, z: -2.4 });
     scene.camera = camera;
     attachControl(camera, canvas, scene);
 
@@ -254,10 +254,10 @@ async function main() {
         }
 
         const aggregate = createPhysicsAggregate(world, anchor, type, aggregateOptions);
-        // Match the glTF Physics samples (and the three.js / Rhodonite ports), which combine both
-        // friction and restitution with MAXIMUM. The Lite wrapper defaults friction to MINIMUM,
-        // which would let a zero-restitution/zero-friction floor cancel a body's own material, so
-        // override the shape material here.
+        // The Lite wrapper combines friction with MINIMUM, which lets the zero-friction sloped floor
+        // cancel each box's own friction (so honey and soap slide identically). The glTF Physics
+        // samples - and the three.js / Rhodonite ports - combine friction with MAXIMUM, so override
+        // the shape material to match and keep the friction contrast visible.
         const combine = hknp.MaterialCombine;
         hknp.HP_Shape_SetMaterial(aggregate.shape._hkShape, [friction, friction, restitution, combine.MAXIMUM, combine.MAXIMUM]);
         showPhysicsBody(viewer, aggregate.body);
