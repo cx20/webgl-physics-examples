@@ -1,8 +1,8 @@
 import {
     addToScene, attachControl, createArcRotateCamera, createBox, createEngine,
-    createHavokWorld, createHemisphericLight, createPhysicsAggregate,
-    createPhysicsViewer, createSceneContext, createStandardMaterial,
-    hidePhysicsBody, loadEnvironment, loadGltf, onBeforeRender, PhysicsShapeType,
+    createHavokWorld, createHemisphericLight, createPbrMaterial, createPhysicsAggregate,
+    createPhysicsViewer, createSceneContext, createSolidTexture2D,
+    hidePhysicsBody, loadEnvironment, loadGltf, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerScene, setMeshVisible, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
 } from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
@@ -62,7 +62,10 @@ async function main() {
     const hemi = createHemisphericLight([1, 1, 0]);
     addToScene(scene, hemi);
 
-    // IBL + skybox + BRDF LUT for the model's PBR materials (also enables tone mapping).
+    // IBL + skybox + BRDF LUT for the model's PBR materials. loadEnvironment also enables ACES
+    // tone mapping (exposure 0.8), which lifts the HDR reflections into a bright, vivid range —
+    // the metallic spheres are lit purely by this IBL, so the tone mapping is kept on (matching
+    // the Babylon.js Lite glTF reference at cx20/gltf-test).
     await loadEnvironment(scene, ENV_URL, { brdfUrl: BRDF_URL, skyboxUrl: ENV_URL, skyboxSize: 10000, skipGround: true });
 
     const fpsEl = document.getElementById('fps');
@@ -83,10 +86,16 @@ async function main() {
 
     const allBodies = [];
 
-    // Ground slab (40 x ~0.4 x 40) at y = -15*SCALE.
-    const groundMat = createStandardMaterial();
-    groundMat.diffuseColor = [0.4, 0.42, 0.45];
-    groundMat.specularColor = [0, 0, 0];
+    // Ground slab (40 x ~0.4 x 40) at y = -15*SCALE, grass-textured to match the Babylon.js sample.
+    const grassTex = await loadTexture2D(engine, '../../../../assets/textures/grass.jpg', { srgb: true });
+    const groundMat = createPbrMaterial({
+        baseColorTexture: grassTex,
+        ormTexture: createSolidTexture2D(engine, 1, 1, 1, 1),
+        metallicFactor: 0,
+        roughnessFactor: 1,
+        uvScale: [4, 4],
+        _hasUvTx: true,
+    });
     const ground = createBox(engine, 1);
     ground.scaling.set(400 * PHYSICS_SCALE, 0.4, 400 * PHYSICS_SCALE);
     ground.position.set(0, -15 * PHYSICS_SCALE, 0);
@@ -97,24 +106,23 @@ async function main() {
     });
     allBodies.push(groundAgg.body);
 
-    // Load the metallic spheres model; its PBR materials render via the loaded environment.
+    // Load the metallic spheres model; its PBR materials render via the loaded environment. The
+    // glTF root is left untouched, including its -1 X scale (right-handed -> left-handed flip):
+    // that flip is needed for correct normals/winding, and removing it broke the iridescent IBL
+    // reflection (the spheres went near-black). This matches the Babylon.js Lite glTF reference,
+    // which never modifies the loaded transform.
     const asset = await loadGltf(engine, MODEL_URL);
     addToScene(scene, asset);
-
-    // The glTF root carries a -1 X scale (right-handed -> left-handed flip). Its negative
-    // determinant makes setParent's matrix decomposition produce an invalid quaternion, which
-    // corrupts the physics body transforms. The spheres are symmetric, so reset the root to a
-    // positive uniform scale before detaching them.
-    asset.entities[0].scaling.set(1, 1, 1);
 
     // The model is a flat hierarchy: each node is named SphereN (with a child mesh "Mesh_N") or is
     // a label plane (ThicknessPlane / IorPlane / ThinFilmIorPlane). Lite names meshes after the
     // glTF mesh ("Mesh_N"), so filter on the parent node's name, not the mesh name.
     //
-    // Physics is applied to the SphereN transform node (not its child mesh): the node only
-    // translates and, with the root reset to identity above, its local transform equals its world
-    // transform, so the body can drive it directly while the mesh stays attached and follows. (An
-    // earlier attempt that detached the mesh with parent = null left it out of sync with the body.)
+    // Physics is applied to the SphereN transform node (the node only translates). The body is
+    // seeded from the node's local transform; because the root carries a -1 X scale the body runs
+    // in a mirrored-X frame, but the scene is symmetric (symmetric ground, random spheres) so the
+    // mesh still falls and piles correctly. (The W-key collider wireframe is drawn at the body
+    // transform, so it appears mirrored in X — debug only.)
     const root = asset.entities[0];
     const spheres = [];
     for (const node of root.children) {
