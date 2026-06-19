@@ -5,8 +5,8 @@ import {
     hidePhysicsBody, loadGltf, onBeforeRender, PhysicsShapeType,
     registerScene, setMeshVisible, showPhysicsBody, startEngine,
     setPhysicsBodyLinearVelocity,
-} from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
-import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
+} from '@babylonjs/lite';
+import HavokPhysics from '@babylonjs/havok';
 
 const DUCK_URL = 'https://rawcdn.githack.com/cx20/gltf-test/1f6515ce/sampleModels/Duck/glTF/Duck.gltf';
 const PHYSICS_FPS = 30;

@@ -5,8 +5,8 @@ import {
     hidePhysicsBody, loadEnvironment, loadGltf, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerScene, setMeshVisible, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
-} from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
-import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
+} from '@babylonjs/lite';
+import HavokPhysics from '@babylonjs/havok';
 
 const BASE_URL = 'https://cx20.github.io/gltf-test';
 const MODEL_URL = BASE_URL + '/tutorialModels/IridescenceMetallicSpheres/glTF/IridescenceMetallicSpheres.gltf';
