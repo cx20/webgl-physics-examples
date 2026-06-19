@@ -18,7 +18,7 @@ import {
     registerScene,
     showPhysicsBody,
     startEngine,
-} from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.0.1/index.js';
+} from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.2.0/index.js';
 
 import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
 
