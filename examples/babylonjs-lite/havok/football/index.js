@@ -6,8 +6,8 @@ import {
     hidePhysicsBody, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerScene, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
-} from 'https://cdn.jsdelivr.net/npm/@babylonjs/lite@1.2.0/index.js';
-import HavokPhysics from 'https://cdn.jsdelivr.net/npm/@babylonjs/havok@1.3.12/lib/esm/HavokPhysics_es.js';
+} from '@babylonjs/lite';
+import HavokPhysics from '@babylonjs/havok';
 
 const PHYSICS_SCALE = 1 / 10;
 const PHYSICS_FPS = 60;
