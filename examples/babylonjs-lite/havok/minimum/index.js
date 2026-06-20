@@ -72,9 +72,14 @@ async function main() {
         }
     });
 
-    // Camera auto-rotation (1 degree per frame at 60 fps)
+    // Camera auto-rotation: 1 degree per frame at 60 fps, framerate-independent to match the
+    // Babylon.js sample's getAnimationRatio() (= deltaMs / (1000/60), i.e. 1.0 at 60 FPS).
+    let lastFrameTime = 0;
     onBeforeRender(scene, () => {
-        camera.alpha += Math.PI / 180.0 / 60.0;
+        const now = performance.now();
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha += (Math.PI / 180.0) * animationRatio;
     });
 
     // Havok physics — WASM loads automatically from the same CDN path

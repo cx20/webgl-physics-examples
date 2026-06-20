@@ -88,7 +88,15 @@ async function main() {
         }
     });
 
-    onBeforeRender(scene, () => { camera.alpha += Math.PI * 0.5 / 180.0; });
+    // Framerate-independent spin to match the Babylon.js sample's getAnimationRatio()
+    // (= deltaMs / (1000/60), i.e. 1.0 at 60 FPS).
+    let lastFrameTime = 0;
+    onBeforeRender(scene, () => {
+        const now = performance.now();
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha += (Math.PI * 0.5 / 180.0) * animationRatio;
+    });
 
     const hknp = await HavokPhysics();
     const world = createHavokWorld(scene, hknp, { x: 0, y: -9.8, z: 0 });

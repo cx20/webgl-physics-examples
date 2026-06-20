@@ -179,6 +179,7 @@ async function main() {
 
     const fpsEl = document.getElementById('fps');
     let lastTime = performance.now();
+    let lastFrameTime = 0;
     let frameCount = 0;
     onBeforeRender(scene, () => {
         frameCount++;
@@ -188,7 +189,10 @@ async function main() {
             frameCount = 0;
             lastTime = now;
         }
-        camera.alpha += 0.0012;
+        // Framerate-independent spin to match the Babylon.js sample's getAnimationRatio().
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha += 0.0012 * animationRatio;
     });
 
     const hknp = await HavokPhysics();

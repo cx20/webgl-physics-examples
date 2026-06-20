@@ -131,6 +131,7 @@ async function main() {
     }
 
     // Recycle boxes that fall below the floor
+    let lastFrameTime = 0;
     onBeforeRender(scene, () => {
         for (const obj of objects) {
             if (obj.mesh.position.y < -100 * PHYSICS_SCALE) {
@@ -141,7 +142,12 @@ async function main() {
                 setPhysicsBodyAngularVelocity(world, obj.body, { x: 0, y: 0, z: 0 });
             }
         }
-        camera.alpha += Math.PI / 180.0;
+        // Framerate-independent spin to match the Babylon.js sample's getAnimationRatio()
+        // (= deltaMs / (1000/60), i.e. 1.0 at 60 FPS).
+        const now = performance.now();
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha += (Math.PI / 180.0) * animationRatio;
     });
 
     const viewer = createPhysicsViewer(scene, world);

@@ -155,6 +155,7 @@ async function main() {
     setShadowTaskCasterMeshes(shadowGenerator, casterMeshes);
 
     // Recycle cones that fall below the floor.
+    let lastFrameTime = 0;
     onBeforeRender(scene, () => {
         for (const cone of cones) {
             if (cone.mesh.position.y < -100 * SCALE) {
@@ -167,7 +168,12 @@ async function main() {
                 setPhysicsBodyAngularVelocity(world, cone.body, { x: 0, y: 0, z: 0 });
             }
         }
-        camera.alpha -= 0.003;
+        // Framerate-independent spin to match the Babylon.js sample's getAnimationRatio()
+        // (= deltaMs / (1000/60), i.e. 1.0 at 60 FPS).
+        const now = performance.now();
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha -= 0.003 * animationRatio;
     });
 
     const viewer = createPhysicsViewer(scene, world);

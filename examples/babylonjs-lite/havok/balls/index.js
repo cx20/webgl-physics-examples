@@ -159,6 +159,7 @@ async function main() {
     setShadowTaskCasterMeshes(shadowGenerator, objects.map((o) => o.mesh));
 
     // Recycle balls that fall below the floor
+    let lastFrameTime = 0;
     onBeforeRender(scene, () => {
         for (const obj of objects) {
             if (obj.mesh.position.y < -100 * PHYSICS_SCALE) {
@@ -169,8 +170,12 @@ async function main() {
                 setPhysicsBodyAngularVelocity(world, obj.body, { x: 0, y: 0, z: 0 });
             }
         }
-        // Slow ~0.2 rad/s rotation to match the WebGL/WebGPU samples.
-        camera.alpha += 0.2 / 60;
+        // Slow ~0.2 rad/s rotation to match the WebGL/WebGPU samples. Framerate-independent
+        // via the Babylon.js getAnimationRatio() equivalent (= deltaMs / (1000/60)).
+        const now = performance.now();
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha += (0.2 / 60) * animationRatio;
     });
 
     const viewer = createPhysicsViewer(scene, world);
