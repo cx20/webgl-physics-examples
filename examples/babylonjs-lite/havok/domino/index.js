@@ -143,7 +143,9 @@ async function main() {
     ballMat.diffuseTexture = footballTex;
     ballMat.emissiveColor = [1, 1, 1];
     for (let y = 0; y < 16; y++) {
-        const ball = createSphere(engine, BALL_SIZE * PHYSICS_SCALE);
+        // createSphere expects an options object; passing a bare number left diameter at its
+        // default of 1 (~2/3 the intended size). Match the Babylon.js sample's diameter 1.5.
+        const ball = createSphere(engine, { diameter: BALL_SIZE * PHYSICS_SCALE, segments: 16 });
         const x1 = -105 * PHYSICS_SCALE;
         const y1 = (10 + Math.random()) * PHYSICS_SCALE;
         const z1 = (-150 + y * BALL_SIZE * 1.2) * PHYSICS_SCALE;
