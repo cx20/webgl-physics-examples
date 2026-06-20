@@ -1,7 +1,7 @@
 import {
     addToScene, attachControl, createArcRotateCamera, createBox, createEngine,
     createHavokWorld, createHemisphericLight, createPbrMaterial, createPhysicsAggregate,
-    createPhysicsViewer, createSceneContext, createSolidTexture2D,
+    createPhysicsViewer, createSceneContext, createSolidTexture2D, createTransformNode,
     hidePhysicsBody, loadEnvironment, loadGltf, loadTexture2D, onBeforeRender, PhysicsShapeType,
     registerScene, setMeshVisible, showPhysicsBody, startEngine,
     setPhysicsBodyAngularVelocity, setPhysicsBodyLinearVelocity, setPhysicsBodyPreStep,
@@ -25,6 +25,17 @@ function getNextPosition(y) {
         y: (randomNumber(0, 200) + y) * PHYSICS_SCALE,
         z: randomNumber(-50, 50) * PHYSICS_SCALE,
     };
+}
+
+// Move a node under a new parent, updating both children arrays (not just the parent link).
+function reparentNode(child, newParent) {
+    const old = child.parent;
+    if (old && Array.isArray(old.children)) {
+        const i = old.children.indexOf(child);
+        if (i >= 0) old.children.splice(i, 1);
+    }
+    child.parent = newParent;
+    newParent.children.push(child);
 }
 
 // World-space AABB (centre + half-extents) of a mesh from its CPU positions.
@@ -118,14 +129,16 @@ async function main() {
     // a label plane (ThicknessPlane / IorPlane / ThinFilmIorPlane). Lite names meshes after the
     // glTF mesh ("Mesh_N"), so filter on the parent node's name, not the mesh name.
     //
-    // Physics is applied to the SphereN transform node (the node only translates). The body is
-    // seeded from the node's local transform; because the root carries a -1 X scale the body runs
-    // in a mirrored-X frame, but the scene is symmetric (symmetric ground, random spheres) so the
-    // mesh still falls and piles correctly. (The W-key collider wireframe is drawn at the body
-    // transform, so it appears mirrored in X — debug only.)
+    // The SphereN nodes sit under the loaded `__root__` whose -1 X scale flips right-handed glTF to
+    // Babylon's left-handed space. Binding a body to a SphereN node would seed it from the node's
+    // LOCAL (un-flipped) transform, so the body — and its W-key collider wireframe — would sit at the
+    // mirror-X of the rendered mesh. Instead each sphere is driven by a TOP-LEVEL anchor placed at the
+    // mesh's left-handed world position, with the SphereN reparented under it carrying the -1 X scale
+    // (kept for correct normals / iridescent IBL). The body then lines up with the mesh.
     const root = asset.entities[0];
     const spheres = [];
-    for (const node of root.children) {
+    // Iterate a copy: reparenting below splices nodes out of root.children mid-loop.
+    for (const node of [...root.children]) {
         const name = node.name || '';
         const childMeshes = (node.children || []).filter((c) => c._gpu && c._cpuPositions);
         if (name.indexOf('Plane') !== -1) {
@@ -135,22 +148,34 @@ async function main() {
         if (name.indexOf('Sphere') === -1 || childMeshes.length === 0) continue;
 
         const { radius } = worldBounds(childMeshes[0]);
-        // Small random offset like the Babylon.js sample.
-        node.position.set(node.position.x + Math.random(), node.position.y, node.position.z + Math.random());
-        const agg = createPhysicsAggregate(world, node, PhysicsShapeType.SPHERE, {
+        // Small random offset like the Babylon.js sample (in the node's local frame).
+        const px = node.position.x + Math.random();
+        const py = node.position.y;
+        const pz = node.position.z + Math.random();
+
+        // Top-level anchor at the left-handed world position (the __root__ applies scale.x = -1).
+        const anchor = createTransformNode(name + '_body');
+        anchor.position.set(-px, py, pz);
+        addToScene(scene, anchor);
+        // Reparent the sphere under the anchor, keeping the -1 X (its normals/IBL depend on it).
+        node.position.set(0, 0, 0);
+        node.scaling.set(-1, 1, 1);
+        reparentNode(node, anchor);
+
+        const agg = createPhysicsAggregate(world, anchor, PhysicsShapeType.SPHERE, {
             mass: 1, friction: 0.1, restitution: 0.3, radius,
         });
-        spheres.push({ node, body: agg.body });
+        spheres.push({ anchor, body: agg.body });
         allBodies.push(agg.body);
     }
 
     // Recycle spheres that fall away.
     onBeforeRender(scene, () => {
         for (const s of spheres) {
-            if (s.node.position.y < -100 * PHYSICS_SCALE) {
+            if (s.anchor.position.y < -100 * PHYSICS_SCALE) {
                 const pos = getNextPosition(200);
                 setPhysicsBodyPreStep(s.body, true);
-                s.node.position.set(pos.x, pos.y, pos.z);
+                s.anchor.position.set(pos.x, pos.y, pos.z);
                 setPhysicsBodyLinearVelocity(world, s.body, { x: 0, y: 0, z: 0 });
                 setPhysicsBodyAngularVelocity(world, s.body, { x: 0, y: 0, z: 0 });
             }
