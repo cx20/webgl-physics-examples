@@ -31,10 +31,14 @@ async function main() {
     const scene = createSceneContext(engine);
     scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
 
-    // ArcRotateCamera — positioned behind and above the scene
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.0, 25, { x: 0, y: 2, z: 0 });
+    // ArcRotateCamera framed like the Babylon.js sample (camera.setPosition(0, 2, -20) looking at
+    // the origin): a near-horizontal view, alpha -PI/2, beta ~1.47, radius ~20.1, target (0,0,0).
+    const camera = createArcRotateCamera(-Math.PI / 2, 1.471, 20.1, { x: 0, y: 0, z: 0 });
     scene.camera = camera;
     attachControl(camera, canvas, scene);
+
+    // White background, matching the Babylon.js sample (scene.clearColor = Color3(1,1,1)).
+    scene.clearColor = { r: 1, g: 1, b: 1, a: 1 };
 
     // Hemispheric light
     const light = createHemisphericLight([0, 1, 0]);
