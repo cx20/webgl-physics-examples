@@ -413,6 +413,125 @@ differs, so the WGSL vertex shader emits `vec4(clip.x, -clip.y, clip.z, clip.w)`
   Havok constraint/trigger API and the wireframe overlay have their own patterns. (See
   `reference_rhodonite_havok_gltf_physics`.)
 
+### 5.4 Babylon.js Lite + Havok (glTF Physics extension)
+
+This is the set of [Babylon.js Lite](https://github.com/BabylonJS/Babylon-Lite) samples under
+`examples/babylonjs-lite/havok/` — the *Falling X* scenes and the seven
+**`gltf_physics_*`** examples that load the Khronos
+[`KHR_physics_rigid_bodies`](https://github.com/eoineoineoin/glTF_Physics) sample assets
+(Basic Shapes, Materials Friction/Restitution, Motion Properties, Filtering, Triggers,
+JointTypes). Babylon.js **Lite** is a minimal, WebGPU‑only, tree‑shakeable rewrite with a small
+functional API (`createEngine`, `loadGltf`, `createHavokWorld`, `createPhysicsAggregate`, …); it is
+**not** the full Babylon.js, so most of [§5.1](#51-babylonjs--havok) does not apply.
+
+Libraries are referenced via an **importmap** in `index.html`
+(`@babylonjs/lite`, `@babylonjs/havok`) so `index.js` carries no version string; Havok is
+`await HavokPhysics()` (the WASM resolves relative to the mapped ESM module).
+
+#### No built‑in glTF‑physics loader → parse the glb yourself
+
+Full Babylon.js has a rigid‑body loader that auto‑creates physics from `KHR_physics_rigid_bodies`.
+**Lite has none.** Like the three.js / Rhodonite / PlayCanvas ports, fetch the `.glb`, parse its
+JSON chunk, and read `extensions.KHR_implicit_shapes.shapes` + `extensions.KHR_physics_rigid_bodies`
+(per‑node `collider` / `trigger` / `motion`, plus scene‑level `physicsMaterials`, `collisionFilters`,
+`physicsJoints`) yourself.
+
+#### The top‑level anchor pattern (the central gotcha)
+
+The Lite Havok wrapper writes a body’s **world** pose back into its bound node’s **local**
+`position`/`rotationQuaternion`, and `loadGltf` puts the whole asset under a synthetic `__root__`
+whose **scale.x = −1** (the right‑handed‑glTF → left‑handed‑Babylon flip). So binding a body
+directly to a loaded glTF node seeds it from the node’s *local, un‑flipped* transform — the body
+(and its W‑key collider wireframe) ends up at the **mirror‑X** of the rendered mesh. This is exactly
+the bug that made *Falling Marbles*’ colliders not line up with the marbles.
+
+The fix used by every `gltf_physics_*` example (and now marbles): give each body an **invisible,
+unit‑scale, top‑level anchor** (`createTransformNode`) placed at the Babylon left‑handed world pose,
+and **reparent the asset’s own mesh/subtree under that anchor** for the visual:
+
+```text
+anchorWorldPose = decompose( F · nodeWorldMatrix )      // F = diag(-1, 1, 1)
+anchor.position/rotationQuaternion = anchorWorldPose     // body binds here (top-level → local == world)
+subtree.parent = anchor;  subtree.scaling = decompose.scale   // its negative X reproduces the __root__ flip
+```
+
+- `nodeWorldMatrix` is the product of the glTF ancestor local TRS — **not** including `__root__`.
+- Decompose pushing a negative determinant onto **scale.x** (matching `__root__`). The body gets a
+  proper (reflected) quaternion; the visual subtree’s decomposed scale carries the −X, which keeps
+  normals/winding correct (and, for marbles, the iridescent IBL — removing the −X turned the spheres
+  near‑black). The compose/decompose/`matToQuat` math is worth **unit‑testing in Node** — you cannot
+  see a sign error until it renders.
+
+> **Reparenting must update `children`, not just `.parent`.** Setting `subtree.parent = anchor`
+> alone is enough for *rendering* and for primitive colliders, but the **mesh/convex shape
+> accumulator walks `anchor.children`** — splice the node out of its old `parent.children` and push
+> it onto `anchor.children`, or `createPhysicsShape({type: MESH|CONVEX_HULL, …})` throws *“Cannot
+> create physics mesh shape without vertex positions.”*
+
+> **Don’t reparent the array you’re iterating.** `for (const n of root.children)` while the reparent
+> splices nodes out of `root.children` skips half of them (some marbles stayed frozen at their model
+> positions). Iterate a **copy**: `for (const n of [...root.children])`.
+
+#### Camera azimuth is per‑scene
+
+Lite’s `ArcRotateCamera` `alpha` is offset by ~π from full Babylon, **and** each asset’s “front”
+faces a different way, so the un‑mirrored scene still needs a per‑example azimuth (`+π/2` for the
+Materials scenes, `−π/2` for Motion Properties, …). Expect a *“rotate 180°”* follow‑up per scene;
+`beta ≈ π/2.2`.
+
+#### Building colliders with the Lite wrapper
+
+Prefer `createTransformNode` anchors + `createPhysicsShape` + `createPhysicsBody` over aggregates —
+it handles every shape uniformly:
+
+- **Primitive**: `createPhysicsShape(world, {type, parameters:{center, extents|radius|pointA/pointB}})`.
+  Box `extents` are **FULL** dimensions, same as the full‑Babylon convention (see
+  [§2.2](#22-library-gotchas-worth-knowing)). Havok has no tapered capsule/cone, so a tapered glTF
+  capsule/cylinder collapses to a single‑radius shape (avg/max); the visual mesh still shows the true
+  taper.
+- **Mesh / convex**: `createPhysicsShape(world, {type: MESH|CONVEX_HULL, mesh: anchor,
+  includeChildMeshes: true})` — it accumulates the reparented subtree’s `_cpuPositions` in
+  anchor‑local space (scale included).
+- **Loaded `boundMin`/`boundMax` are already WORLD‑space** (`loadGltf` bakes the node world matrix
+  via `computeAabb`). Use `boundMax − boundMin` directly; multiplying by the node scale again makes
+  colliders 2× too big (this made the *Triggers* boxes huge).
+
+#### Materials, mass, filtering, triggers, joints, compounds
+
+- **Material combine.** `createPhysicsAggregate` defaults friction combine to **MINIMUM**, so a
+  zero‑friction floor cancels each body’s friction (both *Materials Friction* boxes slid the same).
+  The glTF samples / ports use **MAXIMUM** — override after building the shape:
+  `hknp.HP_Shape_SetMaterial(shape._hkShape, [f, f, r, MaterialCombine.MAXIMUM, MaterialCombine.MAXIMUM])`.
+- **Mass properties.** `setPhysicsBodyMassProperties(world, body, {mass, centerOfMass, inertia,
+  inertiaOrientation})` (inertia component `0` ⇒ locked axis; `mass 0` + motion ⇒ DYNAMIC
+  infinite‑mass). `gravityFactor` has **no** wrapper setter — call
+  `hknp.HP_Body_SetGravityFactor(body._hkBody, f)` (negative ⇒ balloons float up).
+- **Collision filtering.** Map each named `collisionSystems`/`collideWithSystems` to a bit, OR into
+  membership/collide masks, apply with `setPhysicsShapeFilterMembershipMask` / `…CollideMask`.
+- **Triggers.** `setPhysicsShapeIsTrigger(world, shape, true)` + a STATIC body → bodies pass
+  through. `onPhysicsTrigger` only reports ENTERED/EXITED (**not which volume**) — do manual
+  distance overlap for per‑volume highlighting. **Do not recolour a loaded PBR mesh’s material**
+  (it is already built as a PBR renderable → crash in `buildPbrRenderables`/`addTex`); hide the
+  loaded mesh (`setMeshVisible(mesh, false)`) and add a separate primitive + standard material you
+  can tint.
+- **Joints.** glTF joints are generic 6‑DoF (`limits` with `linearAxes`/`angularAxes` + min/max), so
+  build every one as a `SIX_DOF` constraint and lock/limit/free each axis (`LINEAR_X/Y/Z = 0..2`,
+  `ANGULAR_X/Y/Z = 3..5`; min == max ⇒ locked, unlisted ⇒ free). The joint frame is a `jointSpace`
+  node’s transform relative to its body (F cancels in the body‑relative frame, but apply the body’s
+  decomposed scale to the pivot/axes).
+- **Kinematic spinners.** Lite’s step **snaps every `ANIMATED` body to its node each pre‑step**, so
+  `setPhysicsBodyAngularVelocity` on a kinematic body is overwritten — it won’t spin. Instead
+  **rotate its anchor node every step** in `onPhysicsAfterStep` (world‑frame increment `dq · q`); the
+  pre‑step teleport carries the body and drives its joint. Angular velocity is a **pseudovector**
+  under F: `(ωx, ωy, ωz) → (ωx, −ωy, −ωz)`.
+- **Compound bodies.** A node with `motion` but no collider of its own, whose children *are*
+  colliders (e.g. a “car” of wheel cylinders + a chassis convex), becomes a
+  `createPhysicsShape({type: CONTAINER})`; add each child with
+  `addPhysicsShapeChildFromParent(world, container, compoundAnchor, childShape, childTN)` (reparent
+  the compound subtree first so `childTN.worldMatrix` is current). Two‑pass: collect the compound’s
+  descendant collider nodes into a `consumed` set, then skip them in the main loop. Decorative /
+  trigger descendants (the headlights) just ride along visually.
+
 ---
 
 ## 6. Cross‑implementation consistency checklist
@@ -451,3 +570,6 @@ values are from *Falling Shogi*; the principle is general.)
 - For GPU physics, **read back and measure**; don’t eyeball it.
 - For a calm heap: **sleep from the bottom up**, and stop torquing bodies once they have settled.
 - Match **gravity to the world scale**, and match **materials explicitly** when comparing engines.
+- For **Babylon.js Lite**, drive each loaded‑glTF body from a **top‑level anchor at the left‑handed
+  world pose** (`decompose(diag(-1,1,1) · nodeWorld)`) with the mesh reparented under it — binding a
+  body straight to a `__root__`‑nested node mirrors the collider in X.
