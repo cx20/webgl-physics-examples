@@ -1,0 +1,140 @@
+import {
+    addToScene,
+    attachControl,
+    createArcRotateCamera,
+    createBox,
+    createEngine,
+    createGround,
+    createHavokWorld,
+    createHemisphericLight,
+    createPhysicsAggregate,
+    createPhysicsViewer,
+    createSceneContext,
+    createStandardMaterial,
+    hidePhysicsBody,
+    loadTexture2D,
+    onBeforeRender,
+    PhysicsShapeType,
+    registerScene,
+    showPhysicsBody,
+    startEngine,
+} from '@babylonjs/lite';
+
+import HavokPhysics from '@babylonjs/havok';
+
+const PHYSICS_SCALE = 1 / 10;
+const PHYSICS_FPS = 60;
+
+async function main() {
+    const canvas = document.getElementById('c');
+    const engine = await createEngine(canvas);
+    const scene = createSceneContext(engine);
+    scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
+
+    // ArcRotateCamera framed like the Babylon.js sample (camera.setPosition(0, 2, -20) looking at
+    // the origin): a near-horizontal view, alpha -PI/2, beta ~1.47, radius ~20.1, target (0,0,0).
+    const camera = createArcRotateCamera(-Math.PI / 2, 1.471, 20.1, { x: 0, y: 0, z: 0 });
+    scene.camera = camera;
+    attachControl(camera, canvas, scene);
+
+    // White background, matching the Babylon.js sample (scene.clearColor = Color3(1,1,1)).
+    scene.clearColor = { r: 1, g: 1, b: 1, a: 1 };
+
+    // Hemispheric light
+    const light = createHemisphericLight([0, 1, 0]);
+    light.intensity = 1.0;
+    addToScene(scene, light);
+
+    // Standard material with frog texture
+    const material = createStandardMaterial();
+    material.diffuseTexture = await loadTexture2D(engine, '../../../../assets/textures/frog.jpg');
+    material.emissiveColor = [1, 1, 1];
+
+    // Ground — flat plane 20×20 at y = -2
+    const ground = createGround(engine, { width: 200 * PHYSICS_SCALE, height: 200 * PHYSICS_SCALE });
+    ground.material = material;
+    ground.position.set(0, -20 * PHYSICS_SCALE, 0);
+    addToScene(scene, ground);
+
+    // Falling box — size 5, starts at y = 10
+    const cube = createBox(engine, 50 * PHYSICS_SCALE);
+    cube.material = material;
+    cube.position.set(0, 100 * PHYSICS_SCALE, 0);
+    addToScene(scene, cube);
+
+    // FPS display (top-right)
+    const fpsEl = document.getElementById('fps');
+    let lastTime = performance.now();
+    let frameCount = 0;
+    onBeforeRender(scene, () => {
+        frameCount++;
+        const now = performance.now();
+        if (now - lastTime >= 1000) {
+            fpsEl.textContent = 'FPS: ' + Math.round(frameCount * 1000 / (now - lastTime));
+            frameCount = 0;
+            lastTime = now;
+        }
+    });
+
+    // Camera auto-rotation: 1 degree per frame at 60 fps, framerate-independent to match the
+    // Babylon.js sample's getAnimationRatio() (= deltaMs / (1000/60), i.e. 1.0 at 60 FPS).
+    let lastFrameTime = 0;
+    onBeforeRender(scene, () => {
+        const now = performance.now();
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha += (Math.PI / 180.0) * animationRatio;
+    });
+
+    // Havok physics — WASM loads automatically from the same CDN path
+    const hknp = await HavokPhysics();
+    const world = createHavokWorld(scene, hknp, { x: 0, y: -9.8, z: 0 });
+
+    // Dynamic rigid body for the box
+    const cubeAggregate = createPhysicsAggregate(world, cube, PhysicsShapeType.BOX, {
+        mass: 1,
+        friction: 0.2,
+        restitution: 0.5,
+    });
+
+    // Static rigid body for the ground
+    const groundAggregate = createPhysicsAggregate(world, ground, PhysicsShapeType.BOX, {
+        mass: 0,
+        friction: 0.1,
+        restitution: 0.1,
+    });
+
+    // Physics wireframe viewer (W key to toggle)
+    const viewer = createPhysicsViewer(scene, world);
+    let showWireframe = true;
+    showPhysicsBody(viewer, cubeAggregate.body);
+    showPhysicsBody(viewer, groundAggregate.body);
+
+    window.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        if (e.code === 'KeyW' || e.key === 'w' || e.key === 'W') {
+            showWireframe = !showWireframe;
+            if (showWireframe) {
+                showPhysicsBody(viewer, cubeAggregate.body);
+                showPhysicsBody(viewer, groundAggregate.body);
+            } else {
+                hidePhysicsBody(viewer, cubeAggregate.body);
+                hidePhysicsBody(viewer, groundAggregate.body);
+            }
+            const hint = document.getElementById('hint');
+            if (hint) hint.textContent = 'W: wireframe ' + (showWireframe ? 'ON' : 'OFF');
+        }
+    });
+
+    await registerScene(scene);
+    await startEngine(engine);
+}
+
+main().catch((err) => {
+    console.error('Babylon Lite error:', err);
+    document.body.style.color = '#f88';
+    document.body.style.padding = '1rem';
+    document.body.style.fontFamily = 'monospace';
+    document.body.innerHTML = '<b>Error:</b> ' + err.message +
+        '<br><br>This example requires a WebGPU-capable browser (Chrome 113+, Edge 113+).';
+});
