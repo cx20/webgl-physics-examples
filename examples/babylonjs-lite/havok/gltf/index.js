@@ -4,7 +4,7 @@ import {
     createPhysicsViewer, createSceneContext, createStandardMaterial,
     hidePhysicsBody, loadGltf, onBeforeRender, PhysicsShapeType,
     registerScene, setMeshVisible, showPhysicsBody, startEngine,
-    setPhysicsBodyLinearVelocity,
+    setPhysicsBodyLinearVelocity, setPhysicsBodyAngularVelocity,
 } from '@babylonjs/lite';
 import HavokPhysics from '@babylonjs/havok';
 
@@ -62,7 +62,11 @@ async function main() {
     const scene = createSceneContext(engine);
     scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
 
-    const camera = createArcRotateCamera(-Math.PI / 2, Math.PI / 3, 10, { x: 0, y: 0, z: 0 });
+    // Pull back and aim at the mid-fall height so the whole drop (and the duck's tumble) is in
+    // frame, like the WebGL/WebGPU samples. With the old radius 10 / target (0,0,0) the duck fell
+    // in from above the view and only appeared near the ground, already rotated, so it looked
+    // like it dropped straight down at a fixed angle.
+    const camera = createArcRotateCamera(-Math.PI / 2, Math.PI / 3, 18, { x: 0, y: 5, z: 0 });
     scene.camera = camera;
     attachControl(camera, canvas, scene);
 
@@ -72,6 +76,7 @@ async function main() {
 
     const fpsEl = document.getElementById('fps');
     let lastTime = performance.now();
+    let lastFrameTime = 0;
     let frameCount = 0;
     onBeforeRender(scene, () => {
         frameCount++;
@@ -81,7 +86,12 @@ async function main() {
             frameCount = 0;
             lastTime = now;
         }
-        camera.alpha += Math.PI / 180.0;
+        // Match the Babylon.js sample's framerate-independent spin. Babylon multiplies the
+        // per-frame step by scene.getAnimationRatio() (= deltaMs / (1000/60), i.e. 1.0 at 60 FPS);
+        // the Lite build does not expose that, so derive the same ratio from the frame delta.
+        const animationRatio = lastFrameTime ? (now - lastFrameTime) / (1000 / 60) : 1;
+        lastFrameTime = now;
+        camera.alpha += (Math.PI / 180.0) * animationRatio;
     });
 
     const hknp = await HavokPhysics();
@@ -98,7 +108,7 @@ async function main() {
     ground.material = groundMat;
     addToScene(scene, ground);
     const groundAgg = createPhysicsAggregate(world, ground, PhysicsShapeType.BOX, {
-        mass: 0, friction: 0.1, restitution: 0.2, extents: { x: GW, y: GH, z: GD },
+        mass: 0, friction: 0.5, restitution: 0.0, extents: { x: GW, y: GH, z: GD },
     });
 
     // Load the duck and add it to the scene. loadGltf returns { entities: [root], ... }.
@@ -130,9 +140,19 @@ async function main() {
     // Drop the duck from a height (the duck follows because it is parented to the wrapper).
     wrapper.position.set(center.x, center.y + 10, center.z);
 
+    // Start with a slight tilt like the WebGL/WebGPU samples (euler 8,0,10 deg, precomputed as a
+    // quaternion since Lite has no euler helper) so the tumble begins off-axis.
+    wrapper.rotationQuaternion.set(0.06953, -0.00608, 0.08695, 0.99376);
+
     const duckAgg = createPhysicsAggregate(world, wrapper, PhysicsShapeType.BOX, {
-        mass: 1, friction: 0.0, restitution: 1.0, extents: { x: size.x, y: size.y, z: size.z },
+        // Friction 0.5 (and restitution 0) so the duck tumbles, then settles upright on the ground
+        // instead of sliding to a stop on its side, matching the WebGL/WebGPU Havok samples.
+        mass: 1, friction: 0.5, restitution: 0.0, extents: { x: size.x, y: size.y, z: size.z },
     });
+
+    // Spin the duck as it falls. angVel 4.5 lands it upright after the tumble from this drop height
+    // (same physics setup as the Babylon.js sample; tuned to settle the duck sitting upright).
+    setPhysicsBodyAngularVelocity(world, duckAgg.body, { x: 0, y: 0, z: 4.5 });
 
     // Click to launch the duck upward.
     window.addEventListener('click', () => {
