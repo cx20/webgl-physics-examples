@@ -99,7 +99,11 @@ async function init() {
 const createScene = function() {
     scene = new BABYLON.Scene(engine);
 
-    const camera = new BABYLON.ArcRotateCamera("Camera", -Math.PI / 2, Math.PI/3, 10, new BABYLON.Vector3(0, 0, 0), scene);
+    // Pull back and aim at the mid-fall height so the whole drop (and the duck's tumble) is in
+    // frame, like the WebGL/WebGPU samples. With the old radius 10 / target (0,0,0) the duck fell
+    // in from above the view and only appeared near the ground, already rotated, so it looked
+    // like it dropped straight down at a fixed angle.
+    const camera = new BABYLON.ArcRotateCamera("Camera", -Math.PI / 2, Math.PI/3, 18, new BABYLON.Vector3(0, 5, 0), scene);
     camera.attachControl(canvas);
 
     const importPromise = BABYLON.SceneLoader.ImportMeshAsync(null, "https://rawcdn.githack.com/cx20/gltf-test/1f6515ce/sampleModels/Duck/glTF/", "Duck.gltf", scene);
@@ -117,7 +121,7 @@ const createScene = function() {
         const ground = BABYLON.MeshBuilder.CreateGround('ground', {width: 20, height: 20, depth: 1}, scene);
         ground.position.y = 0;
         //ground.material = material;
-        ground.aggregate = new BABYLON.PhysicsAggregate(ground, BABYLON.PhysicsShapeType.BOX, {mass: 0, friction: 0.1, restitution: 0.2}, scene);
+        ground.aggregate = new BABYLON.PhysicsAggregate(ground, BABYLON.PhysicsShapeType.BOX, {mass: 0, friction: 0.5, restitution: 0.0}, scene);
         
         const mesh = result.meshes[0];
         mesh.position.y = 10;
@@ -129,8 +133,19 @@ const createScene = function() {
         meshParent.position = center;
         mesh.setParent(meshParent);
 
-        meshParent.aggregate = new BABYLON.PhysicsAggregate(meshParent, BABYLON.PhysicsShapeType.BOX, {mass: 1, friction: 0.0, restitution: 1.0}, scene);
-        
+        // Start with a slight tilt like the WebGL/WebGPU samples (euler 8,0,10 deg) so the tumble
+        // begins off-axis.
+        meshParent.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(8 * Math.PI / 180, 0, 10 * Math.PI / 180);
+
+        // Friction 0.5 (and restitution 0) so the duck tumbles, then settles upright on the ground
+        // instead of sliding to a stop on its side, matching the WebGL/WebGPU Havok samples.
+        meshParent.aggregate = new BABYLON.PhysicsAggregate(meshParent, BABYLON.PhysicsShapeType.BOX, {mass: 1, friction: 0.5, restitution: 0.0}, scene);
+
+        // Spin the duck as it falls. angVel 4.5 lands it upright after the tumble from this drop
+        // height (the WebGL samples use 3.5 but fall a longer distance); the value was tuned so the
+        // duck settles sitting upright like those samples.
+        meshParent.aggregate.body.setAngularVelocity(new BABYLON.Vector3(0, 0, 4.5));
+
         scene.registerBeforeRender(function() {
             scene.activeCamera.alpha += Math.PI * 1.0 / 180.0 * scene.getAnimationRatio();
         });
