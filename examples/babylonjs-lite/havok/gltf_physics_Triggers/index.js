@@ -177,6 +177,9 @@ async function main() {
     const scene = createSceneContext(engine);
     scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
 
+    // Light background, matching the Babylon.js sample (scene.clearColor = (0.97, 0.97, 0.98)).
+    scene.clearColor = { r: 0.97, g: 0.97, b: 0.98, a: 1.0 };
+
     const camera = createArcRotateCamera(-Math.PI / 2, Math.PI / 2.4, 6, { x: 0, y: 0.8, z: 0 });
     scene.camera = camera;
     attachControl(camera, canvas, scene);

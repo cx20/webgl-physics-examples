@@ -165,6 +165,9 @@ async function main() {
     const scene = createSceneContext(engine);
     scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
 
+    // Light background, matching the Babylon.js sample (scene.clearColor = (0.97, 0.97, 0.98)).
+    scene.clearColor = { r: 0.97, g: 0.97, b: 0.98, a: 1.0 };
+
     // Azimuth chosen so the scene faces the camera the way the Babylon.js (full) example does.
     const camera = createArcRotateCamera(-Math.PI / 2, Math.PI / 2.2, 13, { x: 0, y: 2.6, z: 0 });
     scene.camera = camera;
