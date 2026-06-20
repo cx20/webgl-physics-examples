@@ -413,10 +413,10 @@ differs, so the WGSL vertex shader emits `vec4(clip.x, -clip.y, clip.z, clip.w)`
   Havok constraint/trigger API and the wireframe overlay have their own patterns. (See
   `reference_rhodonite_havok_gltf_physics`.)
 
-### 5.4 Babylon.js Lite + Havok (glTF Physics extension)
+### 5.4 Babylon Lite + Havok (glTF Physics extension)
 
-This is the set of [Babylon.js Lite](https://github.com/BabylonJS/Babylon-Lite) samples under
-`examples/babylonjs-lite/havok/` — the *Falling X* scenes and the seven
+This is the set of [Babylon Lite](https://github.com/BabylonJS/Babylon-Lite) samples under
+`examples/babylon-lite/havok/` — the *Falling X* scenes and the seven
 **`gltf_physics_*`** examples that load the Khronos
 [`KHR_physics_rigid_bodies`](https://github.com/eoineoineoin/glTF_Physics) sample assets
 (Basic Shapes, Materials Friction/Restitution, Motion Properties, Filtering, Triggers,
@@ -570,6 +570,6 @@ values are from *Falling Shogi*; the principle is general.)
 - For GPU physics, **read back and measure**; don’t eyeball it.
 - For a calm heap: **sleep from the bottom up**, and stop torquing bodies once they have settled.
 - Match **gravity to the world scale**, and match **materials explicitly** when comparing engines.
-- For **Babylon.js Lite**, drive each loaded‑glTF body from a **top‑level anchor at the left‑handed
+- For **Babylon Lite**, drive each loaded‑glTF body from a **top‑level anchor at the left‑handed
   world pose** (`decompose(diag(-1,1,1) · nodeWorld)`) with the mesh reparented under it — binding a
   body straight to a `__root__`‑nested node mirrors the collider in X.
