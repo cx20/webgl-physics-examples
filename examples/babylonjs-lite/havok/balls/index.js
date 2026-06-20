@@ -33,7 +33,9 @@ async function main() {
     const scene = createSceneContext(engine);
     scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
 
-    const camera = createArcRotateCamera(0.86, 1.37, 40, { x: 0, y: 5 * PHYSICS_SCALE, z: 0 });
+    // Match the Babylon.js sample's effective view: it overrides the ArcRotateCamera ctor with
+    // camera.setPosition(0, 2, -30) looking at the origin -> alpha -PI/2, beta ~1.50, radius ~30.07.
+    const camera = createArcRotateCamera(-Math.PI / 2, 1.504, 30.07, { x: 0, y: 0, z: 0 });
     scene.camera = camera;
     attachControl(camera, canvas, scene);
 
