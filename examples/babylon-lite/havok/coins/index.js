@@ -12,7 +12,7 @@ import HavokPhysics from '@babylonjs/havok';
 const BASE_URL = 'https://cx20.github.io/gltf-test';
 const DUCK_URL = BASE_URL + '/sampleModels/Duck/glTF/Duck.gltf';
 const ENV_URL = BASE_URL + '/textures/env/papermillSpecularHDR.env';
-const BRDF_URL = 'https://cdn.jsdelivr.net/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
+const BRDF_URL = 'https://esm.sh/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
 const PHYSICS_SCALE = 1 / 10;
 const PHYSICS_FPS = 60;
 const COIN_INTERVAL = 3; // place a coin on every 3rd duck index, matching the Babylon.js sample

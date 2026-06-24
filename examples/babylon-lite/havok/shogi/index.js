@@ -16,7 +16,7 @@ const PIECE_COUNT = 300;
 // PBR materials need IBL textures + a BRDF LUT; loadEnvironment supplies both (and enables the
 // tone mapping that gives the gamma-correct look). No skyboxUrl, so the background stays clearColor.
 const ENV_URL = 'https://cx20.github.io/gltf-test/textures/env/papermillSpecularHDR.env';
-const BRDF_URL = 'https://cdn.jsdelivr.net/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
+const BRDF_URL = 'https://esm.sh/gh/BabylonJS/Babylon-Lite@master/packages/babylon-lite/assets/brdf-lut.png';
 // Full box-collider extents, identical to the other Havok shogi samples' shape sizes.
 const SHOGI_PHYSICS_SIZE = [1.6, 1.92, 0.448];
 const GROUND_PHYSICS_SIZE = [13, 0.1, 13];
