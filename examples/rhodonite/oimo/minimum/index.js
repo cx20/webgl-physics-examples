@@ -1,6 +1,15 @@
 import Rn from 'rhodonite';
 
 let engine;
+let world;
+let cubeBody;
+
+function syncBody(entity, body) {
+    const position = body.getPosition();
+    const rotation = body.getQuaternion();
+    entity.position = Rn.Vector3.fromCopyArray([position.x, position.y, position.z]);
+    entity.rotation = Rn.Quaternion.fromCopyArray([rotation.x, rotation.y, rotation.z, rotation.w]);
+}
 
 const load = async function() {
     const c = document.getElementById('world');
@@ -19,7 +28,22 @@ const load = async function() {
     function resizeCanvas() {
         engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
-    
+
+    world = new OIMO.World({
+      timestep: 1 / 60,
+      iterations: 8,
+      gravity: [0, -9.8, 0]
+    });
+    world.add({
+      type: 'box',
+      size: [4, 0.1, 4],
+      pos: [0, 0, 0],
+      move: false,
+      density: 1,
+      friction: 0.5,
+      restitution: 0.2
+    });
+
     const entities = [];
 
     const texture = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/frog.jpg');
@@ -36,13 +60,6 @@ const load = async function() {
 
     // Ground
     const entity1 = Rn.MeshHelper.createCube(engine, {
-        physics: {
-            use: true,
-            move: false,
-            density: 1,
-            friction: 0.5,
-            restitution: 0.2,
-        },
         material: material
     });
     entity1.tryToSetTag({
@@ -54,13 +71,6 @@ const load = async function() {
 
     // Cube
     const entity2 = Rn.MeshHelper.createCube(engine, {
-        physics: {
-            use: true,
-            move: true,
-            density: 1,
-            friction: 0.5,
-            restitution: 0.2,
-        },
         material: material
     });
     entity2.tryToSetTag({
@@ -70,6 +80,15 @@ const load = async function() {
     entity2.position = Rn.Vector3.fromCopyArray([0, 2, 0]);
     entity2.scale = Rn.Vector3.fromCopyArray([1, 1, 1]);
     entities.push(entity2);
+    cubeBody = world.add({
+      type: 'box',
+      size: [1, 1, 1],
+      pos: [0, 2, 0],
+      move: true,
+      density: 1,
+      friction: 0.5,
+      restitution: 0.2
+    });
 
     const startTime = Date.now();
 
@@ -95,6 +114,8 @@ const load = async function() {
     expression.addRenderPasses([renderPass]);
 
     const draw = function(time) {
+        world.step();
+        syncBody(entity2, cubeBody);
         engine.process([expression]);
 
         requestAnimationFrame(draw);

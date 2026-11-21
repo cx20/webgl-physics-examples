@@ -4,6 +4,8 @@ let entities = [];
 const PHYSICS_SCALE = 1/10;
 const DOT_SIZE = 8;
 let engine;
+let world;
+const dynamicBodies = [];
 
 let showWireframe = true;
 const debugEntities = [];
@@ -11,6 +13,13 @@ const dynamicEntities = [];
 const dynamicDebugEntities = [];
 const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const DEBUG_COLOR_STATIC  = [0.2, 1.0, 0.4, 1.0];
+
+function syncBody(entity, body) {
+  const position = body.getPosition();
+  const rotation = body.getQuaternion();
+  entity.position = Rn.Vector3.fromCopyArray([position.x, position.y, position.z]);
+  entity.rotation = Rn.Quaternion.fromCopyArray([rotation.x, rotation.y, rotation.z, rotation.w]);
+}
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -113,6 +122,21 @@ const load = async function() {
         engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
+    world = new OIMO.World({
+      timestep: 1 / 60,
+      iterations: 8,
+      gravity: [0, -9.8, 0]
+    });
+    world.add({
+      type: 'box',
+      size: [200 * PHYSICS_SCALE, 2 * PHYSICS_SCALE, 200 * PHYSICS_SCALE],
+      pos: [0, 0, 0],
+      move: false,
+      density: 1,
+      friction: 0.5,
+      restitution: 0.2
+    });
+
     const texture = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/grass.jpg');
 
     const sampler = new Rn.Sampler(engine, {
@@ -123,13 +147,6 @@ const load = async function() {
     });
 
     const entity1 = Rn.MeshHelper.createCube(engine, {
-        physics: {
-            use: true,
-            move: false,
-            density: 1,
-            friction: 0.5,
-            restitution: 0.2,
-        },
     });
     entity1.tryToSetTag({
         tag: "type",
@@ -210,6 +227,10 @@ const load = async function() {
     setWireframeVisible(showWireframe);
 
     const draw = function(time) {
+        world.step();
+        for (let i = 0; i < dynamicBodies.length; i++) {
+            syncBody(dynamicEntities[i], dynamicBodies[i]);
+        }
         // Sync dynamic box collider wireframes to physics-driven transforms
         for (let i = 0; i < dynamicEntities.length; i++) {
             const t = dynamicEntities[i].getTransform();
@@ -239,13 +260,6 @@ function populate(matByKey, ballMat, cubeWireMesh) {
             const y = 1;
 
             const entity = Rn.MeshHelper.createCube(engine, {
-                physics: {
-                    use: true,
-                    move: true,
-                    density: 1,
-                    friction: 0.5,
-                    restitution: 0.2,
-                },
                 material: matByKey[colorKey]
             });
             entity.tryToSetTag({
@@ -255,6 +269,15 @@ function populate(matByKey, ballMat, cubeWireMesh) {
             entity.position = Rn.Vector3.fromCopyArray([(-8 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
             entity.scale = Rn.Vector3.fromCopyArray([w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE]);
             entities.push(entity);
+            dynamicBodies.push(world.add({
+              type: 'box',
+              size: [w * PHYSICS_SCALE, h * PHYSICS_SCALE, d * PHYSICS_SCALE],
+              pos: [(-8 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE],
+              move: true,
+              density: 1,
+              friction: 0.5,
+              restitution: 0.2
+            }));
 
             const debugEntity = Rn.createMeshEntity(engine);
             debugEntity.getMesh().setMesh(cubeWireMesh);
@@ -276,13 +299,6 @@ function populate(matByKey, ballMat, cubeWireMesh) {
         const z = i;
 
         const entity = Rn.MeshHelper.createCube(engine, {
-            physics: {
-                use: true,
-                move: true,
-                density: 1,
-                friction: 0.5,
-                restitution: 0.2,
-            },
             material: ballMat
         });
         entity.tryToSetTag({
@@ -292,6 +308,15 @@ function populate(matByKey, ballMat, cubeWireMesh) {
         entity.position = Rn.Vector3.fromCopyArray([(-8.4 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE]);
         entity.scale = Rn.Vector3.fromCopyArray([bw * PHYSICS_SCALE, bh * PHYSICS_SCALE, bd * PHYSICS_SCALE]);
         entities.push(entity);
+        dynamicBodies.push(world.add({
+          type: 'box',
+          size: [bw * PHYSICS_SCALE, bh * PHYSICS_SCALE, bd * PHYSICS_SCALE],
+          pos: [(-8.4 + x) * DOT_SIZE * PHYSICS_SCALE, y * DOT_SIZE * PHYSICS_SCALE, (-8 + z) * DOT_SIZE * 1.2 * PHYSICS_SCALE],
+          move: true,
+          density: 1,
+          friction: 0.5,
+          restitution: 0.2
+        }));
 
         const debugEntity = Rn.createMeshEntity(engine);
         debugEntity.getMesh().setMesh(cubeWireMesh);

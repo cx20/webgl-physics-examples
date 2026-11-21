@@ -3,6 +3,8 @@ import Rn from 'rhodonite';
 let entities = [];
 const PHYSICS_SCALE = 1/10;
 let engine;
+let world;
+const ballBodies = [];
 
 let showWireframe = true;
 const debugEntities = [];        // all collider wireframes (W toggles visibility)
@@ -10,6 +12,13 @@ const ballEntities = [];         // physics-driven ball entities
 const ballDebugEntities = [];    // per-ball wireframes, parallel to ballEntities
 const DEBUG_COLOR_DYNAMIC = [1.0, 0.5, 0.2, 1.0];
 const DEBUG_COLOR_STATIC = [0.2, 1.0, 0.4, 1.0];
+
+function syncBody(entity, body) {
+  const position = body.getPosition();
+  const rotation = body.getQuaternion();
+  entity.position = Rn.Vector3.fromCopyArray([position.x, position.y, position.z]);
+  entity.rotation = Rn.Quaternion.fromCopyArray([rotation.x, rotation.y, rotation.z, rotation.w]);
+}
 
 // Mirror the Rhodonite + Havok balls sample: PbrUber + RN_USE_WIREFRAME with
 // barycentric coords so the wireframe shader can draw the collider edges.
@@ -75,6 +84,21 @@ const load = async function() {
         engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
+    world = new OIMO.World({
+      timestep: 1 / 60,
+      iterations: 8,
+      gravity: [0, -9.8, 0]
+    });
+    world.add({
+      type: 'box',
+      size: [200 * PHYSICS_SCALE, 20 * PHYSICS_SCALE, 200 * PHYSICS_SCALE],
+      pos: [0, -20 * PHYSICS_SCALE, 0],
+      move: false,
+      density: 1,
+      friction: 0.6,
+      restitution: 0.5
+    });
+
     const textures = await Promise.all(dataSet.map(d => Rn.Texture.loadFromUrl(engine, d.imageFile)));
 
     const sampler = new Rn.Sampler(engine, {
@@ -97,13 +121,6 @@ const load = async function() {
 
     // Ground
     const entity1 = Rn.MeshHelper.createCube(engine, {
-        physics: {
-            use: true,
-            move: false,
-            density: 1,
-            friction: 0.6,
-            restitution: 0.5,
-        },
         material: materialGround
     });
     entity1.tryToSetTag({
@@ -128,13 +145,6 @@ const load = async function() {
         const pos = boxDataSet[i].pos;
 
         const wallEntity = Rn.MeshHelper.createCube(engine, {
-            physics: {
-                use: true,
-                move: false,
-                density: 1,
-                friction: 0.6,
-                restitution: 0.5,
-            },
             material: materialGroundTrans
         });
         wallEntity.tryToSetTag({
@@ -144,6 +154,15 @@ const load = async function() {
         wallEntity.scale = Rn.Vector3.fromCopyArray([size[0] * PHYSICS_SCALE, size[1] * PHYSICS_SCALE, size[2] * PHYSICS_SCALE]);
         wallEntity.position = Rn.Vector3.fromCopyArray([pos[0] * PHYSICS_SCALE, pos[1] * PHYSICS_SCALE, pos[2] * PHYSICS_SCALE]);
         entities.push(wallEntity);
+        world.add({
+          type: 'box',
+          size: [size[0] * PHYSICS_SCALE, size[1] * PHYSICS_SCALE, size[2] * PHYSICS_SCALE],
+          pos: [pos[0] * PHYSICS_SCALE, pos[1] * PHYSICS_SCALE, pos[2] * PHYSICS_SCALE],
+          move: false,
+          density: 1,
+          friction: 0.6,
+          restitution: 0.5
+        });
         createDebugBox(
             [size[0] * PHYSICS_SCALE, size[1] * PHYSICS_SCALE, size[2] * PHYSICS_SCALE],
             [pos[0] * PHYSICS_SCALE, pos[1] * PHYSICS_SCALE, pos[2] * PHYSICS_SCALE],
@@ -219,6 +238,10 @@ const load = async function() {
     setWireframeVisible(showWireframe);
 
     const draw = function(time) {
+        world.step();
+        for (let i = 0; i < ballBodies.length; i++) {
+            syncBody(ballEntities[i], ballBodies[i]);
+        }
         // Sync per-ball collider wireframes to the physics-driven ball transforms.
         for (let i = 0; i < ballEntities.length; i++) {
             const t = ballEntities[i].getTransform();
@@ -253,13 +276,6 @@ function populate(materials, ballWireMesh) {
             radius: radius * PHYSICS_SCALE,
             widthSegments: 20,
             heightSegments: 10,
-            physics: {
-                use: true,
-                move: true,
-                density: 1,
-                friction: 0.4,
-                restitution: 0.6,
-            },
             material: materials[pos]
         });
         entity.tryToSetTag({
@@ -269,6 +285,15 @@ function populate(materials, ballWireMesh) {
         entity.position = Rn.Vector3.fromCopyArray([x * PHYSICS_SCALE, y * PHYSICS_SCALE, z * PHYSICS_SCALE]);
         entities.push(entity);
         ballEntities.push(entity);
+        ballBodies.push(world.add({
+          type: 'sphere',
+          size: [radius * PHYSICS_SCALE],
+          pos: [x * PHYSICS_SCALE, y * PHYSICS_SCALE, z * PHYSICS_SCALE],
+          move: true,
+          density: 1,
+          friction: 0.4,
+          restitution: 0.6
+        }));
 
         const debugEntity = Rn.createMeshEntity(engine);
         debugEntity.getMesh().setMesh(ballWireMesh);

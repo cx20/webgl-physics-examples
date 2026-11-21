@@ -4,6 +4,15 @@ let entities = [];
 const PHYSICS_SCALE = 1/10;
 const BALL_SIZE = 15;
 let engine;
+let world;
+const dynamicBodies = [];
+
+function syncBody(entity, body) {
+    const position = body.getPosition();
+    const rotation = body.getQuaternion();
+    entity.position = Rn.Vector3.fromCopyArray([position.x, position.y, position.z]);
+    entity.rotation = Rn.Quaternion.fromCopyArray([rotation.x, rotation.y, rotation.z, rotation.w]);
+}
 
 // ‥‥‥‥‥‥‥‥‥‥‥‥‥□□□
 // ‥‥‥‥‥‥〓〓〓〓〓‥‥□□□
@@ -71,6 +80,21 @@ const load = async function() {
         engine.resizeCanvas(window.innerWidth, window.innerHeight);
     }
 
+    world = new OIMO.World({
+      timestep: 1 / 60,
+      iterations: 8,
+      gravity: [0, -9.8, 0]
+    });
+    world.add({
+      type: 'box',
+      size: [200 * PHYSICS_SCALE, 0.4 * PHYSICS_SCALE, 200 * PHYSICS_SCALE],
+      pos: [0, -20 * PHYSICS_SCALE, 0],
+      move: false,
+      density: 1,
+      friction: 1,
+      restitution: 1
+    });
+
     const grassTexture = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/grass.jpg');
     const footballTexture = await Rn.Texture.loadFromUrl(engine, '../../../../assets/textures/football.png');
 
@@ -82,13 +106,6 @@ const load = async function() {
     });
 
     const entity1 = Rn.MeshHelper.createCube(engine, {
-        physics: {
-            use: true,
-            move: false,
-            density: 1,
-            friction: 1.0,
-            restitution: 1.0,
-        },
     });
     entity1.tryToSetTag({
         tag: "type",
@@ -145,6 +162,10 @@ const load = async function() {
     expression.addRenderPasses([renderPass]);
 
     const draw = function(time) {
+        world.step();
+        for (let i = 0; i < dynamicBodies.length; i++) {
+            syncBody(entities[i + 1], dynamicBodies[i]);
+        }
         engine.process([expression]);
         requestAnimationFrame(draw);
     }
@@ -167,13 +188,6 @@ function populate(matByKey) {
                 radius: BALL_SIZE / 2 * PHYSICS_SCALE,
                 widthSegments: 16,
                 heightSegments: 16,
-                physics: {
-                    use: true,
-                    move: true,
-                    density: 1,
-                    friction: 0.4,
-                    restitution: 0.6,
-                },
                 material: matByKey[colorKey]
             });
             entity.tryToSetTag({
@@ -182,6 +196,15 @@ function populate(matByKey) {
             });
             entity.position = Rn.Vector3.fromCopyArray([x1, y1, z1]);
             entities.push(entity);
+            dynamicBodies.push(world.add({
+              type: 'sphere',
+              size: [BALL_SIZE / 2 * PHYSICS_SCALE],
+              pos: [x1, y1, z1],
+              move: true,
+              density: 1,
+              friction: 0.4,
+              restitution: 0.6
+            }));
         }
     }
 }
