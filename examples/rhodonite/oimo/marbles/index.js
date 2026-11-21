@@ -4,6 +4,15 @@ const modelUrl = 'https://cx20.github.io/gltf-test/tutorialModels/IridescenceMet
 const scale = 1.0;
 const PHYSICS_SCALE = 1/10;
 let engine;
+let world;
+const sphereBodies = [];
+
+function syncBody(entity, body) {
+  const position = body.getPosition();
+  const rotation = body.getQuaternion();
+  entity.position = Rn.Vector3.fromCopyArray([position.x, position.y, position.z]);
+  entity.rotation = Rn.Quaternion.fromCopyArray([rotation.x, rotation.y, rotation.z, rotation.w]);
+}
 
 const canvas = document.getElementById('world');
 canvas.width = window.innerWidth;
@@ -13,6 +22,21 @@ canvas.height = window.innerHeight;
   engine = await Rn.Engine.init({
     approach: Rn.ProcessApproach.WebGL2,
     canvas,
+  });
+
+  world = new OIMO.World({
+    timestep: 1 / 60,
+    iterations: 8,
+    gravity: [0, -9.8, 0]
+  });
+  world.add({
+    type: 'box',
+    size: [400 * PHYSICS_SCALE, 0.01 * 400 * PHYSICS_SCALE, 400 * PHYSICS_SCALE],
+    pos: [0, -15 * PHYSICS_SCALE, 0],
+    move: false,
+    density: 1,
+    friction: 0.2,
+    restitution: 0.3
   });
 
   Rn.MeshRendererComponent.isDepthMaskTrueForTransparencies = true;
@@ -46,13 +70,6 @@ canvas.height = window.innerHeight;
   materialGround.setTextureParameter('baseColorTexture', grassTexture, sampler);
 
   const groundEntity = Rn.MeshHelper.createCube(engine, {
-    physics: {
-      use: true,
-      move: false,
-      density: 1,
-      friction: 0.2,
-      restitution: 0.3,
-    },
     material: materialGround
   });
   groundEntity.tryToSetTag({
@@ -119,14 +136,6 @@ canvas.height = window.innerHeight;
             widthSegments: 32,
             heightSegments: 32,
             material: material,
-            physics: {
-              use: true,
-              move: true,
-              //shape: Rn.PhysicsShape.Sphere,
-              density: 1,
-              friction: 0.1,
-              restitution: 0.3,
-            }
           });
           
           physicsSphere.getTransform().localPosition = Rn.Vector3.fromCopyArray([
@@ -141,6 +150,19 @@ canvas.height = window.innerHeight;
           });
           
           sphereEntities.push(physicsSphere);
+          sphereBodies.push(world.add({
+            type: 'sphere',
+            size: [currentScale.x],
+            pos: [
+              currentPos.x + randomX,
+              currentPos.y + randomY,
+              currentPos.z + randomZ
+            ],
+            move: true,
+            density: 1,
+            friction: 0.1,
+            restitution: 0.3
+          }));
           mainRenderPass.addEntities([physicsSphere]);
           
           console.log('Created physics sphere:', entityName, 'at position:', physicsSphere.getTransform().localPosition);
@@ -215,6 +237,11 @@ canvas.height = window.innerHeight;
   };
 
   const draw = function (frame) {
+    world.step();
+    for (let i = 0; i < sphereBodies.length; i++) {
+      syncBody(sphereEntities[i], sphereBodies[i]);
+    }
+
     const date = new Date();
     const time = (date.getTime() - startTime) / 1000;
     Rn.AnimationComponent.globalTime = time;
@@ -223,14 +250,12 @@ canvas.height = window.innerHeight;
     }
 
     // Reset spheres that fall below the ground
-    sphereEntities.forEach((sphere) => {
+    sphereEntities.forEach((sphere, index) => {
       const currentPos = sphere.getTransform().localPosition;
       if (currentPos.y < -100 * PHYSICS_SCALE) {
-        sphere.getTransform().localPosition = getNextPosition(200);
-        const physicsComponent = sphere.getComponent(Rn.PhysicsComponent);
-        if (physicsComponent) {
-          //physicsComponent.resetVelocity();
-        }
+        const nextPosition = getNextPosition(200);
+        sphereBodies[index].resetPosition(nextPosition.x, nextPosition.y, nextPosition.z);
+        sphereBodies[index].resetRotation(0, 0, 0);
       }
     });
 
