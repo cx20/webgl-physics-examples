@@ -556,7 +556,7 @@ const load = async function () {
   HK = await HavokPhysics();
 
   const canvas = document.getElementById('world');
-  engine = await Rn.Engine.init({ approach: Rn.ProcessApproach.DataTexture, canvas });
+  engine = await Rn.Engine.init({ approach: Rn.ProcessApproach.WebGL2, canvas });
 
   function resizeCanvas() {
     engine.resizeCanvas(window.innerWidth, window.innerHeight);
